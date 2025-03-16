@@ -1,0 +1,22 @@
+# models.py
+from django.db import models
+import uuid
+from django.utils import timezone
+
+class Job(models.Model):
+    job_id = models.AutoField(primary_key=True)
+    prediction_type = models.CharField(max_length=10)
+    kcat_method = models.CharField(max_length=50, null=True, blank=True)
+    km_method = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=20)
+    submission_time = models.DateTimeField(default=timezone.now)
+    completion_time = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    output_file = models.FileField(upload_to='jobs/%Y/%m/%d/', null=True, blank=True)
+
+    # New fields for progress tracking
+    total_molecules = models.IntegerField(default=0)
+    molecules_processed = models.IntegerField(default=0)
+    invalid_molecules = models.IntegerField(default=0)
+    total_predictions = models.IntegerField(default=0)
+    predictions_made = models.IntegerField(default=0)
