@@ -1,8 +1,9 @@
 # api/urls.py
 from django.urls import path
-from . import views
-
+from .views import pred_jobs_views,valid_inputs_views
 urlpatterns = [
-    path('submit-job/', views.submit_job, name='submit_job'),
-    path('job-status/<int:job_id>/', views.job_status, name='job_status'),
+    path('submit-job/', pred_jobs_views.submit_job, name='submit_job'),
+    path('job-status/<int:job_id>/', pred_jobs_views.job_status, name='job_status'),
+    path('validate-input/', valid_inputs_views.validate_input, name='validate-input'),
+    path('sequence-similarity-summary/', valid_inputs_views.sequence_similarity_summary, name='sequence_similarity_summary'),
 ]

@@ -106,8 +106,8 @@ def run_dlkcat_predictions(job_id):
         # Update job with invalid indices information
         if invalid_indices:
             job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s): "
-                f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
+                f"Predictions could not be made for {len(invalid_indices)} row(s) due to invalid SMILES/InChI.\n"
+                f"Indices:\n- " + "\n- ".join(map(str, invalid_indices))
             )
         else:
             job.error_message = ""
@@ -170,7 +170,7 @@ def run_turnup_predictions(job_id):
         # Update job with invalid indices information
         if invalid_indices:
             job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s): "
+                f"Predictions could not be made for {len(invalid_indices)} row(s): \n"
                 f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
             )
         else:
@@ -233,7 +233,7 @@ def run_eitlem_predictions(job_id):
         # Update job with invalid indices information
         if invalid_indices:
             job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s) : {', '.join(map(str, invalid_indices))} "
+                f"Predictions could not be made for {len(invalid_indices)} row(s) \n: {', '.join(map(str, invalid_indices))} "
                 f"due to invalid SMILES/InChI."
             )
         else:
@@ -335,7 +335,9 @@ def run_both_predictions(job_id, kcat_method, km_method):
             invalid_indices.update(kcat_invalid_indices)
         else:
             raise ValueError('Invalid kcat method.')
-
+        
+        job.kcat_complete = True  # Mark that kcat predictions are complete
+        job.save()
         # Reset predictions made for KM predictions
         job.predictions_made = 0
         job.total_predictions = 0
@@ -372,7 +374,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
         if invalid_indices:
             invalid_indices = sorted(list(invalid_indices))
             job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s): "
+                f"Predictions could not be made for {len(invalid_indices)} row(s): \n"
                 f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
             )
         else:
