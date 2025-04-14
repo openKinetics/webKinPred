@@ -1,0 +1,229 @@
+/* index.css */
+
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron&family=Roboto&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+
+
+/* Root variables for colors and gradients */
+:root {
+  --primary-color: #0f0c29;
+  --secondary-color: #302b63;
+  --accent-color: rgba(0, 214, 252, 1); /* Main accent color */
+  --text-color: #ffffff;
+  --neon-color: rgba(0, 214, 252, 0.5); /* Slightly transparent for aesthetics */
+  --background-gradient: linear-gradient(45deg, #0f0c29, #302b63, #24243e);
+  /* Minimalist color palette for content */
+  --card-background: rgba(15, 12, 41, 0.35); /* Semi-transparent version of #0f0c29 */
+  --border-color-1: hsla(345, 7, 89, 1);
+  --box-shadow-1: 0 2px 5px hsla(345, 7, 89, 1);
+  --input-background: white; /* White background for inputs */
+  --dropdown-bg: #f0f0f0; /* Light background for dropdowns */
+  --dropdown-text: #333333; /* Dark grey text for dropdowns */
+  
+}
+body {
+  background: var(--background-gradient);
+  font-family: 'Roboto', sans-serif;
+  color: var(--text-color);
+  margin: 0;
+  padding: 0;
+  overflow: scroll;
+  --bs-body-bg : var(--card-background);
+  --bs-heading-color : var(--text-color);
+  --bs-body-color : var(--text-color);
+}
+/* Container Padding */
+.container {
+  padding-top: 80px;
+}
+
+/* Header Styles */
+.custom-navbar {
+  background: var(--background-gradient);
+  border-bottom: 1px solid var(--neon-color);
+  box-shadow: 0 4px 6px -1px rgba(0, 214, 252, 0.1);
+}
+
+.custom-navbar .navbar-brand {
+  color: var(--text-color);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5rem;
+}
+
+.custom-navbar .nav-link {
+  color: var(--text-color);
+  font-family: 'Roboto', sans-serif;
+  font-size: 1rem;
+}
+
+/* Section Container Styles */
+.section-container {
+  border: 1px solid var(--neon-color);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  padding: 20px;
+  color: var(--text-color);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.section-container section-reaction-info {
+  /* bottom margin for the last section */
+  margin-bottom: 100px;
+}
+
+.section-container:hover {
+  transform: scale(1.01);
+  box-shadow: var(--box-shadow-1);
+}
+
+/* Unique Styles for Each Section */
+.section-prediction-type {
+  border-color: var(--border-color-1);
+  box-shadow: var(--box-shadow-1);
+}
+
+.section-method-selection {
+  border-color: var(--border-color-1);
+  box-shadow: var(--box-shadow-1);
+}
+
+.section-reaction-info {
+  border-color: var(--border-color-1);
+  box-shadow: var(--box-shadow-1);
+}
+
+/* Input and Select Styles */
+.custom-input,
+.custom-select {
+  background-color: var(--input-background) !important;
+  color: black !important;
+  border: 1px solid rgba(0, 214, 252, 0.3) !important;
+  border-radius: 5px !important;
+  padding: 10px !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+/* Hide the original file input */
+.file-upload input[type="file"] {
+  display: none;
+}
+
+/* Style the custom file upload button */
+.custom-file-upload {
+  display: inline-block;
+  padding: 10px 20px;
+  cursor: pointer;
+  background-color: var(--input-background); /* Use your custom variable */
+  color: black;
+  border: 1px solid rgba(0, 214, 252, 0.3);
+  border-radius: 5px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.custom-file-upload:hover {
+  background-color: #e0e0e0;
+}
+
+/* Style the file name display */
+#file-selected {
+  margin-left: 10px;
+  color: wheat;
+}
+
+
+/* Dropdown Specific Styles */
+.custom-select {
+  color: var(--dropdown-text) !important;
+}
+
+.custom-select option {
+  color: var(--dropdown-text);
+  background-color: var(--dropdown-bg);
+  font-family: 'Roboto', sans-serif;
+}
+
+/* Focus Styles */
+/* Kave Button Styles */
+.kave-btn {
+  position: relative;
+  border: solid 1px black;
+  background: none;
+  color: white;
+  font-family: "Roboto", sans-serif;
+  text-transform: uppercase;
+  font-weight: normal;
+  letter-spacing: 1.8px;
+  width: 200px;
+  height: 70px;
+  padding: 0;
+  transition: all 0.25s ease;
+  outline: none;
+  cursor: pointer;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.kave-btn .kave-line {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.kave-btn .kave-line:before,
+.kave-btn .kave-line:after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  height: 20px;
+  background: black;
+  transition: all 0.25s ease;
+}
+
+.kave-btn .kave-line:before {
+  bottom: 30%;
+  right: 0;
+  transform: translateX(1px);
+}
+
+.kave-btn .kave-line:after {
+  top: 30%;
+  left: 0;
+  transform: translateX(-1px);
+}
+
+.kave-btn:hover {
+  box-shadow: 0 0 10px rgba(50,205,50,0.8);
+  color: white;
+  text-shadow: 0 0 8px rgba(50,205,50,0.3);
+}
+
+.kave-btn:hover:before {
+  left: 0;
+  width: 20px;
+}
+
+.kave-btn:hover:after {
+  right: 0;
+  width: 20px;
+}
+
+
+/* Footer Styles */
+.custom-footer {
+  background: var(--background-gradient);
+  color: var(--text-color);
+  text-align: center;
+  padding: 20px;
+  border-top: 1px solid var(--neon-color);
+  /* Remove the fixed positioning */
+  /* position: fixed; */
+  /* width: 100%; */
+  /* bottom: 0; */
+}
