@@ -134,7 +134,7 @@ def calculate_sequence_similarity_by_histogram(
     temp_query_dir = tempfile.mkdtemp()
     query_db = os.path.join(temp_query_dir, "queryDB")
     subprocess.run(
-        ["conda", "run", "-n", "mmseqs2_env", "mmseqs", "createdb", query_file_path, query_db],
+        ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "createdb", query_file_path, query_db],
         check=True
     )
     
@@ -150,13 +150,13 @@ def calculate_sequence_similarity_by_histogram(
         try:
             # Run the search.
             subprocess.run(
-                ["conda", "run", "-n", "mmseqs2_env", "mmseqs", "search", 
+                ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "search", 
                  query_db, target_db, result_db, tmp_dir],
                 check=True
             )
             # Convert the results to a tab-delimited m8 file.
             subprocess.run(
-                ["conda", "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
+                ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
                  query_db, target_db, result_db, result_file,
                  "--format-output", "query,target,pident"],
                 check=True

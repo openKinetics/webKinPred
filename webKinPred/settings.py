@@ -37,7 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'api',
+    'api.apps.ApiConfig',
     'corsheaders',  # If you are handling cross-origin requests
 ]
 
@@ -136,3 +136,6 @@ CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_SEND_SENT_EVENT = True
+CELERY_TASK_TRACK_STARTED = True
+
