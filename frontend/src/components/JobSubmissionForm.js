@@ -324,7 +324,7 @@ function JobSubmissionForm() {
             Would you like to validate your input data before running predictions?
           </p>
           <p>
-            This will identify invalid SMILES/InChIs and protein sequences perform sequence similarity checks (using MMSEQS2) against the training datasets of the methods.
+            This will identify invalid SMILES/InChIs and protein sequences perform sequence similarity checks (using mmseqs2) against the training datasets of the methods.
           </p>
           <p>
             <strong>Note:</strong> Even if you skip this step, invalid rows will be automatically excluded during prediction and will not produce results.
@@ -470,7 +470,7 @@ function JobSubmissionForm() {
           <div className="spinner-border text-light mb-3" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <div>Validating Inputs and Running MMSEQS2...</div>
+          <div>Validating Inputs and Running mmseqs2...</div>
         </div>
       )}
     </Container>

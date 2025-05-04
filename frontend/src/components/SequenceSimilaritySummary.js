@@ -103,7 +103,7 @@ function SequenceSimilarityHistogram({ similarityData }) {
     <div className="mt-4">
       <h5 className="text-white">Sequence Similarity Histogram</h5>
       <p className="text-white">
-        Each input sequence is searched against the pre-created model training databases using MMseqs2.
+        Each input sequence is searched against the pre-created model training databases using mmseqs2.
         The highest sequence identity for each query is rounded to the nearest percent (0–100%) and this histogram shows 
         the percentage frequency for each identity value.
         <br />

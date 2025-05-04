@@ -13,9 +13,9 @@
 :root {
   --primary-color: #0f0c29;
   --secondary-color: #302b63;
-  --accent-color: rgba(0, 214, 252, 1); /* Main accent color */
+  --accent-color: rgba(233, 233, 233, 0.5);/* Main accent color */
   --text-color: #ffffff;
-  --neon-color: rgba(0, 214, 252, 0.5); /* Slightly transparent for aesthetics */
+  --neon-color: rgba(233, 233, 233, 0.5); /* Slightly transparent for aesthetics */
   --background-gradient: linear-gradient(45deg, #0f0c29, #302b63, #24243e);
   /* Minimalist color palette for content */
   --card-background: rgba(15, 12, 41, 0.35); /* Semi-transparent version of #0f0c29 */
@@ -36,6 +36,7 @@ body {
   --bs-body-bg : var(--card-background);
   --bs-heading-color : var(--text-color);
   --bs-body-color : var(--text-color);
+  --bs-primary-bg-subtle: var(--dropdown-bg);
 }
 /* Container Padding */
 .container {
