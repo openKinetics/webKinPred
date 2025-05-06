@@ -28,3 +28,6 @@ api/DLKcat/DeeplearningApproach/Data
 api/DLKcat/DeeplearningApproach/Results
 api/DLKcat/BayesianApproach
 api/TurNup/data
+
+__pycache__/
+*.pyc
