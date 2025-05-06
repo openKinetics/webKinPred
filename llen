@@ -1,0 +1,39 @@
+Usage: celery [OPTIONS] COMMAND [ARGS]...
+
+  Celery command entrypoint.
+
+Options:
+  -A, --app TEXT
+  -b, --broker TEXT
+  --result-backend TEXT
+  --loader TEXT
+  --config TEXT
+  --workdir PATH
+  -C, --no-color
+  -q, --quiet
+  --version
+  --skip-checks          Skip Django core checks on startup. Setting the
+                         SKIP_CHECKS environment variable to any non-empty
+                         string will have the same effect.
+  --help                 Show this message and exit.
+
+Commands:
+  amqp     AMQP Administration Shell.
+  beat     Start the beat periodic task scheduler.
+  call     Call a task by name.
+  control  Send the COMMAND control command to the workers.
+  events   Event-stream utilities.
+  flower   Web based tool for monitoring and administrating Celery clusters.
+  graph    The ``celery graph`` command.
+  inspect  Inspect the workers by sending them the COMMAND inspect command.
+  list     Get info from broker.
+  logtool  The ``celery logtool`` command.
+  migrate  Migrate tasks from one broker to another.
+  multi    Start multiple worker instances.
+  purge    Erase all messages from all known task queues.
+  report   Shows information useful to include in bug-reports.
+  result   Print the return value for a given task id.
+  shell    Start shell session with convenient access to celery symbols.
+  status   Show list of workers that are online.
+  upgrade  Perform upgrade between versions.
+  worker   Start worker instance.

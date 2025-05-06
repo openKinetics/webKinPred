@@ -73,7 +73,7 @@ def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_
     job.save()
 
     # Define paths
-    python_path = '/home/saleh/anaconda3/envs/eitlem_env/bin/python'
+    python_path = '/home/saleh/miniconda3/envs/eitlem_env/bin/python'
     prediction_script = '/home/saleh/webKinPred/api/EITLEM/Code/eitlem_prediction_script.py'
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(jobID))
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')

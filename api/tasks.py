@@ -1,7 +1,7 @@
 # api/tasks.py
 from celery import shared_task
 from django.conf import settings
-from .models import Job
+from api.models import Job
 import pandas as pd
 import os
 from django.utils import timezone

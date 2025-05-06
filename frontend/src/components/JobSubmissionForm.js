@@ -22,8 +22,8 @@ function JobSubmissionForm() {
   const [showValidationPassedModal, setShowValidationPassedModal] = useState(false);
   const [similarityData, setSimilarityData] = useState(null);
 
-  const apiBaseUrl = 'http://127.0.0.1:8000';
-  
+  const apiBaseUrl = 'http://kineticxpredictor.humanmetabolism.org';
+
   const methodDetails = {
     TurNup: {
       description: 'TurNup predicts kcat for each reaction given protein sequence + list of substrates + list of products.',

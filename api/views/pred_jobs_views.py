@@ -11,6 +11,7 @@ from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_p
 @csrf_exempt
 def submit_job(request):
     if request.method == 'POST' and 'file' in request.FILES:
+        print("Received POST to submit-job")
         file = request.FILES['file']
         prediction_type = request.POST.get('predictionType')
         kcat_method = request.POST.get('kcatMethod')
@@ -47,7 +48,7 @@ def submit_job(request):
             status='Pending'
         )
         job.save()
-
+        print("Saved Job:", job.job_id)
         # Save the file to a directory associated with the job
         job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
         os.makedirs(job_dir, exist_ok=True)
@@ -61,16 +62,30 @@ def submit_job(request):
             run_both_predictions.delay(job.job_id, kcat_method, km_method)
         elif prediction_type == 'kcat':
             pred_func = run_dlkcat_predictions if kcat_method == 'DLKcat' else run_turnup_predictions if kcat_method == 'TurNup' else run_eitlem_predictions    
-            pred_func.delay(job.job_id)
+            from celery.result import AsyncResult
+            job_id_int = int(job.job_id)
+            task = pred_func.apply_async(args=[job_id_int])
+            print("✅ Task ID:", task.id)
+
+            # Just for debugging — check its status right after dispatch
+            from celery.result import AsyncResult
+            result = AsyncResult(task.id)
+            print("🚦 Task state:", result.status)
+
+            print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
+
         elif prediction_type == 'Km':
             pred_func = run_eitlem_predictions if km_method == 'EITLEM' else None
             if pred_func:
                 pred_func.delay(job.job_id)
+                print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
+             
             else:
                 return JsonResponse({'error': 'Invalid prediction type'}, status=400)
         else:
             return JsonResponse({'error': 'Invalid prediction type'}, status=400)
 
+        print("Task dispatched")
 
         return JsonResponse({
             'message': 'Job submitted successfully',

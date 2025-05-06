@@ -43,7 +43,7 @@ def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None)
     job.save()
 
     # Define paths
-    python_path = '/home/saleh/anaconda3/envs/turnup_env/bin/python'
+    python_path = '/home/saleh/miniconda3/envs/turnup_env/bin/python'
     prediction_script = '/home/saleh/webKinPred/api/TurNup/code/kcat_prediction.py'
     job_dir = os.path.join('/home/saleh/webKinPred/media/jobs', str(jobID))
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
