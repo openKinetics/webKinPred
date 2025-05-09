@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import os
 import shutil
-
+from webKinPred.config_local import CONDA_PATH,TARGET_DBS
 @csrf_exempt
 def validate_input(request):
     if request.method != 'POST':
@@ -117,12 +117,7 @@ def calculate_sequence_similarity_by_histogram(
         and the value is the percentage of input sequences that have that rounded identity value.
     """
     # Pre-created target databases (assumed built and stored already).
-    target_dbs = {
-        "DLKcat": "/home/saleh/webKinPred/fastas/dbs/targetdb_dlkcat",
-        "EITLEM": "/home/saleh/webKinPred/fastas/dbs/targetdb_EITLEM",
-        "TurNup": "/home/saleh/webKinPred/fastas/dbs/targetdb_turnup"
-    }
-    
+    target_dbs = TARGET_DBS
     # Write input sequences to a temporary FASTA file.
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as query_file:
         query_file_path = query_file.name
@@ -134,7 +129,7 @@ def calculate_sequence_similarity_by_histogram(
     temp_query_dir = tempfile.mkdtemp()
     query_db = os.path.join(temp_query_dir, "queryDB")
     subprocess.run(
-        ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "createdb", query_file_path, query_db],
+        [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "createdb", query_file_path, query_db],
         check=True
     )
     
@@ -150,13 +145,13 @@ def calculate_sequence_similarity_by_histogram(
         try:
             # Run the search.
             subprocess.run(
-                ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "search", 
+                [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search", 
                  query_db, target_db, result_db, tmp_dir],
                 check=True
             )
             # Convert the results to a tab-delimited m8 file.
             subprocess.run(
-                ["/home/saleh/miniconda3/bin/conda", "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
+                [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
                  query_db, target_db, result_db, result_file,
                  "--format-output", "query,target,pident"],
                 check=True

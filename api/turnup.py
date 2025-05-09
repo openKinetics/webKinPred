@@ -6,6 +6,8 @@ import pandas as pd
 from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job  # Import the Job model to update progress
+from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+from webKinPred.settings import MEDIA_ROOT
 
 def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None):
     """
@@ -43,9 +45,10 @@ def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None)
     job.save()
 
     # Define paths
-    python_path = '/home/saleh/miniconda3/envs/turnup_env/bin/python'
-    prediction_script = '/home/saleh/webKinPred/api/TurNup/code/kcat_prediction.py'
-    job_dir = os.path.join('/home/saleh/webKinPred/media/jobs', str(jobID))
+    python_path = PYTHON_PATHS['TurNup']
+    prediction_script = PREDICTION_SCRIPTS['TurNup']
+    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(jobID))
+
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{jobID}.csv')
 

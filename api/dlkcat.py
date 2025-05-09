@@ -5,6 +5,8 @@ import subprocess
 from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job  # Import the Job model to update progress
+from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+from webKinPred.settings import MEDIA_ROOT
 
 def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
     """
@@ -40,9 +42,9 @@ def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
     job.save()
 
     # Define paths
-    python_path = '/home/saleh/miniconda3/envs/dlkcat_env/bin/python'
-    prediction_script = '/home/saleh/webKinPred/api/DLKcat/DeeplearningApproach/Code/example/prediction_for_input.py'
-    job_dir = os.path.join('/home/saleh/webKinPred/media/jobs', str(jobID))
+    python_path = PYTHON_PATHS['DLKcat']
+    prediction_script = PREDICTION_SCRIPTS['DLKcat']
+    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(jobID))
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.tsv')
     output_temp_file = os.path.join(job_dir, f'output_{jobID}.tsv')
 

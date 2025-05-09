@@ -5,6 +5,8 @@ from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
 from webKinPred.settings import MEDIA_ROOT
+from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+
 def run_prediction_subprocess(command, job):
     """
     Run a prediction subprocess and update job progress based on stdout.
@@ -73,8 +75,8 @@ def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_
     job.save()
 
     # Define paths
-    python_path = '/home/saleh/miniconda3/envs/eitlem_env/bin/python'
-    prediction_script = '/home/saleh/webKinPred/api/EITLEM/Code/eitlem_prediction_script.py'
+    python_path = PYTHON_PATHS['EITLEM']
+    prediction_script = PREDICTION_SCRIPTS['DLKcat']
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(jobID))
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{jobID}.csv')

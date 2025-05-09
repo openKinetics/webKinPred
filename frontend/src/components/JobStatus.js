@@ -14,7 +14,7 @@ function JobStatus() {
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState('');
-  const apiBaseUrl = 'http://kineticxpredictor.humanmetabolism.org';
+  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ;
 
   useEffect(() => {
     let intervalId;

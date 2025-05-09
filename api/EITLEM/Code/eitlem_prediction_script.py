@@ -6,7 +6,6 @@ import esm
 from rdkit import Chem
 from rdkit.Chem import MACCSkeys
 from torch_geometric.data import Data, Batch
-
 # Adjust the import paths according to your project structure
 from KCM import EitlemKcatPredictor
 from KMP import EitlemKmPredictor
@@ -26,9 +25,9 @@ def main():
 
     # Define paths to model weights
     modelPath = {
-        'KCAT': '/home/saleh/webKinPred/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
+        'KCAT':'/home/saleh/webKinPred/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
         'KM': '/home/saleh/webKinPred/api/EITLEM/Weights/KM/iter8_trainR2_0.9303_devR2_0.7163_RMSE_0.6960_MAE_0.4802',
-    }
+        }
 
     if kinetics_type not in modelPath:
         print(f"Invalid kinetics type: {kinetics_type}")
@@ -36,7 +35,7 @@ def main():
 
     # Load ESM1v model
     model, alphabet = esm.pretrained.load_model_and_alphabet_local(
-        model_location="/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
+        model_location= "/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
     )
     batch_converter = alphabet.get_batch_converter()
     model.eval()

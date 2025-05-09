@@ -22,7 +22,8 @@ function JobSubmissionForm() {
   const [showValidationPassedModal, setShowValidationPassedModal] = useState(false);
   const [similarityData, setSimilarityData] = useState(null);
 
-  const apiBaseUrl = 'http://kineticxpredictor.humanmetabolism.org';
+  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+  console.log('API Base URL:', apiBaseUrl);
 
   const methodDetails = {
     TurNup: {
