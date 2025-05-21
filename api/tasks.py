@@ -251,6 +251,68 @@ def run_eitlem_predictions(job_id):
         job.completion_time = timezone.now()
         job.save()
 
+@shared_task
+def run_unikp_predictions(job_id):
+    from .models import Job
+    import os
+    import pandas as pd
+    from django.utils import timezone
+    from django.conf import settings
+    from api.unikp import unikp_predictions
+    job = Job.objects.get(job_id=job_id)
+    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
+    input_file_path = os.path.join(job_dir, 'input.csv')
+
+    # Update job status to 'Processing'
+    job.status = 'Processing'
+    job.save()
+
+    try:
+        # Read the CSV input file
+        df = pd.read_csv(input_file_path)
+        sequences = df['Protein Sequence'].tolist()
+        substrates = df['Substrate'].tolist()
+        protein_ids = df.get('Protein Accession Number', []).tolist()
+
+        # Run the predictions (molecule processing and tracking are handled inside)
+        predictions, invalid_indices = unikp_predictions(
+            sequences=sequences,
+            substrates=substrates,
+            jobID=job.job_id,
+            protein_ids=protein_ids,
+            kinetics_type=job.prediction_type.upper()
+        )
+
+        # Save results to output file
+        output_file_path = os.path.join(job_dir, 'output.csv')
+        col_name = 'kcat (1/s)' if job.prediction_type.lower() == 'kcat' else 'KM (mM)'
+        df[col_name] = predictions
+        # Reorder columns to put the new column first
+        cols = [col_name] + [col for col in df.columns if col != col_name]
+        df = df[cols]
+        df.to_csv(output_file_path, index=False)
+
+        # Update job with invalid indices information
+        if invalid_indices:
+            job.error_message = (
+                f"Predictions could not be made for {len(invalid_indices)} row(s) \n: {', '.join(map(str, invalid_indices))} "
+                f"due to invalid SMILES/InChI."
+            )
+        else:
+            job.error_message = ""
+
+        # Update job status to 'Completed'
+        job.status = 'Completed'
+        job.completion_time = timezone.now()
+        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
+        job.save()
+
+    except Exception as e:
+        # Update job status to 'Failed' and save error message
+        job.status = 'Failed'
+        job.error_message = str(e)
+        job.completion_time = timezone.now()
+        job.save()
 
 # tasks.py
 @shared_task
@@ -263,6 +325,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
     from api.dlkcat import dlkcat_predictions
     from api.turnup import turnup_predictions
     from api.eitlem import eitlem_predictions
+    from api.unikp import unikp_predictions
 
     job = Job.objects.get(job_id=job_id)
     job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
@@ -332,6 +395,22 @@ def run_both_predictions(job_id, kcat_method, km_method):
             )
             results_df['kcat (1/s)'] = kcat_predictions
             invalid_indices.update(kcat_invalid_indices)
+        
+        elif kcat_method == 'UniKP': 
+            if 'Substrate' not in df.columns:
+                raise ValueError('Missing "Substrate" column required for UniKP kcat predictions.')
+            substrates = df['Substrate'].tolist()
+
+            # Run UniKP predictions
+            kcat_predictions, kcat_invalid_indices = unikp_predictions(
+                sequences=sequences,
+                substrates=substrates,
+                jobID=job.job_id,
+                protein_ids=protein_ids,
+                kinetics_type='KCAT'
+            )
+            results_df['kcat (1/s)'] = kcat_predictions
+            invalid_indices.update(kcat_invalid_indices)
         else:
             raise ValueError('Invalid kcat method.')
         
@@ -350,6 +429,21 @@ def run_both_predictions(job_id, kcat_method, km_method):
 
             # Run EITLEM KM predictions
             km_predictions, km_invalid_indices = eitlem_predictions(
+                sequences=sequences,
+                substrates=substrates,
+                jobID=job.job_id,
+                protein_ids=protein_ids,
+                kinetics_type='KM'
+            )
+            results_df['KM (mM)'] = km_predictions
+            invalid_indices.update(km_invalid_indices)
+        elif km_method == 'UniKP':
+            if 'Substrate' not in df.columns:
+                raise ValueError('Missing "Substrate" column required for UniKP KM predictions.')
+            substrates = df['Substrate'].tolist()
+
+            # Run UniKP KM predictions
+            km_predictions, km_invalid_indices = unikp_predictions(
                 sequences=sequences,
                 substrates=substrates,
                 jobID=job.job_id,

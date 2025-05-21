@@ -5,18 +5,13 @@ import Accordion from 'react-bootstrap/Accordion';
 const FAQ = () => {
   const faqItems = [
     {
-      question: "What is KineticXPredictor?",
-      answer: "KineticXPredictor is an application designed to predict kinetics performance based on various input parameters."
+      question: "How to know which model to use?",
+      answer: ""
     },
     {
-      question: "How do I submit a job?",
-      answer: "Jobs can be submitted from the homepage using the provided submission form."
+      question: "How to make predictions for full reactions, not just protein-substrate pairs?",
+        answer: "" // depending on method
     },
-    {
-      question: "How can I track my job status?",
-      answer: "You can track your submitted jobs on the 'Track Job' page."
-    }
-    // Add more FAQ items as needed
   ];
 
   return (

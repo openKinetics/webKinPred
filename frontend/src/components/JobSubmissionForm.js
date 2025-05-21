@@ -42,7 +42,12 @@ function JobSubmissionForm() {
       description: 'EITLEM-Kinetics predicts kcat or KM for a reaction given protein sequence + substrate.',
       citation: 'EITLEM-Kinetics: A deep-learning framework for kinetic parameter prediction of mutant enzymes',
       citationUrl: 'https://www.sciencedirect.com/science/article/pii/S2667109324002665',
-      moreInfo: ''
+      moreInfo: 'Recommended to use for reactions that include mutant enzymes'
+    },
+    UniKP: {
+      description: 'UniKP predicts kcat or KM for a reaction given protein sequence + substrate.',
+      citation: 'UniKP: a unified framework for the prediction of enzyme kinetic parameters',
+      citationUrl: 'https://www.nature.com/articles/s41467-023-44113-1'
     },
     // Add other methods as needed
   };
@@ -51,8 +56,14 @@ function JobSubmissionForm() {
     {
       kcatMethod: 'TurNup',
       kmMethod: 'EITLEM',
-      message: 'TurNup is not compatible with EITLEM-Kinetics when predicting both kcat and KM. Please select compatible methods.'
+      message: 'TurNup is not compatible with EITLEM-Kinetics when predicting both kcat and KM. Please select compatible methods. TurNup expects a list of substrates and products, while EITLEM-Kinetics expects a single substrate. In FAQ, we explain how to use single-substrate data.' 
     },
+    {
+      kcatMethod: 'TurNup',
+      kmMethod: 'UniKP',
+      message: 'TurNup is not compatible with EITLEM-Kinetics when predicting both kcat and KM. Please select compatible methods. TurNup expects a list of substrates and products, while UniKP expects a single substrate. In FAQ, we explain how to use single-substrate data.'
+    },
+    
   ];
   function MethodDetails({ methodKey }) {
     const method = methodDetails[methodKey];
@@ -209,6 +220,7 @@ function JobSubmissionForm() {
                           <option value="TurNup">TurNup</option>
                           <option value="DLKcat">DLKcat</option>
                           <option value="EITLEM">EITLEM-Kinetics</option>
+                          <option value="UniKP">UniKP</option>
                         </Form.Control>
                         {showKcatMethodDetails && kcatMethod && (
                         <MethodDetails methodKey={kcatMethod} />
@@ -231,6 +243,7 @@ function JobSubmissionForm() {
                         >
                           <option value="">Select KM method</option>
                           <option value="EITLEM">EITLEM-Kinetics</option>
+                          <option value="UniKP">UniKP</option>
                         </Form.Control>
                         {showKmMethodDetails && kmMethod && (
                             <MethodDetails methodKey={kmMethod} />
@@ -269,7 +282,7 @@ function JobSubmissionForm() {
                       </li>
                     </>
                   )}
-                  {(kcatMethod === 'DLKcat' || kcatMethod === 'EITLEM') && (
+                  {(kcatMethod === 'DLKcat' || kcatMethod === 'EITLEM' || kcatMethod === 'UniKP') && (
                     <li>
                       <strong>Substrate:</strong> Either SMILES or InChI (one per row)
                     </li>

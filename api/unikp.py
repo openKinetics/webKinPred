@@ -23,33 +23,9 @@ def run_prediction_subprocess(command, job):
             text=True,
             bufsize=1,
         )
-
-        # Read stdout line by line
-        for line in iter(process.stdout.readline, ''):
-            if not line:
-                break
-            # Process the line
-            print("Subprocess output:", line.strip())
-            # Check if it's a progress update
-            if line.startswith("Progress:"):
-                # Extract the number of predictions made
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    try:
-                        progress = parts[1]
-                        predictions_made, total_predictions = progress.split('/')
-                        predictions_made = int(predictions_made)
-                        total_predictions = int(total_predictions)
-                        # Update the job object
-                        job.predictions_made = predictions_made
-                        job.total_predictions = total_predictions
-                        job.save()
-                    except Exception as e:
-                        print("Error parsing progress update:", e)
-            else:
-                # Handle other output if needed
-                pass
-
+        # Log all stdout lines
+        for line in process.stdout:
+            print("[UniKP subprocess]", line.strip())
         # Wait for the subprocess to finish
         process.wait()
 
@@ -62,8 +38,8 @@ def run_prediction_subprocess(command, job):
         print(e)
         raise e
 
-def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_type='KCAT'):
-    print("Running EITLEM model...")
+def unikp_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_type='KCAT'):
+    print("Running UniKP model...")
 
     # Get the Job object
     job = Job.objects.get(job_id=jobID)
@@ -75,8 +51,8 @@ def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_
     job.save()
 
     # Define paths
-    python_path = PYTHON_PATHS['EITLEM']
-    prediction_script = PREDICTION_SCRIPTS['EITLEM']
+    python_path = PYTHON_PATHS['UniKP']
+    prediction_script = PREDICTION_SCRIPTS['UniKP']
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(jobID))
     input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{jobID}.csv')
@@ -94,14 +70,17 @@ def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
         job.molecules_processed += 1
+
         if mol:
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)
             valid_sequences.append(seq)
             valid_indices.append(idx)
         else:
+            print(f"Invalid substrate at row {idx + 1}: {substrate}")
             invalid_indices.append(idx + 1)
             job.invalid_molecules += 1
+
         # Save job progress after each molecule
         job.save()
 
@@ -136,7 +115,7 @@ def eitlem_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_
                 predictions[idx] = pred
 
         except Exception as e:
-            print("An error occurred while running the EITLEM subprocess:")
+            print("An error occurred while running the Unikp subprocess:")
             print(e)
             # Clean up temporary files
             if os.path.exists(input_temp_file):

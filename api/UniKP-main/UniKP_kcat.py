@@ -169,3 +169,4 @@ if __name__ == '__main__':
     # Modelling
     Kcat_predict(feature_new, Label_new, sequence_new, Smiles_new, ECNumber_new,
                 Organism_new, Substrate_new, Type_new)
+

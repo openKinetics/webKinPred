@@ -9,6 +9,43 @@ from torch_geometric.data import Data, Batch
 # Adjust the import paths according to your project structure
 from KCM import EitlemKcatPredictor
 from KMP import EitlemKmPredictor
+import hashlib
+import os
+import numpy as np
+import json
+
+ESM_EMB_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1v"
+SEQ2ID_PATH = "/home/saleh/webKinPred/media/sequence_info/seq_id_to_seq.json"
+
+
+with open(SEQ2ID_PATH, "r") as f:
+    seq_id_dict = json.load(f)
+
+seq_to_id = {v: k for k, v in seq_id_dict.items()}
+existing_ids = set(seq_id_dict.keys())
+
+def generate_unique_seq_id(existing_ids, sequence):
+    base_id = hashlib.sha256(sequence.encode()).hexdigest()[:12]
+    suffix = 0
+    new_id = base_id
+    while new_id in existing_ids:
+        suffix += 1
+        new_id = f"{base_id}_{suffix}"
+    return new_id
+
+os.makedirs(ESM_EMB_DIR, exist_ok=True)
+esm_model = None
+alphabet = None
+batch_converter = None
+
+def load_esm_model_once():
+    global esm_model, alphabet, batch_converter
+    if esm_model is None:
+        esm_model, alphabet = esm.pretrained.load_model_and_alphabet_local(
+            model_location="/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
+        )
+        batch_converter = alphabet.get_batch_converter()
+        esm_model.eval()
 
 def main():
     if len(sys.argv) != 4:
@@ -33,13 +70,6 @@ def main():
         print(f"Invalid kinetics type: {kinetics_type}")
         sys.exit(1)
 
-    # Load ESM1v model
-    model, alphabet = esm.pretrained.load_model_and_alphabet_local(
-        model_location= "/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
-    )
-    batch_converter = alphabet.get_batch_converter()
-    model.eval()
-
     # Load EITLEM model
     if kinetics_type == 'KCAT':
         eitlem_model = EitlemKcatPredictor(167, 512, 1280, 10, 0.5, 10)
@@ -60,29 +90,46 @@ def main():
             if mol is None:
                 raise ValueError(f"Invalid substrate SMILES: {substrate}")
 
-            # Compute the MACCS Keys of substrate
+            # Compute MACCS Keys
             mol_feature = MACCSkeys.GenMACCSKeys(mol).ToList()
+            if sequence in seq_to_id:
+                seq_id = seq_to_id[sequence]
+            else:
+                seq_id = generate_unique_seq_id(existing_ids, sequence)
+                seq_id_dict[seq_id] = sequence
+                seq_to_id[sequence] = seq_id
+                existing_ids.add(seq_id)
 
-            # Extract protein representation
-            data = [("protein", sequence)]
-            _, _, batch_tokens = batch_converter(data)
-            batch_lens = (batch_tokens != alphabet.padding_idx).sum(1)
-            with torch.no_grad():
-                results = model(batch_tokens, repr_layers=[33], return_contacts=False)
-            token_representations = results["representations"][33]
-            sequence_representations = []
-            for i_batch, tokens_len in enumerate(batch_lens):
-                sequence_representations.append(token_representations[i_batch, 1 : tokens_len - 1])
+            vec_path = os.path.join(ESM_EMB_DIR, f"{seq_id}.npy")
+            if os.path.exists(vec_path):
+                rep = np.load(vec_path)
+            else:
+                load_esm_model_once()
+                if len(sequence) > 1023:
+                    # take first 500 + last 500 residues
+                    sequence = sequence[:500] + sequence[-500:]
+                data = [("protein", sequence)]
+                _, _, batch_tokens = batch_converter(data)
+                batch_lens = (batch_tokens != alphabet.padding_idx).sum(1)
+                with torch.no_grad():
+                    results = esm_model(batch_tokens, repr_layers=[33], return_contacts=False)
+                token_representations = results["representations"][33]
+                tokens_len = batch_lens[0]
+                rep = token_representations[0, 1:tokens_len - 1].cpu().numpy()
+                np.save(vec_path, rep)
+            # Use mean of per-residue embedding
+            sequence_rep = torch.FloatTensor(rep)
+            sample = Data(
+                x=torch.FloatTensor(mol_feature).unsqueeze(0), 
+                pro_emb=sequence_rep
+            )
 
-            # Prepare input data for EITLEM model
-            sample = Data(x=torch.FloatTensor(mol_feature).unsqueeze(0), pro_emb=sequence_representations[0])
             input_data = Batch.from_data_list([sample], follow_batch=['pro_emb'])
 
             # Predict kinetics value
             with torch.no_grad():
                 res = eitlem_model(input_data)
             prediction = math.pow(10, res[0].item())
-
             predictions.append(prediction)
         except Exception as e:
             print(f"Error processing sample {idx}: {e}")
@@ -90,6 +137,9 @@ def main():
         finally:
             i += 1
             print(f"Progress: {i}/{total_predictions} predictions made", flush=True)
+
+    with open(SEQ2ID_PATH, "w") as f:
+        json.dump(seq_id_dict, f, indent=2)
 
     # Save predictions to output file
     df_output = pd.DataFrame({

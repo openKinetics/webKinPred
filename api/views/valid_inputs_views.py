@@ -29,7 +29,7 @@ def validate_input(request):
     invalid_proteins = []
 
     # Validate Substrates
-    if (km_method in ['EITLEM']) or (kcat_method in ['DLKcat', 'EITLEM']) and 'Substrate' in df.columns:
+    if (km_method in ['EITLEM','UniKP']) or (kcat_method in ['DLKcat', 'EITLEM','UniKP']) and 'Substrate' in df.columns:
         for i, val in enumerate(df['Substrate']):
             mol = convert_to_mol(val)
             if mol is None:
@@ -80,9 +80,7 @@ def sequence_similarity_summary(request):
 
         if not sequences:
             return JsonResponse({'error': 'No valid protein sequences found in CSV'}, status=400)
-
-        identity_ranges = [(90, 100), (60, 89), (40, 59), (0, 39)]
-
+        
         result = calculate_sequence_similarity_by_histogram(sequences)
         return JsonResponse(result, safe=False)
 

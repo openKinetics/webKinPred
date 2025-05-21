@@ -6,7 +6,7 @@ import os
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from ..models import Job
-from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_both_predictions
+from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
 
 @csrf_exempt
 def submit_job(request):
@@ -31,9 +31,10 @@ def submit_job(request):
         # Determine additional required columns based on the selected method
         if kcat_method == 'TurNup':
             required_columns.extend(['Substrates', 'Products'])
-        elif kcat_method in ['DLKcat', 'EITLEM']:
+        elif kcat_method in ['DLKcat', 'EITLEM', 'UniKP']:
             required_columns.append('Substrate')
-
+        else:
+            return JsonResponse({'error': 'Invalid kcat method'}, status=400)
         # Check if the required columns are present
         missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -61,7 +62,13 @@ def submit_job(request):
         if prediction_type == 'both':
             run_both_predictions.delay(job.job_id, kcat_method, km_method)
         elif prediction_type == 'kcat':
-            pred_func = run_dlkcat_predictions if kcat_method == 'DLKcat' else run_turnup_predictions if kcat_method == 'TurNup' else run_eitlem_predictions    
+            method_to_func = {
+                'DLKcat': run_dlkcat_predictions,
+                'TurNup': run_turnup_predictions,
+                'EITLEM': run_eitlem_predictions,
+                'UniKP': run_unikp_predictions
+            }
+            pred_func = method_to_func.get(kcat_method)  
             from celery.result import AsyncResult
             job_id_int = int(job.job_id)
             task = pred_func.apply_async(args=[job_id_int])
@@ -75,7 +82,11 @@ def submit_job(request):
             print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
 
         elif prediction_type == 'Km':
-            pred_func = run_eitlem_predictions if km_method == 'EITLEM' else None
+            method_to_func = {
+                'EITLEM': run_eitlem_predictions,
+                'UniKP': run_unikp_predictions
+            }
+            pred_func = method_to_func.get(km_method)
             if pred_func:
                 pred_func.delay(job.job_id)
                 print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)

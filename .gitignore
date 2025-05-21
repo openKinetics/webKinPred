@@ -20,6 +20,7 @@ frontend/.env.production.local
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+media/
 media/jobs
 api/EITLEM/Weights
 api/EITLEM/Weights.zip
