@@ -1,8 +1,8 @@
 PYTHON_PATHS = {
-    'DLKcat': '/home/saleh/anaconda3/envs/dlkcat_env/bin/python',
-    'EITLEM': '/home/saleh/anaconda3/envs/eitlem_env/bin/python',
-    'TurNup': '/home/saleh/anaconda3/envs/turnup_env/bin/python',
-    'UniKP': '/home/saleh/anaconda3/envs/unikp/bin/python',
+    'DLKcat': '/home/saleh/miniconda3/envs/dlkcat_env/bin/python',
+    'EITLEM': '/home/saleh/miniconda3/envs/eitlem_env/bin/python',
+    'TurNup': '/home/saleh/miniconda3/envs/turnup_env/bin/python',
+    'UniKP': '/home/saleh/miniconda3/envs/unikp/bin/python',
 }
 
 PREDICTION_SCRIPTS = {
@@ -17,4 +17,4 @@ TARGET_DBS = {"DLKcat/UniKP": "/home/saleh/webKinPred/fastas/dbs/targetdb_dlkcat
         "TurNup": "/home/saleh/webKinPred/fastas/dbs/targetdb_turnup"
 }
 
-CONDA_PATH = "/home/saleh/anaconda3/bin/conda"
+CONDA_PATH = "/home/saleh/miniconda3/bin/conda"

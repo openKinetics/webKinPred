@@ -33,6 +33,6 @@ api/UniKP-main/models
 api/UniKP-main/run_unikp.py
 __pycache__/
 *.pyc
-db.sqlite3
 
-webKinPred/config_local.pyapi/UniKP-main/models/*.pkl
+webKinPred/config_local.py
+api/UniKP-main/models/*.pkl
