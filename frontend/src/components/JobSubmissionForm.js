@@ -17,40 +17,50 @@ function JobSubmissionForm() {
   const [submissionResult, setSubmissionResult] = useState(null);
   const [showModal, setShowModal] = useState(false); 
   const [incompatibilityMessage, setIncompatibilityMessage] = useState('');
-  const [showValidationModal, setShowValidationModal] = useState(false);
   const [showPreprocessPrompt, setShowPreprocessPrompt] = useState(false);
-  const [showValidationPassedModal, setShowValidationPassedModal] = useState(false);
   const [similarityData, setSimilarityData] = useState(null);
+  const [csvFormatInfo, setCsvFormatInfo] = useState(null);
+  const [csvFormatError, setCsvFormatError] = useState('');
+  const [csvFormatValid, setCsvFormatValid] = useState(false);
+  const [showValidationResults, setShowValidationResults] = useState(false);
+  const kcatMethodsByCsvType = {
+    single: ['DLKcat', 'EITLEM', 'UniKP'],
+    multi: ['TurNup']
+  };
+  
 
   const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
-  console.log('API Base URL:', apiBaseUrl);
 
   const methodDetails = {
     TurNup: {
-      description: 'TurNup predicts kcat for each reaction given protein sequence + list of substrates + list of products.',
-      citation: 'Turnover number predictions for kinetically uncharacterized enzymes using machine and deep learning',
+      description: 'Predicts kcat for each reaction given protein sequence + list of substrates + list of products.',
+      authors: 'Alexander Kroll, Yvan Rousset, Xiao-Pan Hu, Nina A. Liebrand & Martin J. Lercher',
+      publicationTitle: 'Turnover number predictions for kinetically uncharacterized enzymes using machine and deep learning',
       citationUrl: 'https://www.nature.com/articles/s41467-023-39840-4',
       moreInfo: 'Recommended to use for natural reactions of wild-type enzymes.'
     },
     DLKcat: {
-      description: 'DLKcat predicts kcat for a reaction given protein sequence + substrate.',
-      citation: 'Deep learning-based kcat prediction enables improved enzyme-constrained model reconstruction',
+      description: 'Predicts kcat for a reaction given protein sequence + substrate.',
+      authors: 'Feiran Li, Le Yuan, Hongzhong Lu, Gang Li, Yu Chen, Martin K. M. Engqvist, Eduard J. Kerkhoven & Jens Nielsen',
+      publicationTitle: 'Deep learning-based kcat prediction enables improved enzyme-constrained model reconstruction',
       citationUrl: 'https://www.nature.com/articles/s41929-022-00798-z',
       moreInfo: ''
     },
     EITLEM: {
-      description: 'EITLEM-Kinetics predicts kcat or KM for a reaction given protein sequence + substrate.',
-      citation: 'EITLEM-Kinetics: A deep-learning framework for kinetic parameter prediction of mutant enzymes',
+      description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
+      authors: 'Xiaowei Shen, Ziheng Cui, Jianyu Long, Shiding Zhang, Biqiang Chen, Tianwei Tan',
+      publicationTitle: 'EITLEM-Kinetics: A deep-learning framework for kinetic parameter prediction of mutant enzymes',
       citationUrl: 'https://www.sciencedirect.com/science/article/pii/S2667109324002665',
-      moreInfo: 'Recommended to use for reactions that include mutant enzymes'
+      moreInfo: 'Recommended to use for reactions that include mutants'
     },
     UniKP: {
-      description: 'UniKP predicts kcat or KM for a reaction given protein sequence + substrate.',
-      citation: 'UniKP: a unified framework for the prediction of enzyme kinetic parameters',
+      description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
+      authors: 'Han Yu, Huaxiang Deng, Jiahui He, Jay D. Keasling & Xiaozhou Luo',
+      publicationTitle: 'UniKP: a unified framework for the prediction of enzyme kinetic parameters',
       citationUrl: 'https://www.nature.com/articles/s41467-023-44113-1'
-    },
-    // Add other methods as needed
+    }
   };
+  
   
   const incompatibleMethods = [
     {
@@ -65,28 +75,28 @@ function JobSubmissionForm() {
     },
     
   ];
-  function MethodDetails({ methodKey }) {
+  function MethodDetails({ methodKey, citationOnly = false }) {
     const method = methodDetails[methodKey];
     if (!method) return null;
-
+  
     return (
       <Alert variant="info" className="mt-3">
-        <p>{method.description}</p>
+        {!citationOnly && <p>{method.description}</p>}
         {method.citation && method.citationUrl && (
           <p>
-            <strong>Citation: </strong>
+            <strong>Publication: </strong>
             <a href={method.citationUrl} target="_blank" rel="noopener noreferrer">
               {method.citation}
             </a>
           </p>
         )}
-        {method.moreInfo && (
+        {!citationOnly && method.moreInfo && (
           <p><strong>Note: </strong>{method.moreInfo}</p>
         )}
       </Alert>
     );
   }
-
+  
   const checkCompatibility = (kcatMethod, kmMethod) => {
     if (predictionType !== 'both') {
       // Methods are compatible by default when not predicting both
@@ -115,6 +125,17 @@ function JobSubmissionForm() {
       setIncompatibilityMessage('');
     }
   }, [predictionType, kcatMethod, kmMethod]);
+  useEffect(() => {
+    if (predictionType) {
+      // Reset method selections and detail views if predictionType is pre-set on mount
+      setKcatMethod('');
+      setKmMethod('');
+      setShowKcatMethodDetails(false);
+      setShowKmMethodDetails(false);
+      setIncompatibilityMessage('');
+    }
+  }, []); // ← run once on mount
+  
 
   const validateCsv = async () => {
     const formData = new FormData();
@@ -131,11 +152,37 @@ function JobSubmissionForm() {
       throw err;
     }
   };
+  const detectCsvFormat = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
   
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setShowPreprocessPrompt(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/api/detect-csv-format/`, formData);
+      const data = response.data;
+  
+      if (data.status === 'valid') {
+        setCsvFormatInfo(data);          // includes csv_type
+        setCsvFormatValid(true);
+        setCsvFormatError('');
+      } else {
+        setCsvFormatInfo(null);
+        setCsvFormatValid(false);
+        if (data.errors && Array.isArray(data.errors)) {
+          setCsvFormatError(data.errors.join('; ')); // Join errors into a readable string
+        } else {
+          setCsvFormatError('Invalid CSV format.');
+        }
+      }
+    } catch (error) {
+      console.error('CSV format detection error:', error);
+      setCsvFormatInfo(null);
+      setCsvFormatValid(false);
+      setCsvFormatError(
+        error.response?.data?.error || 'Error detecting CSV format.'
+      );
+    }
   };
+
   const submitJob = () => {
 
     const formData = new FormData();
@@ -164,11 +211,100 @@ function JobSubmissionForm() {
         }
       });
   };
+  const allowedKcatMethods = csvFormatInfo?.csv_type
+  ? kcatMethodsByCsvType[csvFormatInfo.csv_type] || []
+  : [];
 
   return (
     <Container className="mt-5 pb-5">
       <Row className="justify-content-center">
-        <Col md={8}>
+        <Col md={10}>
+        <Card className="section-container section-how-to-use mb-4">
+            <Card.Body>
+              <h3>How to Use This Tool</h3>
+              <p>
+                This tool predicts kinetic parameters (kcat and/or KM) for enzyme-catalyzed reactions using various ML models.
+              </p>
+              <p><strong>Steps:</strong></p>
+              <ol>
+                <li>Select what you want to predict (kcat, KM, or both).</li>
+                <li>Upload your reaction data as a CSV file.</li>
+                <li>Choose prediction method(s) — optionally after preprocessing validation.</li>
+              </ol>
+
+              <h5>🧬 CSV Input Format Requirements</h5>
+              <ul>
+                <li>
+                  <strong>'Protein Sequence'</strong> column is required for all methods.
+                </li>
+                <li>
+                  <strong>Single-substrate models (DLKcat, EITLEM, UniKP):</strong> one <code>SMILES</code> per row, in 'Substrate' column.
+                </li>
+                <li>
+                  <strong>Multi-substrate model (TurNup):</strong> use a <code>Substrates</code> column (semicolon-separated SMILES) and a <code>Products</code> column.
+                </li>
+              </ul>
+
+              <h6>📥 Example Templates:</h6>
+              <ul>
+                <li><a href="/templates/single_substrate_template.csv" download>Download single-substrate template</a></li>
+                <li><a href="/templates/multi_substrate_template.csv" download>Download multi-substrate template</a></li>
+              </ul>
+              <h4 className="mt-5 mb-3">🧠 Available Prediction Methods</h4>
+              <Row>
+                {Object.entries(methodDetails).map(([key, method]) => (
+                  <Col md={6} key={key} className="mb-4">
+                    <Card className="h-100 shadow-sm">
+                      <Card.Body>
+                        <h5 className="mb-2">{key}</h5>
+                        <p className="mb-2">{method.description}</p>
+
+                        {method.moreInfo && (
+                          <p className="mb-2" style={{ color: '#808080' }}>
+                            <em>{method.moreInfo}</em>
+                          </p>
+                        )}
+
+                        {method.authors && (
+                          <p className="mb-2" style={{ fontSize: '0.9rem' }}>
+                            <strong>Authors:</strong> {method.authors}
+                          </p>
+                        )}
+
+                        {method.publicationTitle && method.citationUrl && (
+                          <p
+                            className="mb-0"
+                            style={{
+                              wordBreak: 'break-word',
+                              overflowWrap: 'anywhere',
+                            }}
+                          >
+                            <strong>Publication:</strong>{' '}
+                            <a
+                              href={method.citationUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                textDecoration: 'underline',
+                                color: '#a0d2eb',
+                                fontSize: '0.95rem',
+                                display: 'inline',
+                                whiteSpace: 'normal',
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              {method.publicationTitle}
+                            </a>
+                          </p>
+                        )}
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+
+            </Card.Body>
+          </Card>
           {/* Prediction Type Section */}
           <Card className="section-container section-prediction-type">
             <Card.Body>
@@ -196,9 +332,125 @@ function JobSubmissionForm() {
               </Form.Group>
             </Card.Body>
           </Card>
+          {/* CSV Upload Section */}
+          {predictionType && (
+            <Card className="section-container section-reaction-info">
+              <Card.Body>
+                <h3>Upload Reaction Information</h3>
+                <p>Please upload a CSV file with the columns mentioned above</p>
+                <Form>
+                  <Form.Group controlId="csvFile" className="mt-3">
+                    <div className="file-upload">
+                      <Form.Control
+                        type="file"
+                        accept=".csv"
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          setCsvFile(file);
+                          setFileName(file?.name || 'No file chosen');
+                          if (file) {
+                            detectCsvFormat(file);
+                            setKcatMethod('');
+                            setKmMethod('');
+                            setShowKcatMethodDetails(false);
+                            setShowKmMethodDetails(false);
 
+                            setSubmissionResult(null);
+                            setSimilarityData(null);
+                            setShowValidationResults(false);
+                          }
+                        }}
+                        style={{ display: 'none' }} // Hide the default input
+                        required
+                      />
+                      <label htmlFor="csvFile" className="custom-file-upload">
+                        Choose File
+                      </label>
+                      <span id="file-selected">{fileName}</span>
+                    </div>
+                  </Form.Group>
+                </Form>
+                {csvFormatValid && csvFormatInfo?.csv_type && (
+                <Alert variant="success" className="mt-3">
+                  ✅ Detected a <strong>{csvFormatInfo.csv_type === 'multi' ? 'multi-substrate' : 'single-substrate'}</strong> CSV. You may now choose compatible methods.
+                </Alert>
+                )}
+                {!csvFormatValid && csvFormatError && (
+                  <Alert variant="danger" className="mt-3">
+                    ❌ Invalid CSV: {csvFormatError}
+                  </Alert>
+                )}
+                {csvFormatValid && (
+                  <div className="mt-4 d-flex justify-content-end">
+                    <Button
+                      variant="outline-secondary"
+                      onClick={() => setShowPreprocessPrompt(true)}
+                    >
+                      Validate Inputs (Optional)
+                    </Button>
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          )}
+          {submissionResult && (
+            <Card className="section-container section-validation-results mt-4">
+              <Card.Body>
+                <div className="d-flex justify-content-between align-items-center">
+                  <h3 className="mb-0">Validation Results</h3>
+                  <Button
+                    variant="outline-secondary"
+                    onClick={() => setShowValidationResults(!showValidationResults)}
+                  >
+                    {showValidationResults ? 'Hide' : 'Show'}
+                  </Button>
+                </div>
+
+                {showValidationResults && (
+                  <div className="mt-4">
+                    {submissionResult?.invalid_substrates?.length === 0 &&
+                    submissionResult?.invalid_proteins?.length === 0 ? (
+                      <Alert variant="success">
+                        ✅ All entries are valid. No issues were found with your input data.
+                      </Alert>
+                    ) : (
+                      <>
+                        {submissionResult?.invalid_substrates?.length > 0 && (
+                          <>
+                            <h5>Invalid Substrates</h5>
+                            <ul>
+                              {submissionResult.invalid_substrates.map((entry, i) => (
+                                <li key={i}>Row {entry.row}: {entry.reason}</li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+
+                        {submissionResult?.invalid_proteins?.length > 0 && (
+                          <>
+                            <h5>Invalid Proteins</h5>
+                            <ul>
+                              {submissionResult.invalid_proteins.map((entry, i) => (
+                                <li key={i}>Row {entry.row}: {entry.reason}</li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {similarityData && (
+                      <div className="mt-4">
+                        <SequenceSimilaritySummary similarityData={similarityData} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          )}
           {/* Method Selection Section */}
-          {(predictionType === 'both' || predictionType === 'kcat' || predictionType === 'Km') && (
+          {predictionType && csvFile && csvFormatValid && (
             <Card className="section-container section-method-selection">
               <Card.Body>
                 <h3>Select Prediction Method</h3>
@@ -206,24 +458,27 @@ function JobSubmissionForm() {
                   {(predictionType === 'kcat' || predictionType === 'both') && (
                     <Col md={6}>
                       <Form.Group controlId="kcatMethod">
-                        <Form.Control
-                          as="select"
-                          value={kcatMethod}
-                          onChange={(e) => {
-                            setKcatMethod(e.target.value);
-                            setShowKcatMethodDetails(true);
-                          }}
-                          className="custom-select"
-                          required
-                        >
-                          <option value="">Select kcat method</option>
-                          <option value="TurNup">TurNup</option>
-                          <option value="DLKcat">DLKcat</option>
-                          <option value="EITLEM">EITLEM-Kinetics</option>
-                          <option value="UniKP">UniKP</option>
-                        </Form.Control>
+                      <Form.Control
+                        as="select"
+                        disabled={!csvFormatInfo?.csv_type}
+                        value={kcatMethod}
+                        onChange={(e) => {
+                          setKcatMethod(e.target.value);
+                          setShowKcatMethodDetails(true);
+                        }}
+                        className="custom-select"
+                        required
+                      >
+                        <option value="">Select kcat method</option>
+                        {allowedKcatMethods.map((method) => (
+                          <option key={method} value={method}>
+                            {method === 'EITLEM' ? 'EITLEM-Kinetics' : method}
+                          </option>
+                        ))}
+                      </Form.Control>
+
                         {showKcatMethodDetails && kcatMethod && (
-                        <MethodDetails methodKey={kcatMethod} />
+                          <MethodDetails methodKey={kcatMethod} citationOnly />
                         )}
                       </Form.Group>
                     </Col>
@@ -234,6 +489,7 @@ function JobSubmissionForm() {
                         <Form.Control
                           as="select"
                           value={kmMethod}
+                          disabled={!csvFormatInfo?.csv_type}
                           onChange={(e) => {
                             setKmMethod(e.target.value);
                             setShowKmMethodDetails(true);
@@ -246,75 +502,21 @@ function JobSubmissionForm() {
                           <option value="UniKP">UniKP</option>
                         </Form.Control>
                         {showKmMethodDetails && kmMethod && (
-                            <MethodDetails methodKey={kmMethod} />
+                          <MethodDetails methodKey={kmMethod} citationOnly />
                         )}
                       </Form.Group>
                     </Col>
                   )}
                 </Row>
               </Card.Body>
-            </Card>
-          )}
-          {/* CSV Upload Section */}
-          {(kcatMethod || kmMethod) && !incompatibilityMessage && (
-            <Card className="section-container section-reaction-info">
-              <Card.Body>
-                <h3>Upload Reaction Information</h3>
-                <p>Please upload a CSV file with the following columns:</p>
-                <ul>
-                  <li>
-                    <strong>Protein Sequence:</strong> The sequence of the protein that catalyzes the reaction (one per row).
-                  </li>
-                  <li>
-                    <strong>Protein Accession Number:</strong> For methods that require protein structure if protein ID is available, structure retrieval is faster and
-                    more effective. Leave an empty string if not available (one per row).
-                  </li>
-                  {kcatMethod === 'TurNup' && (
-                    <>
-                      <li>
-                        <strong>Substrates:</strong> A list of chemical identifiers (InChIs or
-                        SMILES) separated by a semicolon (`;`). For example:
-                        `InChI1;InChI2;SMILES3;...` (n per row, where n is the number of substrates in the reaction)
-                      </li>
-                      <li>
-                        <strong>Products:</strong> A list of chemical identifiers (InChIs or SMILES)
-                        separated by a semicolon (`;`). For example: `InChI1;SMILES2;...` (n per row, where n is the number of products in the reaction)
-                      </li>
-                    </>
-                  )}
-                  {(kcatMethod === 'DLKcat' || kcatMethod === 'EITLEM' || kcatMethod === 'UniKP') && (
-                    <li>
-                      <strong>Substrate:</strong> Either SMILES or InChI (one per row)
-                    </li>
-                  )}
-                </ul>
-                <Form onSubmit={handleSubmit}>
-                  <Form.Group controlId="csvFile" className="mt-3">
-                    <div className="file-upload">
-                      <Form.Control
-                        type="file"
-                        accept=".csv"
-                        onChange={(e) => {
-                          setCsvFile(e.target.files[0]);
-                          setFileName(e.target.files[0]?.name || 'No file chosen');
-                        }}
-                        style={{ display: 'none' }} // Hide the default input
-                        required
-                      />
-                      <label htmlFor="csvFile" className="custom-file-upload">
-                        Choose File
-                      </label>
-                      <span id="file-selected">{fileName}</span>
-                    </div>
-                  </Form.Group>
-                  <div className="mt-4 d-flex justify-content-end">
-                    <button type="submit" className="kave-btn">
-                      <span className="kave-line"></span>
-                      Submit Job
-                    </button>
-                  </div>
-                </Form>
-              </Card.Body>
+              {csvFormatValid && (kcatMethod || kmMethod) && (
+                <div className="mt-4 d-flex justify-content-end">
+                  <button type="button" className="kave-btn" onClick={submitJob}>
+                    <span className="kave-line"></span>
+                    Submit Job
+                  </button>
+                </div>
+              )}
             </Card>
           )}
           {incompatibilityMessage && (
@@ -346,40 +548,32 @@ function JobSubmissionForm() {
           <p className="fw-bold">Recommended if you're unsure about input quality.</p>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => {
-            setShowPreprocessPrompt(false);
-            submitJob();  // skip validation
-          }}>
-            Skip Validation – Predict Now
+          <Button variant="secondary" onClick={() => setShowPreprocessPrompt(false)}>
+            Cancel
           </Button>
           <Button variant="primary" onClick={async () => {
-          setShowPreprocessPrompt(false);
-          setIsValidating(true); // <-- SHOW OVERLAY
-          try {
-            const validation = await validateCsv();
-            const { invalid_substrates, invalid_proteins } = validation;
-
-            const formData = new FormData();
-            formData.append('file', csvFile);
-            const similarityResponse = await axios.post(`${apiBaseUrl}/api/sequence-similarity-summary/`, formData);
-            setSimilarityData(similarityResponse.data);
-
-            if (invalid_substrates.length > 0 || invalid_proteins.length > 0) {
+            setShowPreprocessPrompt(false);
+            setIsValidating(true);
+            try {
+              const validation = await validateCsv();
+              const { invalid_substrates, invalid_proteins } = validation;
+              const formData = new FormData();
+              formData.append('file', csvFile);
+              const similarityResponse = await axios.post(`${apiBaseUrl}/api/sequence-similarity-summary/`, formData);
+              setSimilarityData(similarityResponse.data);
               setSubmissionResult({ invalid_substrates, invalid_proteins });
-              setShowValidationModal(true);
-            } else {
-              setShowValidationPassedModal(true);
+              setShowValidationResults(true);               
+            } catch (err) {
+              alert('Validation failed. Please try again.' + err);
+              console.error('Validation error:', err);
+            } finally {
+              setIsValidating(false);
             }
-          } catch (err) {
-            alert('Validation failed. Please try again.' + err);
-            console.error('Validation error:', err);
-          } finally {
-            setIsValidating(false); 
-          }
-        }}>
-          Preprocess and Validate
-        </Button>
+          }}>
+            Run Validation
+          </Button>
         </Modal.Footer>
+
       </Modal>
 
       {/* Modal for Submission Result */}
@@ -403,68 +597,6 @@ function JobSubmissionForm() {
             }}
           >
             Track Job
-          </Button>
-        </Modal.Footer>
-      </Modal>
-      {/* 🔍 Modal for Validation Issues */}
-      <Modal show={showValidationModal} onHide={() => setShowValidationModal(false)} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title>Validation Results</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {submissionResult?.invalid_substrates?.length > 0 && (
-            <>
-              <p><strong>Invalid Substrates:</strong></p>
-              <ul>
-                {submissionResult.invalid_substrates.map((entry, i) => (
-                  <li key={i}>Row {entry.row}: {entry.reason}</li>
-                ))}
-              </ul>
-            </>
-          )}
-          <p className="mt-3">These rows will be excluded from prediction. Do you want to continue?</p>
-          {submissionResult?.invalid_proteins?.length > 0 && (
-            <>
-              <p><strong>Invalid Proteins:</strong></p>
-              <ul>
-                {submissionResult.invalid_proteins.map((entry, i) => (
-                  <li key={i}>Row {entry.row}: {entry.reason}</li>
-                ))}
-              </ul>
-            </>
-          )}
-          {similarityData && (
-            <SequenceSimilaritySummary similarityData={similarityData} />
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowValidationModal(false)}>Cancel</Button>
-          <Button variant="primary" onClick={() => {
-            setShowValidationModal(false);
-            submitJob();
-          }}>
-            Proceed Anyway
-          </Button>
-        </Modal.Footer>
-      </Modal>
-      {/* ✅ Modal: All Good */}
-      <Modal show={showValidationPassedModal} onHide={() => setShowValidationPassedModal(false)} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title>Validation Successful</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <p>✅ All entries are valid. No issues were found with your input data.</p>
-          {similarityData && (
-            <SequenceSimilaritySummary similarityData={similarityData} />
-          )}
-          <p>You may now proceed to run predictions.</p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="primary" onClick={() => {
-            setShowValidationPassedModal(false);
-            submitJob();  // proceed to run prediction
-          }}>
-            Proceed to Prediction
           </Button>
         </Modal.Footer>
       </Modal>

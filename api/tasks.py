@@ -84,7 +84,7 @@ def run_dlkcat_predictions(job_id):
         df = pd.read_csv(input_file_path)
         sequences = df['Protein Sequence'].tolist()
         substrates = df['Substrate'].tolist()
-        protein_ids = df.get('Protein Accession Number', []).tolist()
+        protein_ids = None
 
         # Run the predictions (molecule processing and tracking are handled inside)
         predictions, invalid_indices = dlkcat_predictions(
@@ -147,7 +147,7 @@ def run_turnup_predictions(job_id):
         sequences = df['Protein Sequence'].tolist()
         substrates = df['Substrates'].tolist()
         products = df['Products'].tolist()
-        protein_ids = df.get('Protein Accession Number', []).tolist()
+        protein_ids = None
 
         # Run the predictions (molecule processing and tracking are handled inside)
         predictions, invalid_indices = turnup_predictions(
@@ -209,7 +209,7 @@ def run_eitlem_predictions(job_id):
         df = pd.read_csv(input_file_path)
         sequences = df['Protein Sequence'].tolist()
         substrates = df['Substrate'].tolist()
-        protein_ids = df.get('Protein Accession Number', []).tolist()
+        protein_ids = None
 
         # Run the predictions (molecule processing and tracking are handled inside)
         predictions, invalid_indices = eitlem_predictions(
@@ -272,7 +272,7 @@ def run_unikp_predictions(job_id):
         df = pd.read_csv(input_file_path)
         sequences = df['Protein Sequence'].tolist()
         substrates = df['Substrate'].tolist()
-        protein_ids = df.get('Protein Accession Number', []).tolist()
+        protein_ids = None
 
         # Run the predictions (molecule processing and tracking are handled inside)
         predictions, invalid_indices = unikp_predictions(
@@ -341,7 +341,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
         # Read the CSV input file
         df = pd.read_csv(input_file_path)
         sequences = df['Protein Sequence'].tolist()
-        protein_ids = df.get('Protein Accession Number', []).tolist()
+        protein_ids = None
 
         # Initialize the DataFrame to store results
         results_df = df.copy()

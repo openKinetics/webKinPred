@@ -8,13 +8,19 @@ ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 function SequenceSimilarityHistogram({ similarityData }) {
   const models = similarityData ? Object.keys(similarityData) : [];
   const [activeModel, setActiveModel] = useState(models[0] || '');
+  const [similarityType, setSimilarityType] = useState('max'); // or 'mean'
 
   if (!similarityData) return null;
 
-  // Extract histogram and average for the active model
-  const histogram = similarityData[activeModel]?.histogram || {};
-  const averageSimilarity = similarityData[activeModel]?.average_similarity ?? null;
-
+  const modelData = similarityData[activeModel] || {};
+  const histogram = similarityType === 'mean'
+    ? modelData.histogram_mean || {}
+    : modelData.histogram_max || {};
+  
+  const averageSimilarity = similarityType === 'mean'
+    ? modelData.average_mean_similarity
+    : modelData.average_max_similarity;
+  
   // Sort identity bins numerically
   const labels = Object.keys(histogram)
     .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
@@ -24,7 +30,7 @@ function SequenceSimilarityHistogram({ similarityData }) {
   const data = {
     labels,
     datasets: [{
-      label: `% of input at this Identity`,
+      label: `% of input at similarity `,
       data: dataValues,
       backgroundColor: 'rgba(75,192,192,0.4)',
       borderColor: 'rgba(75,192,192,1)',
@@ -52,15 +58,9 @@ function SequenceSimilarityHistogram({ similarityData }) {
           title: (tooltipItems) =>
             tooltipItems.map(item => `${item.label}% Similarity`),
           label: (context) => {
-            let label = context.dataset.label || '';
-            if (label) {
-              label += ': ';
-            }
-            if (context.parsed.y !== null) {
-              label += parseFloat(context.parsed.y).toFixed(1) + '%';
-            }
-            return label;
-          }
+            const value = context.parsed.y;
+            return value !== null ? `${value.toFixed(1)}% of input is at this similarity` : '';
+          }          
         }
       }
     },
@@ -68,7 +68,8 @@ function SequenceSimilarityHistogram({ similarityData }) {
       x: {
         title: {
           display: true,
-          text: 'Max Sequence Similarity (%)',
+          text: `${similarityType === 'mean' ? 'Mean' : 'Max'} Sequence Similarity (%)`,
+
           color: 'white',
           font: { size: 14 }
         },
@@ -103,28 +104,46 @@ function SequenceSimilarityHistogram({ similarityData }) {
     <div className="mt-4">
       <h5 className="text-white">Sequence Similarity Histogram</h5>
       <p className="text-white">
-        Each input sequence is searched against the pre-created model training databases using mmseqs2.
-        The highest sequence identity for each query is rounded to the nearest percent (0–100%) and this histogram shows 
-        the percentage frequency for each identity value.
+        Each input sequence is searched against the pre-created model training databases using mmseqs2.<br />
+        The mean/max (toggle) sequence similarity for each query is rounded to the nearest percent (0–100%) and this histogram shows 
+        the percentage frequency for each similarity value.
         <br />
         Click a model below to toggle between the training datasets.
       </p>
 
-      <div className="mb-3">
-        {models.map(model => (
+      <div className="mb-3 d-flex align-items-center">
+        <div className="me-3">
+          {models.map(model => (
+            <button
+              key={model}
+              onClick={() => setActiveModel(model)}
+              className={`btn ${activeModel === model ? 'btn-primary' : 'btn-secondary'} me-2`}
+            >
+              {model}
+            </button>
+          ))}
+        </div>
+        <div className="btn-group" role="group" aria-label="Similarity Type Toggle">
           <button
-            key={model}
-            onClick={() => setActiveModel(model)}
-            className={`btn ${activeModel === model ? 'btn-primary' : 'btn-secondary'} me-2`}
+            type="button"
+            className={`btn ${similarityType === 'max' ? 'btn-light text-dark fw-bold' : 'btn-outline-light'}`}
+            onClick={() => setSimilarityType('max')}
           >
-            {model}
+            Max
           </button>
-        ))}
+          <button
+            type="button"
+            className={`btn ${similarityType === 'mean' ? 'btn-light text-dark fw-bold' : 'btn-outline-light'}`}
+            onClick={() => setSimilarityType('mean')}
+          >
+            Mean
+          </button>
+        </div>
       </div>
 
       {averageSimilarity !== null && (
         <div className="text-white mb-3">
-          <strong>Average Max Identity with {activeModel} Training Data:</strong> {averageSimilarity}%
+          <strong>Average {similarityType === 'mean' ? 'Mean' : 'Max'} Similarity with {activeModel} Training Data:</strong> {averageSimilarity}%
         </div>
       )}
 

@@ -131,32 +131,32 @@ def calculate_sequence_similarity_by_histogram(
         check=True
     )
     
-    def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str) -> dict:
+    def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str) -> tuple[dict, dict]:
         """
-        Runs mmseqs2 search using a pre-created query database and a pre-created target database.
-        Returns a dictionary mapping each query sequence id to its maximum percent identity found (as a float).
+        Returns:
+        - max_identity: max % identity per sequence
+        - mean_identity: mean % identity per sequence
         """
         tmp_dir = tempfile.mkdtemp()
         result_db = os.path.join(tmp_dir, "resultDB")
         result_file = os.path.join(tmp_dir, "result.m8")
-        
+
         try:
-            # Run the search.
             subprocess.run(
                 [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search", 
-                 query_db, target_db, result_db, tmp_dir],
+                query_db, target_db, result_db, tmp_dir],
                 check=True
             )
-            # Convert the results to a tab-delimited m8 file.
             subprocess.run(
                 [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
-                 query_db, target_db, result_db, result_file,
-                 "--format-output", "query,target,pident"],
+                query_db, target_db, result_db, result_file,
+                "--format-output", "query,target,pident"],
                 check=True
             )
-    
-            # Parse the m8 file for maximum percent identity per query.
+
             max_identity = {}
+            identity_lists = {}
+
             if os.path.exists(result_file):
                 with open(result_file, "r") as f:
                     for line in f:
@@ -168,48 +168,58 @@ def calculate_sequence_similarity_by_histogram(
                             pident = float(fields[2])
                         except ValueError:
                             continue
+
                         if query_id not in max_identity or pident > max_identity[query_id]:
                             max_identity[query_id] = pident
-            
-            # For queries with no hit, assign 0% identity.
+                        identity_lists.setdefault(query_id, []).append(pident)
+
+            # Assign 0.0 if no hit
             with open(query_file_path, "r") as f:
                 for line in f:
                     if line.startswith(">"):
                         qid = line[1:].strip()
                         if qid not in max_identity:
                             max_identity[qid] = 0.0
-            return max_identity
+                        if qid not in identity_lists:
+                            identity_lists[qid] = [0.0]
+
+            mean_identity = {k: sum(v)/len(v) for k, v in identity_lists.items()}
+            return max_identity, mean_identity
+
         finally:
             shutil.rmtree(tmp_dir)
-    
+
     # Prepare the final histogram dictionary.
     # For each method, create a histogram that maps each integer identity (as a string) to the percentage frequency.
     method_histograms = {}
     
     for method, target_db in target_dbs.items():
-        query_to_identity = run_mmseqs_search_with_precreated_query(query_db, target_db)
-    
-        # Initialize histogram for percent identities 0 through 100.
-        histogram_counts = {str(i): 0 for i in range(101)}
-        total_seqs = len(query_to_identity)
-    
-        for identity in query_to_identity.values():
-            # Round the identity to the nearest integer.
+        query_to_max, query_to_mean = run_mmseqs_search_with_precreated_query(query_db, target_db, query_file_path)
+        total_seqs = len(query_to_max)
+
+        # Histogram based on max identities
+        histogram_max = {str(i): 0 for i in range(101)}
+        for identity in query_to_max.values():
             identity_int = int(round(identity))
-            # Ensure the value is in range [0, 100].
             identity_int = max(0, min(100, identity_int))
-            histogram_counts[str(identity_int)] += 1
-    
-        # Convert counts to percentages.
-        histogram_percents = {key: (count / total_seqs * 100) if total_seqs > 0 else 0.0
-                              for key, count in histogram_counts.items()}
-        average_similarity = sum(query_to_identity.values()) / total_seqs if total_seqs > 0 else 0.0
+            histogram_max[str(identity_int)] += 1
+        histogram_max_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_max.items()}
+
+        # Histogram based on mean identities
+        histogram_mean = {str(i): 0 for i in range(101)}
+        for identity in query_to_mean.values():
+            identity_int = int(round(identity))
+            identity_int = max(0, min(100, identity_int))
+            histogram_mean[str(identity_int)] += 1
+        histogram_mean_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_mean.items()}
 
         method_histograms[method] = {
-            "histogram": histogram_percents,
-            "average_similarity": round(average_similarity, 2)
+            "histogram_max": histogram_max_perc,
+            "histogram_mean": histogram_mean_perc,
+            "average_max_similarity": round(sum(query_to_max.values()) / total_seqs, 2),
+            "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs, 2)
         }
-    
+
     # Clean up temporary files.
     os.remove(query_file_path)
     shutil.rmtree(temp_query_dir)
