@@ -32,49 +32,40 @@ function JobSubmissionForm() {
   const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
 
   const methodDetails = {
-    TurNup: {
-      description: 'Predicts kcat for each reaction given protein sequence + list of substrates + list of products.',
-      authors: 'Alexander Kroll, Yvan Rousset, Xiao-Pan Hu, Nina A. Liebrand & Martin J. Lercher',
-      publicationTitle: 'Turnover number predictions for kinetically uncharacterized enzymes using machine and deep learning',
-      citationUrl: 'https://www.nature.com/articles/s41467-023-39840-4',
-      moreInfo: 'Recommended to use for natural reactions of wild-type enzymes.'
+    UniKP: {
+      description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
+      authors: 'Han Yu, Huaxiang Deng, Jiahui He, Jay D. Keasling & Xiaozhou Luo',
+      publicationTitle: 'UniKP: a unified framework for the prediction of enzyme kinetic parameters',
+      citationUrl: 'https://www.nature.com/articles/s41467-023-44113-1',
+      repoUrl: 'https://github.com/Luo-SynBioLab/UniKP'
     },
     DLKcat: {
       description: 'Predicts kcat for a reaction given protein sequence + substrate.',
       authors: 'Feiran Li, Le Yuan, Hongzhong Lu, Gang Li, Yu Chen, Martin K. M. Engqvist, Eduard J. Kerkhoven & Jens Nielsen',
       publicationTitle: 'Deep learning-based kcat prediction enables improved enzyme-constrained model reconstruction',
       citationUrl: 'https://www.nature.com/articles/s41929-022-00798-z',
+      repoUrl: 'https://github.com/SysBioChalmers/DLKcat',
       moreInfo: ''
+    },
+    TurNup: {
+      description: 'Predicts kcat for each reaction given protein sequence + list of substrates + list of products.',
+      authors: 'Alexander Kroll, Yvan Rousset, Xiao-Pan Hu, Nina A. Liebrand & Martin J. Lercher',
+      publicationTitle: 'Turnover number predictions for kinetically uncharacterized enzymes using machine and deep learning',
+      citationUrl: 'https://www.nature.com/articles/s41467-023-39840-4',
+      repoUrl: 'https://github.com/AlexanderKroll/Kcat_prediction',
+      moreInfo: 'Recommended to use for natural reactions of wild-type enzymes.'
     },
     EITLEM: {
       description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
       authors: 'Xiaowei Shen, Ziheng Cui, Jianyu Long, Shiding Zhang, Biqiang Chen, Tianwei Tan',
       publicationTitle: 'EITLEM-Kinetics: A deep-learning framework for kinetic parameter prediction of mutant enzymes',
       citationUrl: 'https://www.sciencedirect.com/science/article/pii/S2667109324002665',
-      moreInfo: 'Recommended to use for reactions that include mutants'
+      repoUrl: 'https://github.com/XvesS/EITLEM-Kinetics',
+      moreInfo: 'Recommended to use for mutants'
     },
-    UniKP: {
-      description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
-      authors: 'Han Yu, Huaxiang Deng, Jiahui He, Jay D. Keasling & Xiaozhou Luo',
-      publicationTitle: 'UniKP: a unified framework for the prediction of enzyme kinetic parameters',
-      citationUrl: 'https://www.nature.com/articles/s41467-023-44113-1'
-    }
+
   };
   
-  
-  const incompatibleMethods = [
-    {
-      kcatMethod: 'TurNup',
-      kmMethod: 'EITLEM',
-      message: 'TurNup is not compatible with EITLEM-Kinetics when predicting both kcat and KM. Please select compatible methods. TurNup expects a list of substrates and products, while EITLEM-Kinetics expects a single substrate. In FAQ, we explain how to use single-substrate data.' 
-    },
-    {
-      kcatMethod: 'TurNup',
-      kmMethod: 'UniKP',
-      message: 'TurNup is not compatible with EITLEM-Kinetics when predicting both kcat and KM. Please select compatible methods. TurNup expects a list of substrates and products, while UniKP expects a single substrate. In FAQ, we explain how to use single-substrate data.'
-    },
-    
-  ];
   function MethodDetails({ methodKey, citationOnly = false }) {
     const method = methodDetails[methodKey];
     if (!method) return null;
@@ -82,11 +73,11 @@ function JobSubmissionForm() {
     return (
       <Alert variant="info" className="mt-3">
         {!citationOnly && <p>{method.description}</p>}
-        {method.citation && method.citationUrl && (
+        {method.publicationTitle && method.citationUrl && (
           <p>
             <strong>Publication: </strong>
             <a href={method.citationUrl} target="_blank" rel="noopener noreferrer">
-              {method.citation}
+              {method.publicationTitle}
             </a>
           </p>
         )}
@@ -96,35 +87,6 @@ function JobSubmissionForm() {
       </Alert>
     );
   }
-  
-  const checkCompatibility = (kcatMethod, kmMethod) => {
-    if (predictionType !== 'both') {
-      // Methods are compatible by default when not predicting both
-      setIncompatibilityMessage('');
-      return true;
-    }
-    if (kcatMethod && kmMethod) {
-      const incompatibility = incompatibleMethods.find(
-        combo =>
-          combo.kcatMethod === kcatMethod &&
-          combo.kmMethod === kmMethod
-      );
-      if (incompatibility) {
-        setIncompatibilityMessage(incompatibility.message);
-        return false;
-      }
-    }
-    // Clear the message if compatible or methods are not both selected yet
-    setIncompatibilityMessage('');
-    return true;
-  };
-  useEffect(() => {
-    if (predictionType === 'both' && kcatMethod && kmMethod) {
-      checkCompatibility(kcatMethod, kmMethod);
-    } else {
-      setIncompatibilityMessage('');
-    }
-  }, [predictionType, kcatMethod, kmMethod]);
   useEffect(() => {
     if (predictionType) {
       // Reset method selections and detail views if predictionType is pre-set on mount
@@ -245,12 +207,17 @@ function JobSubmissionForm() {
                 </li>
               </ul>
 
+              <p className="ps-3" style={{ marginLeft: '1rem' }}>
+                You can also use multi-substrate data for KM predictions. Each substrate in the <code>Substrates</code> column will receive its own KM prediction, returned as a semicolon-separated list.  
+                <br />
+                If using single-substrate data, one KM value will be predicted per row.
+              </p>
               <h6>📥 Example Templates:</h6>
               <ul>
                 <li><a href="/templates/single_substrate_template.csv" download>Download single-substrate template</a></li>
                 <li><a href="/templates/multi_substrate_template.csv" download>Download multi-substrate template</a></li>
               </ul>
-              <h4 className="mt-5 mb-3">🧠 Available Prediction Methods</h4>
+              <h4 className="mt-5 mb-3">📔 Available Prediction Methods</h4>
               <Row>
                 {Object.entries(methodDetails).map(([key, method]) => (
                   <Col md={6} key={key} className="mb-4">
@@ -272,30 +239,58 @@ function JobSubmissionForm() {
                         )}
 
                         {method.publicationTitle && method.citationUrl && (
-                          <p
-                            className="mb-0"
-                            style={{
-                              wordBreak: 'break-word',
-                              overflowWrap: 'anywhere',
-                            }}
-                          >
-                            <strong>Publication:</strong>{' '}
-                            <a
-                              href={method.citationUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                textDecoration: 'underline',
-                                color: '#a0d2eb',
-                                fontSize: '0.95rem',
-                                display: 'inline',
-                                whiteSpace: 'normal',
-                                wordBreak: 'break-word',
-                              }}
-                            >
-                              {method.publicationTitle}
-                            </a>
-                          </p>
+                          <div>
+                            <p className="mb-2" style={{ wordBreak: 'break-word' }}>
+                              <strong>Publication:</strong>{' '}
+                              <a
+                                href={method.citationUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  textDecoration: 'underline',
+                                  color: '#a0d2eb',
+                                  fontSize: '0.95rem',
+                                }}
+                              >
+                                {method.publicationTitle}
+                              </a>
+                            </p>
+
+                            <hr style={{ borderTop: '1px solid #444', marginTop: '0.5rem', marginBottom: '0.5rem' }} />
+
+                            {/* GitHub repo link with icon */}
+                            {method.repoUrl && (
+                              <p className="mb-0">
+                                <a
+                                  href={method.repoUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    textDecoration: 'none',
+                                    color: '#8dcaff',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 500
+                                  }}
+                                >
+                                  {/* GitHub SVG icon */}
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="16"
+                                    height="16"
+                                    fill="currentColor"
+                                    className="me-1"
+                                    viewBox="0 0 16 16"
+                                    style={{ marginRight: '6px' }}
+                                  >
+                                    <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.52-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                                  </svg>
+                                  GitHub Repository
+                                </a>
+                              </p>
+                            )}
+                          </div>
                         )}
                       </Card.Body>
                     </Card>
