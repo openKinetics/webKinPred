@@ -16,17 +16,15 @@ def submit_job(request):
         prediction_type = request.POST.get('predictionType')
         kcat_method = request.POST.get('kcatMethod')
         km_method = request.POST.get('kmMethod')
-
         # Check if the file is a CSV
         if not file.name.endswith('.csv'):
             return JsonResponse({'error': 'File format not supported. Please upload a CSV file.'}, status=400)
-    
         try:
             # Read the uploaded CSV file directly from the file object
             df = pd.read_csv(file)
         except Exception as e:
             return JsonResponse({'error': f'Error reading file: {str(e)}'}, status=400)
-        required_columns = ['Protein Sequence', 'Protein Accession Number']
+        required_columns = ['Protein Sequence']
 
         # Determine additional required columns based on the selected method
         if kcat_method == 'TurNup':
@@ -123,3 +121,35 @@ def job_status(request, job_id):
     if job.status == 'Completed' and job.output_file:
         response_data['output_file_url'] = settings.MEDIA_URL + job.output_file.name
     return JsonResponse(response_data)
+
+@csrf_exempt
+def detect_csv_format(request):
+    if request.method != 'POST' or 'file' not in request.FILES:
+        return JsonResponse({'error': 'POST with CSV file required.'}, status=400)
+
+    file = request.FILES['file']
+    try:
+        df = pd.read_csv(file)
+    except Exception as e:
+        return JsonResponse({'status': 'invalid', 'errors': [f'Error reading CSV: {str(e)}']}, status=400)
+
+    errors = []
+    required_cols = {'Protein Sequence'}
+    has_substrate = 'Substrate' in df.columns
+    has_substrates_products = 'Substrates' in df.columns and 'Products' in df.columns
+
+    if not required_cols.issubset(df.columns):
+        errors.append("Missing required column: 'Protein Sequence'")
+
+    if not has_substrate and not has_substrates_products:
+        errors.append("Missing substrate information: expected either 'Substrate' or both 'Substrates' and 'Products'")
+
+    if errors:
+        return JsonResponse({'status': 'invalid', 'errors': errors})
+
+    if has_substrates_products:
+        return JsonResponse({'status': 'valid', 'csv_type': 'multi'})
+    elif has_substrate:
+        return JsonResponse({'status': 'valid', 'csv_type': 'single'})
+    else:
+        return JsonResponse({'status': 'invalid', 'errors': ['Could not determine format.']}, status=400)

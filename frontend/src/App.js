@@ -20,9 +20,8 @@ function App() {
             <Route path="/" element={<JobSubmissionForm />} />
             <Route path="/track-job/:jobId" element={<JobStatus />} />
             <Route path="/track-job" element={<JobStatus />} />
-+           <Route path="/about" element={<About />} />
-+           <Route path="/faq" element={<FAQ />} />
-+           <Route path="/evaluation" element={<Evaluation />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/evaluation" element={<Evaluation />} />
           </Routes>
         </main>
         <Footer />

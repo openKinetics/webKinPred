@@ -33,7 +33,7 @@ function JobStatus() {
           });
       };
       fetchJobStatus();
-      intervalId = setInterval(fetchJobStatus, 5000); // Poll every 2 seconds
+      intervalId = setInterval(fetchJobStatus, 500); 
     }
 
     return () => {
