@@ -336,6 +336,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
     job.predictions_made = 0
     job.total_predictions = 0
     job.save()
+    multisub = False
 
     try:
         # Read the CSV input file
@@ -395,6 +396,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             )
             results_df['kcat (1/s)'] = kcat_predictions
             invalid_indices.update(kcat_invalid_indices)
+            multisub = True
         
         elif kcat_method == 'UniKP': 
             if 'Substrate' not in df.columns:
@@ -421,39 +423,66 @@ def run_both_predictions(job_id, kcat_method, km_method):
         job.total_predictions = 0
         job.save()
 
+        # If multisubstrate format, augment KM input
+        if multisub:
+            augmented_rows = []  # For storing (original_idx, sequence, substrate)
+            for idx, row in df.iterrows():
+                smi_list = [s.strip() for s in str(row['Substrates']).split(';') if s.strip()]
+                for smi in smi_list:
+                    augmented_rows.append({
+                        'original_idx': idx,
+                        'sequence': row['Protein Sequence'],
+                        'substrate': smi
+                    })
+            # Create augmented DataFrame
+            augmented_df = pd.DataFrame(augmented_rows)
+            aug_sequences = augmented_df['sequence'].tolist()
+            aug_substrates = augmented_df['substrate'].tolist()
+
         # Run KM predictions
         if km_method == 'EITLEM':
-            if 'Substrate' not in df.columns:
+            if not multisub and 'Substrate' not in df.columns:
                 raise ValueError('Missing "Substrate" column required for EITLEM KM predictions.')
-            substrates = df['Substrate'].tolist()
+            sequences_km = aug_sequences if multisub else sequences
+            substrates_km = aug_substrates if multisub else df['Substrate'].tolist()
 
             # Run EITLEM KM predictions
             km_predictions, km_invalid_indices = eitlem_predictions(
-                sequences=sequences,
-                substrates=substrates,
+                sequences=sequences_km,
+                substrates=substrates_km,
                 jobID=job.job_id,
                 protein_ids=protein_ids,
                 kinetics_type='KM'
             )
-            results_df['KM (mM)'] = km_predictions
             invalid_indices.update(km_invalid_indices)
         elif km_method == 'UniKP':
-            if 'Substrate' not in df.columns:
+            if not multisub and 'Substrate' not in df.columns:
                 raise ValueError('Missing "Substrate" column required for UniKP KM predictions.')
-            substrates = df['Substrate'].tolist()
-
-            # Run UniKP KM predictions
+            sequences_km = aug_sequences if multisub else sequences
+            substrates_km = aug_substrates if multisub else df['Substrate'].tolist()
+            # Run UniKP KM predictions  
             km_predictions, km_invalid_indices = unikp_predictions(
-                sequences=sequences,
-                substrates=substrates,
+                sequences=sequences_km,
+                substrates=substrates_km,
                 jobID=job.job_id,
                 protein_ids=protein_ids,
                 kinetics_type='KM'
             )
-            results_df['KM (mM)'] = km_predictions
             invalid_indices.update(km_invalid_indices)
         else:
             raise ValueError('Invalid KM method.')
+        
+        if multisub:
+            # Convert predictions to semicolon-separated format per original row
+            from collections import defaultdict
+            km_map = defaultdict(list)
+            for row_idx, pred in zip(augmented_df['original_idx'], km_predictions):
+                km_map[row_idx].append(str(pred))
+
+            km_merged = [ ';'.join(km_map[i]) for i in range(len(df)) ]
+            results_df['KM (mM)'] = km_merged
+        else:
+            results_df['KM (mM)'] = km_predictions
 
         # Reorder columns to have 'kcat' and 'KM' at the front
         cols = ['kcat (1/s)', 'KM (mM)'] + [col for col in results_df.columns if col not in ['kcat (1/s)', 'KM (mM)']]
