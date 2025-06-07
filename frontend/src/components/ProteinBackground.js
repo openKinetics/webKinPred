@@ -1,159 +1,390 @@
-// ProteinBackground.js
 import React, { useRef, useEffect } from 'react';
-import './ProteinBackground.css';
 
-/* ---------- CONFIG ---------- */
+/* -------------------------- CONFIGURATION -------------------------- */
+// This object holds all the tweakable parameters for the simulation.
+// User's preferred values have been kept.
 const CFG = {
-  atomCount       : 2000,
-  ringCount       : 100,
-  connectDist     : 60,        // px for bonds
-  fadeScrollPx    : 800,
-  atomSpeed       : 0.22,
-  ringSpeed       : 0.01,
-  ringRadiusRange : [7, 28],  // px hexagon radius
-  globalAlphaFactor : 0.1,  
-};
-/* Basic CPK palette + letters */
-const ELEM_PALETTE = [
-  {sym:'C', col:'#7f8c8d'},
-  {sym:'O', col:'#e74c3c'},
-  {sym:'N', col:'#3498db'},
-  {sym:'P', col:'#f1c40f'},
-  {sym:'S', col:'#f39c12'}
-];
+    enzymeCount: 100,          // Number of enzyme structures
+    moleculeCount: 500,       // Number of substrate/product molecules
+    
+    // --- Visuals & Colors ---
+    enzymeColor: 'rgba(100, 120, 150, 0.7)',  // Cool, professional blue-gray for the enzyme
+    substrateColor: '#3498db', // A distinct blue for the substrate
+    productColor: '#e74c3c',   // A contrasting red for the product
+    enzymeGlowColor: 'rgba(100, 120, 150, 0.1)',
+    substrateGlowColor: 'rgba(52, 152, 219, 0.15)',
+    productGlowColor: 'rgba(231, 76, 60, 0.2)',
 
+    // --- Physics & Behavior ---
+    moleculeSpeed: 0.2,        // Base speed for wandering molecules
+    enzymeDriftSpeed: 0.08,      // How much the enzymes slowly drift
+    enzymeRotationSpeed: 0.005, // Base rotation speed for enzymes
+    
+    // --- Kinetics Parameters ---
+    bindingRadius: 120,        // (px) How close a substrate must be to be "attracted"
+    bindingDistance: 0.8,        // (px) How close a substrate must be to "dock"
+    bindingDepthFactor: 0.2,   // How deep inside the enzyme the molecule goes (0=edge, 1=center)
+    releaseDistance: 200,      // (px) How far a product must travel before resetting
+    releaseSpeed: 0.25,         // The gentle speed at which products leave the enzyme
+    affinityRange: [0.2, 1.0], // Range for KM (binding affinity). Higher value = stronger attraction.
+    kcatRange: [20, 1000],    // Range for kcat (turnover rate). Value is frames, so lower = faster turnover.
+
+    // --- Spawning Parameters ---
+    minEnzymeDistance: 200,      // (px) Minimum distance between enzymes at spawn
+    maxSpawnAttempts: 50,      // Failsafe for the enzyme spawning algorithm
+    minMoleculeDistance: 15,     // NEW: Minimum distance between spawned molecules
+    maxMoleculeSpawnAttempts: 20, // NEW: Failsafe for molecule spawning
+
+    // --- Global Effects ---
+    globalAlphaFactor: 0.17,     // Overall transparency of the animation
+    fadeScrollPx: 900,         // How many pixels of scrolling to fade out the animation
+};
+
+
+/**
+ * A React component that renders a beautiful, lightweight, and scientifically-themed
+ * animated background representing enzyme kinetics (KM and kcat).
+ * Includes uniform enzyme distribution and more realistic binding/release mechanics.
+ */
 function ProteinBackground() {
   const canvasRef = useRef(null);
-  const atoms     = useRef([]);
-  const rings     = useRef([]);
-  const fade      = useRef(1);
-  const RAF       = useRef(null);
+  const entities = useRef({ enzymes: [], molecules: [] });
+  const fadeEffect = useRef(1); // For fade-on-scroll effect
+  const animationFrameId = useRef(null);
 
-  const R = (a,b)=>Math.random()*(b-a)+a;
+  // Utility to generate a random number in a given range
+  const R = (min, max) => Math.random() * (max - min) + min;
 
-  /* ---------- spawn atoms & rings ---------- */
-  const spawnEntities = (w,h)=>{
-    atoms.current = Array.from({length:CFG.atomCount},()=>({
-      x:R(0,w),y:R(0,h),r:R(1.5,3.5),
-      vx:R(-CFG.atomSpeed,CFG.atomSpeed),
-      vy:R(-CFG.atomSpeed,CFG.atomSpeed),
-      ...ELEM_PALETTE[Math.floor(Math.random()*ELEM_PALETTE.length)]
-    }));
-    rings.current = Array.from({length:CFG.ringCount},()=>({
-      cx:R(0,w),cy:R(0,h),
-      r:R(...CFG.ringRadiusRange),
-      rot:R(0,Math.PI*2),
-      vr:R(-CFG.ringSpeed,CFG.ringSpeed)
-    }));
+  /* -------------------------- ENTITY SPAWNING -------------------------- */
+  // Initializes the enzymes and molecules with random properties.
+  const spawnEntities = (width, height) => {
+    // --- Spawn Enzymes with Uniform Distribution ---
+    const enzymes = [];
+    for (let i = 0; i < CFG.enzymeCount; i++) {
+        let attempts = 0;
+        while (attempts < CFG.maxSpawnAttempts) {
+            const newEnzyme = {
+                id: Math.random(),
+                x: R(0, width),
+                y: R(0, height),
+                radius: R(20, 40),
+                rotation: R(0, Math.PI * 2),
+                rotationSpeed: R(-CFG.enzymeRotationSpeed, CFG.enzymeRotationSpeed),
+                driftVx: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
+                driftVy: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
+                bindingAffinity: R(...CFG.affinityRange),
+                catalyticRate: R(...CFG.kcatRange),
+                activeSiteAngle: Math.floor(R(0, 6)) * (Math.PI / 3),
+                boundMoleculeId: null,
+            };
+
+            let isOverlapping = false;
+            for (const existingEnzyme of enzymes) {
+                const dist = Math.hypot(newEnzyme.x - existingEnzyme.x, newEnzyme.y - existingEnzyme.y);
+                if (dist < (newEnzyme.radius + existingEnzyme.radius + CFG.minEnzymeDistance)) {
+                    isOverlapping = true;
+                    break;
+                }
+            }
+
+            if (!isOverlapping) {
+                enzymes.push(newEnzyme);
+                break;
+            }
+            attempts++;
+        }
+    }
+    entities.current.enzymes = enzymes;
+
+
+    // --- Spawn Molecules with Uniform Distribution ---
+    const molecules = [];
+    for (let i = 0; i < CFG.moleculeCount; i++) {
+        let attempts = 0;
+        while (attempts < CFG.maxMoleculeSpawnAttempts) {
+            const newMolecule = {
+                id: Math.random(),
+                x: R(0, width),
+                y: R(0, height),
+                vx: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
+                vy: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
+                radius: R(3, 5.5),
+                state: 'wandering',
+                targetEnzymeId: null,
+                boundTimer: 0,
+            };
+
+            let isOverlapping = false;
+            // Check against other molecules
+            for (const existingMolecule of molecules) {
+                const dist = Math.hypot(newMolecule.x - existingMolecule.x, newMolecule.y - existingMolecule.y);
+                if (dist < (newMolecule.radius + existingMolecule.radius + CFG.minMoleculeDistance)) {
+                    isOverlapping = true;
+                    break;
+                }
+            }
+            
+            if (isOverlapping) {
+                attempts++;
+                continue; // Try a new position
+            }
+
+            // Also check against enzymes to avoid spawning inside one
+            for (const enzyme of enzymes) {
+                const dist = Math.hypot(newMolecule.x - enzyme.x, newMolecule.y - enzyme.y);
+                if (dist < enzyme.radius + newMolecule.radius) { // Check against outer radius
+                    isOverlapping = true;
+                    break;
+                }
+            }
+            
+            if (!isOverlapping) {
+                molecules.push(newMolecule);
+                break; // Exit the attempt loop and move to the next molecule
+            }
+            attempts++;
+        }
+    }
+    entities.current.molecules = molecules;
   };
 
-  /* ---------- drawing helpers ---------- */
-  const drawAtom = (ctx,a)=>{
-    // glow
-    ctx.fillStyle=`${a.col}22`;
-    ctx.beginPath();ctx.arc(a.x,a.y,a.r*2.2,0,2*Math.PI);ctx.fill();
-    // core
-    ctx.fillStyle=a.col;
-    ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,2*Math.PI);ctx.fill();
-    // letter
-    ctx.fillStyle='#ffffff';
-    ctx.font=`${a.r*2.2}px Arial`;
-    ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(a.sym,a.x,a.y);
-  };
+  /* -------------------------- DRAWING HELPERS -------------------------- */
+  // Draws a single enzyme structure with an "active site" gap.
+  const drawEnzyme = (ctx, enzyme) => {
+    ctx.save();
+    ctx.translate(enzyme.x, enzyme.y);
+    ctx.rotate(enzyme.rotation);
 
-  const drawBond = (ctx,a,b,d)=>{
-    const alpha=1-d/CFG.connectDist;
-    const thickness=d<CFG.connectDist*0.6?1.1:d<CFG.connectDist*0.45?2.2:3.3; // single/double/triple
-    ctx.strokeStyle=`rgba(72,180,224,${alpha*0.25})`;
-    ctx.lineWidth=thickness;
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-  };
-
-  const drawRing = (ctx,r)=>{
-    const {cx,cy}=r;
-    ctx.strokeStyle='rgba(255,255,255,.25)';
-    ctx.lineWidth=1.4;
+    // Glow effect
+    ctx.fillStyle = CFG.enzymeGlowColor;
     ctx.beginPath();
-    for(let i=0;i<6;i++){
-      const ang=r.rot+i*Math.PI/3;
-      const x=cx+Math.cos(ang)*r.r;
-      const y=cy+Math.sin(ang)*r.r;
-      ctx[i?'lineTo':'moveTo'](x,y);
+    ctx.arc(0, 0, enzyme.radius * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Main structure
+    ctx.strokeStyle = CFG.enzymeColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    // This logic now correctly creates an opening in the hexagon.
+    const activeSiteSegment = Math.floor(enzyme.activeSiteAngle / (Math.PI / 3));
+
+    for (let i = 0; i <= 6; i++) {
+        const vertexIndex = i % 6;
+        
+        const angle = vertexIndex * Math.PI / 3;
+        const x = Math.cos(angle) * enzyme.radius;
+        const y = Math.sin(angle) * enzyme.radius;
+        
+        const prevVertexIndex = (i - 1 + 6) % 6;
+
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else if (prevVertexIndex === activeSiteSegment) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
     }
-    ctx.closePath();ctx.stroke();
-    // draw small atoms at corners
-    for(let i=0;i<6;i++){
-      const ang=r.rot+i*Math.PI/3;
-      const x=cx+Math.cos(ang)*r.r;
-      const y=cy+Math.sin(ang)*r.r;
-      ctx.fillStyle='#7f8c8d';
-      ctx.beginPath();ctx.arc(x,y,2.5,0,2*Math.PI);ctx.fill();
-    }
+    
+    ctx.stroke();
+    ctx.restore();
   };
 
-  /* ---------- animation ---------- */
-  const animate=()=>{
-    const cvs=canvasRef.current;if(!cvs)return;
-    const ctx=cvs.getContext('2d');
-    const {width:w,height:h}=cvs.getBoundingClientRect();
-    ctx.clearRect(0,0,w,h);
-    ctx.globalAlpha = fade.current * CFG.globalAlphaFactor;
+  const drawMolecule = (ctx, molecule) => {
+    // A molecule is a "product" if it's being released, or if it has been bound for a bit.
+    const isProduct = molecule.state === 'releasing' || (molecule.state === 'bound' && molecule.boundTimer < molecule.initialBindTime / 1.5);
+    const color = isProduct ? CFG.productColor : CFG.substrateColor;
+    const glowColor = isProduct ? CFG.productGlowColor : CFG.substrateGlowColor;
 
-    /* rings first (behind) */
-    rings.current.forEach(r=>{
-      r.rot+=r.vr;
-      r.cx+=r.vr*20; // gentle drift
-      r.cy+=r.vr*14;
-      if(r.cx<-r.r) r.cx=w+r.r;
-      if(r.cx>w+r.r)r.cx=-r.r;
-      if(r.cy<-r.r) r.cy=h+r.r;
-      if(r.cy>h+r.r)r.cy=-r.r;
-      drawRing(ctx,r);
+    // Glow
+    ctx.fillStyle = glowColor;
+    ctx.beginPath();
+    ctx.arc(molecule.x, molecule.y, molecule.radius * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(molecule.x, molecule.y, molecule.radius, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+
+  /* -------------------------- ANIMATION LOOP -------------------------- */
+  const animate = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas.getBoundingClientRect();
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = fadeEffect.current * CFG.globalAlphaFactor;
+
+    const { enzymes, molecules } = entities.current;
+
+    // --- Update and Draw Enzymes ---
+    enzymes.forEach(enzyme => {
+      enzyme.rotation += enzyme.rotationSpeed;
+      enzyme.x += enzyme.driftVx;
+      enzyme.y += enzyme.driftVy;
+      
+      if (enzyme.x < -enzyme.radius) enzyme.x = width + enzyme.radius;
+      if (enzyme.x > width + enzyme.radius) enzyme.x = -enzyme.radius;
+      if (enzyme.y < -enzyme.radius) enzyme.y = height + enzyme.radius;
+      if (enzyme.y > height + enzyme.radius) enzyme.y = -enzyme.radius;
+
+      drawEnzyme(ctx, enzyme);
     });
 
-    /* atoms */
-    atoms.current.forEach(a=>{
-      a.x+=a.vx;a.y+=a.vy;
-      if(a.x<0||a.x>w)a.vx*=-1;
-      if(a.y<0||a.y>h)a.vy*=-1;
-      drawAtom(ctx,a);
-    });
+    // --- Update and Draw Molecules (The Core Kinetic Logic) ---
+    molecules.forEach(mol => {
+      const enzyme = mol.targetEnzymeId ? enzymes.find(e => e.id === mol.targetEnzymeId) : null;
+      
+      switch (mol.state) {
+        case 'wandering': {
+          mol.x += mol.vx;
+          mol.y += mol.vy;
+          if (mol.x < 0 || mol.x > width) { mol.vx *= -1; mol.x = Math.max(0, Math.min(width, mol.x)); }
+          if (mol.y < 0 || mol.y > height) { mol.vy *= -1; mol.y = Math.max(0, Math.min(height, mol.y)); }
 
-    /* bonds */
-    for(let i=0;i<atoms.current.length;i++){
-      const A=atoms.current[i];
-      for(let j=i+1;j<atoms.current.length;j++){
-        const B=atoms.current[j];
-        const dx=A.x-B.x;if(Math.abs(dx)>CFG.connectDist)continue;
-        const dy=A.y-B.y;if(Math.abs(dy)>CFG.connectDist)continue;
-        const d=Math.hypot(dx,dy);
-        if(d<CFG.connectDist) drawBond(ctx,A,B,d);
+          for (const e of enzymes) {
+            if (e.boundMoleculeId) continue;
+            const dist = Math.hypot(mol.x - e.x, mol.y - e.y);
+            if (dist < CFG.bindingRadius) {
+              mol.state = 'approaching';
+              mol.targetEnzymeId = e.id;
+              break;
+            }
+          }
+          break;
+        }
+
+        case 'approaching': {
+          if (!enzyme || enzyme.boundMoleculeId) {
+            mol.state = 'wandering';
+            mol.targetEnzymeId = null;
+            break;
+          }
+
+          // The target is now INSIDE the enzyme, through the active site opening
+          const angle = enzyme.rotation + enzyme.activeSiteAngle;
+          const targetX = enzyme.x + Math.cos(angle) * (enzyme.radius * CFG.bindingDepthFactor);
+          const targetY = enzyme.y + Math.sin(angle) * (enzyme.radius * CFG.bindingDepthFactor);
+          
+          const dx = targetX - mol.x;
+          const dy = targetY - mol.y;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist < CFG.bindingDistance) {
+            mol.state = 'bound';
+            mol.boundTimer = enzyme.catalyticRate;
+            mol.initialBindTime = enzyme.catalyticRate; // Store for color change logic
+            enzyme.boundMoleculeId = mol.id;
+          } else {
+            const speedFactor = CFG.moleculeSpeed * 2 * enzyme.bindingAffinity;
+            mol.x += (dx / dist) * speedFactor;
+            mol.y += (dy / dist) * speedFactor;
+          }
+          break;
+        }
+
+        case 'bound': {
+          if (!enzyme) {
+            mol.state = 'wandering';
+            break;
+          }
+          // Stick to the internal binding site
+          const angle = enzyme.rotation + enzyme.activeSiteAngle;
+          mol.x = enzyme.x + Math.cos(angle) * (enzyme.radius * CFG.bindingDepthFactor);
+          mol.y = enzyme.y + Math.sin(angle) * (enzyme.radius * CFG.bindingDepthFactor);
+
+          mol.boundTimer--;
+          if (mol.boundTimer <= 0) {
+            mol.state = 'releasing';
+          }
+          break;
+        }
+
+        case 'releasing': {
+          if (!enzyme) {
+              mol.state = 'wandering';
+              mol.targetEnzymeId = null;
+              break;
+          }
+          
+          // --- GENTLE RELEASE a.k.a. Diffusion ---
+          const releaseAngle = enzyme.rotation + enzyme.activeSiteAngle;
+          mol.vx = Math.cos(releaseAngle) * CFG.releaseSpeed;
+          mol.vy = Math.sin(releaseAngle) * CFG.releaseSpeed;
+          mol.x += mol.vx;
+          mol.y += mol.vy;
+
+          const distFromEnzyme = Math.hypot(mol.x - enzyme.x, mol.y - enzyme.y);
+          
+          if (distFromEnzyme > CFG.releaseDistance) {
+             mol.state = 'wandering';
+             enzyme.boundMoleculeId = null;
+             mol.targetEnzymeId = null;
+             mol.vx = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
+             mol.vy = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
+          }
+          break;
+        }
       }
-    }
+      drawMolecule(ctx, mol);
+    });
 
-    RAF.current=requestAnimationFrame(animate);
+    animationFrameId.current = requestAnimationFrame(animate);
   };
 
-  /* ---------- effect ---------- */
-  useEffect(()=>{
-    const cvs=canvasRef.current,ctx=cvs.getContext('2d');
-    const resize=()=>{const {width:w,height:h}=cvs.getBoundingClientRect();
-      const s=window.devicePixelRatio||1;ctx.setTransform(1,0,0,1,0,0);
-      cvs.width=w*s;cvs.height=h*s;ctx.scale(s,s);spawnEntities(w,h);};
-    resize();
+  /* -------------------------- LIFECYCLE HOOK -------------------------- */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let resizeObserver;
 
-    RAF.current=requestAnimationFrame(animate);
+    const handleResize = () => {
+      const { width, height } = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+      spawnEntities(width, height);
+    };
+    
+    const handleScroll = () => {
+        const scrollY = window.scrollY || window.pageYOffset;
+        fadeEffect.current = Math.max(0, 1 - scrollY / CFG.fadeScrollPx);
+    };
 
-    const ro=new ResizeObserver(()=>resize());ro.observe(cvs);
-    const scroll=()=>{fade.current=Math.max(0,1-(window.scrollY||0)/CFG.fadeScrollPx);};
-    window.addEventListener('scroll',scroll);scroll();
+    handleResize();
+    handleScroll();
+    animationFrameId.current = requestAnimationFrame(animate);
 
-    /* cleanup */
-    return()=>{window.removeEventListener('scroll',scroll);ro.disconnect();cancelAnimationFrame(RAF.current);};
-  },[]);
+    resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(canvas);
 
-  return <canvas ref={canvasRef} className="protein-bg-canvas" aria-hidden="true"/>;
+    window.addEventListener('scroll', handleScroll);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (resizeObserver) resizeObserver.disconnect();
+      if(animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+    };
+  }, []);
+
+  const style = {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100vh',
+      zIndex: -1,
+      display: 'block',
+  };
+
+  return <canvas ref={canvasRef} style={style} aria-hidden="true" />;
 }
 
 export default ProteinBackground;
