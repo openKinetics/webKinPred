@@ -16,6 +16,8 @@ def submit_job(request):
         prediction_type = request.POST.get('predictionType')
         kcat_method = request.POST.get('kcatMethod')
         km_method = request.POST.get('kmMethod')
+        handleLongSeq = request.POST.get('handleLongSequences')
+        assert handleLongSeq in ['truncate', 'skip'], "Invalid handleLongSeq value. Expected 'truncate' or 'skip'."
         # Check if the file is a CSV
         if not file.name.endswith('.csv'):
             return JsonResponse({'error': 'File format not supported. Please upload a CSV file.'}, status=400)
@@ -44,7 +46,8 @@ def submit_job(request):
             prediction_type=prediction_type,
             kcat_method=kcat_method,
             km_method=km_method,
-            status='Pending'
+            status='Pending',
+            handle_long_sequences=handleLongSeq,
         )
         job.save()
         print("Saved Job:", job.job_id)

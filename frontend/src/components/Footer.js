@@ -10,7 +10,7 @@ function Footer() {
     <footer className="custom-footer">
       <div className="footer-content">
         <p className="footer-text">
-          &copy; {new Date().getFullYear()} KineticXPredictor
+          KineticXPredictor
         </p>
         <p className="funding-statement">
           Recon4IMD is co-funded by the European Union's Horizon Europe Framework Programme (101080997).

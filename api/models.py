@@ -13,7 +13,10 @@ class Job(models.Model):
     completion_time = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
     output_file = models.FileField(upload_to='jobs/%Y/%m/%d/', null=True, blank=True)
-
+    handle_long_sequences = models.CharField(max_length=100, default='truncate', choices=[
+        ('truncate', 'truncate'),
+        ('skip', 'skip'),
+    ])
     # New fields for progress tracking
     total_molecules = models.IntegerField(default=0)
     molecules_processed = models.IntegerField(default=0)

@@ -4,15 +4,16 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import JobSubmissionForm from './components/JobSubmissionForm';
 import JobStatus from './components/JobStatus';
 import About from './components/About';
-import FAQ from './components/FAQ';
 import Evaluation from './components/Evaluation';
 import Header from './components/Header';
+import ProteinBackground from './components/ProteinBackground';
 import Footer from './components/Footer';
 import './App.css'; // Ensure this import is present
 
 function App() {
   return (
     <Router>
+      <ProteinBackground />
       <div className="app-container">
         <Header />
         <main className="main-content">
