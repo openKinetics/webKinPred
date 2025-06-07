@@ -1,215 +1,219 @@
 import React, { useRef, useEffect } from 'react';
 
 /* -------------------------- CONFIGURATION -------------------------- */
-// This object holds all the tweakable parameters for the simulation.
-// User's preferred values have been kept.
+// This object holds all the tweakable parameters for the evolved simulation.
 const CFG = {
-    enzymeCount: 100,          // Number of enzyme structures
-    moleculeCount: 500,       // Number of substrate/product molecules
+    enzymeCount: 15,           // Fewer, larger enzymes for a cleaner look
+    moleculeCount: 200,        // Reduced molecule count to complement fewer enzymes
     
     // --- Visuals & Colors ---
-    enzymeColor: 'rgba(100, 120, 150, 0.7)',  // Cool, professional blue-gray for the enzyme
-    substrateColor: '#3498db', // A distinct blue for the substrate
-    productColor: '#e74c3c',   // A contrasting red for the product
+    enzymeColor: 'rgba(100, 120, 150, 0.7)',
+    substrateColor: '#3498db',
+    productColor: '#e74c3c',
     enzymeGlowColor: 'rgba(100, 120, 150, 0.1)',
     substrateGlowColor: 'rgba(52, 152, 219, 0.15)',
     productGlowColor: 'rgba(231, 76, 60, 0.2)',
+    catalysisPulseColor: 'rgba(255, 255, 255, 0.5)',
 
     // --- Physics & Behavior ---
-    moleculeSpeed: 0.2,        // Base speed for wandering molecules
-    enzymeDriftSpeed: 0.08,      // How much the enzymes slowly drift
-    enzymeRotationSpeed: 0.005, // Base rotation speed for enzymes
+    moleculeSpeed: 0.15,
+    enzymeDriftSpeed: 0.05,
+    enzymeRotationSpeed: 0.002,
     
-    // --- Kinetics Parameters ---
-    bindingRadius: 120,        // (px) How close a substrate must be to be "attracted"
-    bindingDistance: 0.8,        // (px) How close a substrate must be to "dock"
-    bindingDepthFactor: 0.2,   // How deep inside the enzyme the molecule goes (0=edge, 1=center)
-    releaseDistance: 200,      // (px) How far a product must travel before resetting
-    releaseSpeed: 0.25,         // The gentle speed at which products leave the enzyme
-    affinityRange: [0.2, 1.0], // Range for KM (binding affinity). Higher value = stronger attraction.
-    kcatRange: [20, 1000],    // Range for kcat (turnover rate). Value is frames, so lower = faster turnover.
-
-    // --- Spawning Parameters ---
-    minEnzymeDistance: 200,      // (px) Minimum distance between enzymes at spawn
-    maxSpawnAttempts: 50,      // Failsafe for the enzyme spawning algorithm
-    minMoleculeDistance: 15,     // NEW: Minimum distance between spawned molecules
-    maxMoleculeSpawnAttempts: 20, // NEW: Failsafe for molecule spawning
-
-    // --- Global Effects ---
-    globalAlphaFactor: 0.17,     // Overall transparency of the animation
-    fadeScrollPx: 900,         // How many pixels of scrolling to fade out the animation
+    // --- Kinetics & Interaction Parameters ---
+    bindingRadius: 150,        // (px) How close a substrate must be to be "attracted"
+    bindingDistance: 2.0,      // (px) How close a substrate must be to "dock"
+    bindingDepthFactor: 0.25,  // How deep inside the enzyme the molecule goes
+    releaseDistance: 200,       // (px) How far a product must travel before enzyme is free
+    releaseSpeed: 0.15,         // The initial "push" speed for product release
+    affinityRange: [0.3, 1.2], // Range for KM. Higher = stronger attraction & faster orientation.
+    kcatRange: [250, 2000],    // Range for kcat. Duration in frames.
+    
+    inducedFitFlex: 0.3,      // How much the enzyme "pinches" (0=none, 1=fully closed)
+    flexSpeed: 0.05,           // How fast the enzyme flexes and relaxes
+    orientationSpeedFactor: 0.04,// How fast the substrate orients itself to bind
+    orientationTolerance: 0.1, // (radians) How precisely aligned substrate must be to bind
+    enzymeRecoilStrength: 0.2, // How much the enzyme "jiggles" upon product release
+    
+    // --- Spawning & Global Effects ---
+    minEnzymeDistance: 150,     // The minimum distance between the centers of two enzymes
+    globalAlphaFactor: 0.15,
+    fadeScrollPx: 800,
 };
 
+// Helper for linear interpolation (lerping)
+const lerp = (a, b, t) => a + (b - a) * t;
+const R = (min, max) => Math.random() * (max - min) + min;
 
 /**
- * A React component that renders a beautiful, lightweight, and scientifically-themed
- * animated background representing enzyme kinetics (KM and kcat).
- * Includes uniform enzyme distribution and more realistic binding/release mechanics.
+ * An evolved React component that renders a beautiful, lightweight, and scientifically-themed
+ * animated background representing enzyme kinetics with advanced visual features like
+ * induced fit, substrate orientation, and physical recoil.
  */
 function ProteinBackground() {
   const canvasRef = useRef(null);
   const entities = useRef({ enzymes: [], molecules: [] });
-  const fadeEffect = useRef(1); // For fade-on-scroll effect
+  const fadeEffect = useRef(1);
   const animationFrameId = useRef(null);
 
-  // Utility to generate a random number in a given range
-  const R = (min, max) => Math.random() * (max - min) + min;
-
-  /* -------------------------- ENTITY SPAWNING -------------------------- */
-  // Initializes the enzymes and molecules with random properties.
+  /* -------------------------- ENTITY SPAWNING (CORRECTED) -------------------------- */
   const spawnEntities = (width, height) => {
-    // --- Spawn Enzymes with Uniform Distribution ---
     const enzymes = [];
+    const maxPlacementAttempts = 50; // Safety net to prevent infinite loops
+
     for (let i = 0; i < CFG.enzymeCount; i++) {
         let attempts = 0;
-        while (attempts < CFG.maxSpawnAttempts) {
-            const newEnzyme = {
+        let placed = false;
+        
+        while (!placed && attempts < maxPlacementAttempts) {
+            const candidate = {
                 id: Math.random(),
                 x: R(0, width),
                 y: R(0, height),
                 radius: R(20, 40),
-                rotation: R(0, Math.PI * 2),
-                rotationSpeed: R(-CFG.enzymeRotationSpeed, CFG.enzymeRotationSpeed),
-                driftVx: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
-                driftVy: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
-                bindingAffinity: R(...CFG.affinityRange),
-                catalyticRate: R(...CFG.kcatRange),
-                activeSiteAngle: Math.floor(R(0, 6)) * (Math.PI / 3),
-                boundMoleculeId: null,
             };
 
-            let isOverlapping = false;
-            for (const existingEnzyme of enzymes) {
-                const dist = Math.hypot(newEnzyme.x - existingEnzyme.x, newEnzyme.y - existingEnzyme.y);
-                if (dist < (newEnzyme.radius + existingEnzyme.radius + CFG.minEnzymeDistance)) {
-                    isOverlapping = true;
+            let isTooClose = false;
+            // Check distance against all previously placed enzymes
+            for (const placedEnzyme of enzymes) {
+                const dist = Math.hypot(candidate.x - placedEnzyme.x, candidate.y - placedEnzyme.y);
+                // The distance check now uses the config value
+                if (dist < CFG.minEnzymeDistance) {
+                    isTooClose = true;
                     break;
                 }
             }
 
-            if (!isOverlapping) {
-                enzymes.push(newEnzyme);
-                break;
+            // If it's not too close to any other enzyme, place it
+            if (!isTooClose) {
+                enzymes.push({
+                    ...candidate,
+                    rotation: R(0, Math.PI * 2),
+                    rotationSpeed: R(-CFG.enzymeRotationSpeed, CFG.enzymeRotationSpeed),
+                    driftVx: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
+                    driftVy: R(-CFG.enzymeDriftSpeed, CFG.enzymeDriftSpeed),
+                    bindingAffinity: R(...CFG.affinityRange),
+                    catalyticRate: R(...CFG.kcatRange),
+                    activeSiteAngle: Math.floor(R(0, 6)) * (Math.PI / 3),
+                    boundMoleculeId: null,
+                    flex: 0,
+                    targetFlex: 0,
+                    recoilVx: 0,
+                    recoilVy: 0,
+                });
+                placed = true;
             }
             attempts++;
+        }
+        if (attempts >= maxPlacementAttempts) {
+             console.warn(`Could not place an enzyme after ${maxPlacementAttempts} attempts. Check density settings.`);
         }
     }
     entities.current.enzymes = enzymes;
 
-
-    // --- Spawn Molecules with Uniform Distribution ---
     const molecules = [];
     for (let i = 0; i < CFG.moleculeCount; i++) {
-        let attempts = 0;
-        while (attempts < CFG.maxMoleculeSpawnAttempts) {
-            const newMolecule = {
-                id: Math.random(),
-                x: R(0, width),
-                y: R(0, height),
-                vx: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
-                vy: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
-                radius: R(3, 5.5),
-                state: 'wandering',
-                targetEnzymeId: null,
-                boundTimer: 0,
-            };
-
-            let isOverlapping = false;
-            // Check against other molecules
-            for (const existingMolecule of molecules) {
-                const dist = Math.hypot(newMolecule.x - existingMolecule.x, newMolecule.y - existingMolecule.y);
-                if (dist < (newMolecule.radius + existingMolecule.radius + CFG.minMoleculeDistance)) {
-                    isOverlapping = true;
-                    break;
-                }
-            }
-            
-            if (isOverlapping) {
-                attempts++;
-                continue; // Try a new position
-            }
-
-            // Also check against enzymes to avoid spawning inside one
-            for (const enzyme of enzymes) {
-                const dist = Math.hypot(newMolecule.x - enzyme.x, newMolecule.y - enzyme.y);
-                if (dist < enzyme.radius + newMolecule.radius) { // Check against outer radius
-                    isOverlapping = true;
-                    break;
-                }
-            }
-            
-            if (!isOverlapping) {
-                molecules.push(newMolecule);
-                break; // Exit the attempt loop and move to the next molecule
-            }
-            attempts++;
-        }
+        molecules.push({
+            id: Math.random(),
+            x: R(0, width),
+            y: R(0, height),
+            vx: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
+            vy: R(-CFG.moleculeSpeed, CFG.moleculeSpeed),
+            radius: R(2, 4),
+            state: 'wandering',
+            targetEnzymeId: null,
+            boundTimer: 0,
+            shape: 'substrate',
+            rotation: R(0, Math.PI * 2),
+            targetRotation: 0,
+            color: CFG.substrateColor,
+        });
     }
     entities.current.molecules = molecules;
   };
 
   /* -------------------------- DRAWING HELPERS -------------------------- */
-  // Draws a single enzyme structure with an "active site" gap.
+  
   const drawEnzyme = (ctx, enzyme) => {
     ctx.save();
     ctx.translate(enzyme.x, enzyme.y);
     ctx.rotate(enzyme.rotation);
 
-    // Glow effect
     ctx.fillStyle = CFG.enzymeGlowColor;
     ctx.beginPath();
-    ctx.arc(0, 0, enzyme.radius * 1.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, enzyme.radius * 1.2, 0, Math.PI * 2);
     ctx.fill();
     
-    // Main structure
     ctx.strokeStyle = CFG.enzymeColor;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     
-    // This logic now correctly creates an opening in the hexagon.
     const activeSiteSegment = Math.floor(enzyme.activeSiteAngle / (Math.PI / 3));
+    const flexAngleOffset = (Math.PI / 3) * CFG.inducedFitFlex * enzyme.flex;
 
     for (let i = 0; i <= 6; i++) {
         const vertexIndex = i % 6;
+        let angle = vertexIndex * Math.PI / 3;
         
-        const angle = vertexIndex * Math.PI / 3;
+        if (vertexIndex === activeSiteSegment) {
+            angle += flexAngleOffset;
+        } else if (vertexIndex === (activeSiteSegment + 1) % 6) {
+            angle -= flexAngleOffset;
+        }
+
         const x = Math.cos(angle) * enzyme.radius;
         const y = Math.sin(angle) * enzyme.radius;
         
-        const prevVertexIndex = (i - 1 + 6) % 6;
-
         if (i === 0) {
             ctx.moveTo(x, y);
-        } else if (prevVertexIndex === activeSiteSegment) {
-            ctx.moveTo(x, y);
-        } else {
+        } else if (vertexIndex !== (activeSiteSegment + 1) % 6) {
             ctx.lineTo(x, y);
+        } else {
+            ctx.moveTo(x, y);
         }
     }
     
     ctx.stroke();
     ctx.restore();
   };
-
-  const drawMolecule = (ctx, molecule) => {
-    // A molecule is a "product" if it's being released, or if it has been bound for a bit.
-    const isProduct = molecule.state === 'releasing' || (molecule.state === 'bound' && molecule.boundTimer < molecule.initialBindTime / 1.5);
-    const color = isProduct ? CFG.productColor : CFG.substrateColor;
-    const glowColor = isProduct ? CFG.productGlowColor : CFG.substrateGlowColor;
-
-    // Glow
+  
+  const drawMolecule = (ctx, mol) => {
+    ctx.save();
+    ctx.translate(mol.x, mol.y);
+    
+    const glowColor = mol.shape === 'product' ? CFG.productGlowColor : CFG.substrateGlowColor;
     ctx.fillStyle = glowColor;
     ctx.beginPath();
-    ctx.arc(molecule.x, molecule.y, molecule.radius * 2.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, mol.radius * 1.7, 0, Math.PI * 2);
     ctx.fill();
 
-    // Core
-    ctx.fillStyle = color;
+    ctx.fillStyle = mol.color;
     ctx.beginPath();
-    ctx.arc(molecule.x, molecule.y, molecule.radius, 0, Math.PI * 2);
-    ctx.fill();
-  };
 
+    if (mol.shape === 'substrate') {
+        ctx.rotate(mol.rotation);
+        ctx.moveTo(mol.radius, 0);
+        ctx.arc(0, 0, mol.radius, -Math.PI / 3, Math.PI / 3, false);
+        ctx.closePath();
+    } else {
+        ctx.arc(0, 0, mol.radius, 0, Math.PI * 2);
+    }
+    
+    ctx.fill();
+
+    if (mol.state === 'bound' && mol.boundTimer > 0) {
+        const pulseProgress = (mol.initialBindTime - mol.boundTimer) / mol.initialBindTime;
+        const pulseAlpha = Math.sin(pulseProgress * Math.PI * 4) * 0.5 + 0.5;
+        if (pulseAlpha > 0.1) {
+             ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha * 0.5})`;
+             ctx.beginPath();
+             ctx.arc(0, 0, mol.radius * 1.2, 0, Math.PI * 2);
+             ctx.fill();
+        }
+    }
+
+    ctx.restore();
+  };
 
   /* -------------------------- ANIMATION LOOP -------------------------- */
   const animate = () => {
@@ -226,18 +230,22 @@ function ProteinBackground() {
     // --- Update and Draw Enzymes ---
     enzymes.forEach(enzyme => {
       enzyme.rotation += enzyme.rotationSpeed;
-      enzyme.x += enzyme.driftVx;
-      enzyme.y += enzyme.driftVy;
+      enzyme.recoilVx *= 0.95;
+      enzyme.recoilVy *= 0.95;
+      enzyme.x += enzyme.driftVx + enzyme.recoilVx;
+      enzyme.y += enzyme.driftVy + enzyme.recoilVy;
       
       if (enzyme.x < -enzyme.radius) enzyme.x = width + enzyme.radius;
       if (enzyme.x > width + enzyme.radius) enzyme.x = -enzyme.radius;
       if (enzyme.y < -enzyme.radius) enzyme.y = height + enzyme.radius;
       if (enzyme.y > height + enzyme.radius) enzyme.y = -enzyme.radius;
 
+      enzyme.flex = lerp(enzyme.flex, enzyme.targetFlex, CFG.flexSpeed);
+
       drawEnzyme(ctx, enzyme);
     });
 
-    // --- Update and Draw Molecules (The Core Kinetic Logic) ---
+    // --- Update and Draw Molecules ---
     molecules.forEach(mol => {
       const enzyme = mol.targetEnzymeId ? enzymes.find(e => e.id === mol.targetEnzymeId) : null;
       
@@ -245,6 +253,7 @@ function ProteinBackground() {
         case 'wandering': {
           mol.x += mol.vx;
           mol.y += mol.vy;
+          mol.rotation += (Math.random() - 0.5) * 0.1;
           if (mol.x < 0 || mol.x > width) { mol.vx *= -1; mol.x = Math.max(0, Math.min(width, mol.x)); }
           if (mol.y < 0 || mol.y > height) { mol.vy *= -1; mol.y = Math.max(0, Math.min(height, mol.y)); }
 
@@ -254,6 +263,7 @@ function ProteinBackground() {
             if (dist < CFG.bindingRadius) {
               mol.state = 'approaching';
               mol.targetEnzymeId = e.id;
+              mol.targetRotation = e.rotation + e.activeSiteAngle + Math.PI;
               break;
             }
           }
@@ -262,25 +272,28 @@ function ProteinBackground() {
 
         case 'approaching': {
           if (!enzyme || enzyme.boundMoleculeId) {
-            mol.state = 'wandering';
-            mol.targetEnzymeId = null;
-            break;
+            mol.state = 'wandering'; mol.targetEnzymeId = null; break;
           }
-
-          // The target is now INSIDE the enzyme, through the active site opening
-          const angle = enzyme.rotation + enzyme.activeSiteAngle;
-          const targetX = enzyme.x + Math.cos(angle) * (enzyme.radius * CFG.bindingDepthFactor);
-          const targetY = enzyme.y + Math.sin(angle) * (enzyme.radius * CFG.bindingDepthFactor);
+          
+          const angleToSite = enzyme.rotation + enzyme.activeSiteAngle;
+          const targetX = enzyme.x + Math.cos(angleToSite) * (enzyme.radius * 0.8);
+          const targetY = enzyme.y + Math.sin(angleToSite) * (enzyme.radius * 0.8);
           
           const dx = targetX - mol.x;
           const dy = targetY - mol.y;
           const dist = Math.hypot(dx, dy);
 
-          if (dist < CFG.bindingDistance) {
+          let angleDiff = mol.targetRotation - mol.rotation;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          mol.rotation += angleDiff * CFG.orientationSpeedFactor * enzyme.bindingAffinity;
+
+          if (dist < CFG.bindingDistance && Math.abs(angleDiff) < CFG.orientationTolerance) {
             mol.state = 'bound';
             mol.boundTimer = enzyme.catalyticRate;
-            mol.initialBindTime = enzyme.catalyticRate; // Store for color change logic
+            mol.initialBindTime = enzyme.catalyticRate;
             enzyme.boundMoleculeId = mol.id;
+            enzyme.targetFlex = 1;
           } else {
             const speedFactor = CFG.moleculeSpeed * 2 * enzyme.bindingAffinity;
             mol.x += (dx / dist) * speedFactor;
@@ -290,18 +303,28 @@ function ProteinBackground() {
         }
 
         case 'bound': {
-          if (!enzyme) {
-            mol.state = 'wandering';
-            break;
-          }
-          // Stick to the internal binding site
+          if (!enzyme) { mol.state = 'wandering'; break; }
           const angle = enzyme.rotation + enzyme.activeSiteAngle;
           mol.x = enzyme.x + Math.cos(angle) * (enzyme.radius * CFG.bindingDepthFactor);
           mol.y = enzyme.y + Math.sin(angle) * (enzyme.radius * CFG.bindingDepthFactor);
-
+          mol.rotation = enzyme.rotation + enzyme.activeSiteAngle + Math.PI;
+          
           mol.boundTimer--;
+          
+          const progress = 1 - (mol.boundTimer / mol.initialBindTime);
+          const r = Math.floor(lerp(parseInt(CFG.substrateColor.slice(1,3), 16), parseInt(CFG.productColor.slice(1,3), 16), progress));
+          const g = Math.floor(lerp(parseInt(CFG.substrateColor.slice(3,5), 16), parseInt(CFG.productColor.slice(3,5), 16), progress));
+          const b = Math.floor(lerp(parseInt(CFG.substrateColor.slice(5,7), 16), parseInt(CFG.productColor.slice(5,7), 16), progress));
+          mol.color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+
           if (mol.boundTimer <= 0) {
             mol.state = 'releasing';
+            mol.shape = 'product';
+            enzyme.targetFlex = 0;
+
+            const recoilAngle = angle + Math.PI;
+            enzyme.recoilVx += Math.cos(recoilAngle) * CFG.enzymeRecoilStrength;
+            enzyme.recoilVy += Math.sin(recoilAngle) * CFG.enzymeRecoilStrength;
           }
           break;
         }
@@ -312,22 +335,34 @@ function ProteinBackground() {
               mol.targetEnzymeId = null;
               break;
           }
+
+          const dx = mol.x - enzyme.x;
+          const dy = mol.y - enzyme.y;
+          const dist = Math.hypot(dx, dy) || 1;
           
-          // --- GENTLE RELEASE a.k.a. Diffusion ---
-          const releaseAngle = enzyme.rotation + enzyme.activeSiteAngle;
-          mol.vx = Math.cos(releaseAngle) * CFG.releaseSpeed;
-          mol.vy = Math.sin(releaseAngle) * CFG.releaseSpeed;
+          const baseVx = (dx / dist) * CFG.moleculeSpeed * 0.8;
+          const baseVy = (dy / dist) * CFG.moleculeSpeed * 0.8;
+
+          const diffusionFactor = 0.7; 
+          mol.vx = baseVx + R(-CFG.moleculeSpeed * diffusionFactor, CFG.moleculeSpeed * diffusionFactor);
+          mol.vy = baseVy + R(-CFG.moleculeSpeed * diffusionFactor, CFG.moleculeSpeed * diffusionFactor);
+
           mol.x += mol.vx;
           mol.y += mol.vy;
-
+          
           const distFromEnzyme = Math.hypot(mol.x - enzyme.x, mol.y - enzyme.y);
           
           if (distFromEnzyme > CFG.releaseDistance) {
-             mol.state = 'wandering';
-             enzyme.boundMoleculeId = null;
-             mol.targetEnzymeId = null;
-             mol.vx = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
-             mol.vy = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
+              enzyme.boundMoleculeId = null;
+          }
+          
+          if (distFromEnzyme > CFG.bindingRadius * 1.5) {
+              mol.state = 'wandering';
+              mol.targetEnzymeId = null;
+              mol.shape = 'substrate';
+              mol.color = CFG.substrateColor;
+              mol.vx = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
+              mol.vy = R(-CFG.moleculeSpeed, CFG.moleculeSpeed);
           }
           break;
         }
@@ -341,6 +376,7 @@ function ProteinBackground() {
   /* -------------------------- LIFECYCLE HOOK -------------------------- */
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let resizeObserver;
 
@@ -363,8 +399,10 @@ function ProteinBackground() {
     animationFrameId.current = requestAnimationFrame(animate);
 
     resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(canvas);
-
+    if(canvas) {
+        resizeObserver.observe(canvas);
+    }
+    
     window.addEventListener('scroll', handleScroll);
 
     return () => {
