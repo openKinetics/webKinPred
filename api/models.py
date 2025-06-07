@@ -2,9 +2,15 @@
 from django.db import models
 import uuid
 from django.utils import timezone
+import string, random
+
+def generate_public_id(length=7):
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choices(chars, k=length))
 
 class Job(models.Model):
     job_id = models.AutoField(primary_key=True)
+    public_id = models.CharField(max_length=10, unique=True)
     prediction_type = models.CharField(max_length=10)
     kcat_method = models.CharField(max_length=50, null=True, blank=True)
     km_method = models.CharField(max_length=50, null=True, blank=True)
@@ -23,3 +29,13 @@ class Job(models.Model):
     invalid_molecules = models.IntegerField(default=0)
     total_predictions = models.IntegerField(default=0)
     predictions_made = models.IntegerField(default=0)
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            while True:
+                pid = generate_public_id()
+                if not Job.objects.filter(public_id=pid).exists():
+                    self.public_id = pid
+                    break
+        super().save(*args, **kwargs)
+
