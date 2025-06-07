@@ -19,7 +19,7 @@ function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<JobSubmissionForm />} />
-            <Route path="/track-job/:jobId" element={<JobStatus />} />
+            <Route path="/track-job/:public_id" element={<JobStatus />} />
             <Route path="/track-job" element={<JobStatus />} />
             <Route path="/about" element={<About />} />
             <Route path="/evaluation" element={<Evaluation />} />

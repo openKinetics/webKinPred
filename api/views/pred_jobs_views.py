@@ -50,9 +50,9 @@ def submit_job(request):
             handle_long_sequences=handleLongSeq,
         )
         job.save()
-        print("Saved Job:", job.job_id)
+        print("Saved Job:", job.public_id)
         # Save the file to a directory associated with the job
-        job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
+        job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))
         os.makedirs(job_dir, exist_ok=True)
         file_path = os.path.join(job_dir, 'input.csv')
 
@@ -61,7 +61,7 @@ def submit_job(request):
                 destination.write(chunk)
 
         if prediction_type == 'both':
-            run_both_predictions.delay(job.job_id, kcat_method, km_method)
+            run_both_predictions.delay(job.public_id, kcat_method, km_method)
         elif prediction_type == 'kcat':
             method_to_func = {
                 'DLKcat': run_dlkcat_predictions,
@@ -71,8 +71,7 @@ def submit_job(request):
             }
             pred_func = method_to_func.get(kcat_method)  
             from celery.result import AsyncResult
-            job_id_int = int(job.job_id)
-            task = pred_func.apply_async(args=[job_id_int])
+            task = pred_func.apply_async(args=[job.public_id])
             print("✅ Task ID:", task.id)
 
             # Just for debugging — check its status right after dispatch
@@ -89,7 +88,7 @@ def submit_job(request):
             }
             pred_func = method_to_func.get(km_method)
             if pred_func:
-                pred_func.delay(job.job_id)
+                pred_func.delay(job.public_id)
                 print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
              
             else:
@@ -101,16 +100,16 @@ def submit_job(request):
 
         return JsonResponse({
             'message': 'Job submitted successfully',
-            'job_id': job.job_id
+            'public_id': job.public_id
         })
     else:
         return JsonResponse({'error': 'File upload failed'}, status=400)
 
 # views.py
-def job_status(request, job_id):
-    job = get_object_or_404(Job, job_id=job_id)
+def job_status(request, public_id):
+    job = get_object_or_404(Job, public_id=public_id)
     response_data = {
-        'job_id': job.job_id,
+        'public_id': job.public_id,
         'status': job.status,
         'submission_time': job.submission_time,
         'completion_time': job.completion_time,

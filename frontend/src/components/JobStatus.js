@@ -117,7 +117,7 @@ function JobStatus() {
               {jobStatus && (
                 <div className="mt-4">
                   <h4>Job Status</h4>
-                  <p><strong>Job ID:</strong> {jobStatus.job_id}</p>
+                  <p><strong>Job ID:</strong> {jobStatus.public_id}</p>
                   <p><strong>Status:</strong> {jobStatus.status}</p>
                   {jobStatus.submission_time && (
                     <p><strong>Time Elapsed:</strong> {timeElapsed}</p>

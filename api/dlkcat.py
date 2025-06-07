@@ -8,7 +8,7 @@ from api.models import Job  # Import the Job model to update progress
 from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
 from webKinPred.settings import MEDIA_ROOT
 
-def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
+def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     """
     Run DLKCAT model on the given sequences and substrates.
     
@@ -17,7 +17,7 @@ def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
         A list of protein sequences.
     substrates: list of strings
         A list of substrate InChIs or SMILES.
-    jobID: int
+    public_id: int
         The job ID for tracking purposes.
     protein_ids: list of strings, optional
         A list of protein accession numbers.
@@ -29,7 +29,7 @@ def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
     print("Running DLKCAT model...")
 
     # Get the Job object
-    job = Job.objects.get(job_id=jobID)
+    job = Job.objects.get(public_id=public_id)
 
     # Initialize progress fields
     job.molecules_processed = 0
@@ -44,9 +44,9 @@ def dlkcat_predictions(sequences, substrates, jobID, protein_ids=None):
     # Define paths
     python_path = PYTHON_PATHS['DLKcat']
     prediction_script = PREDICTION_SCRIPTS['DLKcat']
-    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(jobID))
-    input_temp_file = os.path.join(job_dir, f'input_{jobID}.tsv')
-    output_temp_file = os.path.join(job_dir, f'output_{jobID}.tsv')
+    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(public_id))
+    input_temp_file = os.path.join(job_dir, f'input_{public_id}.tsv')
+    output_temp_file = os.path.join(job_dir, f'output_{public_id}.tsv')
 
     valid_indices = []
     invalid_indices = []

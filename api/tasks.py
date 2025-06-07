@@ -124,7 +124,7 @@ def run_model(
         sequences_proc = [sequences[i] for i in valid_idx]
 
     # ------- 4. model-specific other inputs --------------------------------
-    kwargs = {"sequences": sequences_proc, "jobID": job.job_id} | extra_kwargs
+    kwargs = {"sequences": sequences_proc, "public_id": job.public_id} | extra_kwargs
 
     if model_key == "DLKcat":
         kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
@@ -148,7 +148,7 @@ def run_model(
         invalid_global = [valid_idx[i] for i in invalid_subset]
     # ------- 6. write CSV --------------------------------------------------
     df.insert(0, output_col, full_preds)
-    csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "output.csv")
+    csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "output.csv")
     df.to_csv(csv_out, index=False)
 
 
@@ -161,12 +161,12 @@ def run_model(
     return csv_out
 # ------------------------------------------------------------ DLKcat
 @shared_task
-def run_dlkcat_predictions(job_id):
-    job = Job.objects.get(job_id=job_id)
+def run_dlkcat_predictions(public_id):
+    job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
     try:
-        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv"))
+        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"))
 
         run_model(
             job            = job,
@@ -190,12 +190,12 @@ def run_dlkcat_predictions(job_id):
 
 # ------------------------------------------------------------ TurNup
 @shared_task
-def run_turnup_predictions(job_id):
-    job = Job.objects.get(job_id=job_id)
+def run_turnup_predictions(public_id):
+    job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
     try:
-        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv"))
+        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"))
 
         run_model(
             job           = job,
@@ -214,13 +214,13 @@ def run_turnup_predictions(job_id):
 
 # ------------------------------------------------------------ EITLEM
 @shared_task
-def run_eitlem_predictions(job_id):
-    job = Job.objects.get(job_id=job_id)
+def run_eitlem_predictions(public_id):
+    job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
     try:
         df = pd.read_csv(
-            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv")
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv")
         )
 
         kin_flag   = job.prediction_type.upper()          # “KCAT” | “KM”
@@ -244,13 +244,13 @@ def run_eitlem_predictions(job_id):
 
 # ------------------------------------------------------------ UniKP
 @shared_task
-def run_unikp_predictions(job_id):
-    job = Job.objects.get(job_id=job_id)
+def run_unikp_predictions(public_id):
+    job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
     try:
         df = pd.read_csv(
-            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv")
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv")
         )
 
         # Decide column name & kinetics flag once
@@ -275,7 +275,7 @@ def run_unikp_predictions(job_id):
 
 # ------------------------------------------------------------ Run Both
 @shared_task
-def run_both_predictions(job_id, kcat_method, km_method):
+def run_both_predictions(public_id, kcat_method, km_method):
     from .models import Job
     import os
     import pandas as pd
@@ -286,8 +286,8 @@ def run_both_predictions(job_id, kcat_method, km_method):
     from api.eitlem import eitlem_predictions
     from api.unikp import unikp_predictions
 
-    job = Job.objects.get(job_id=job_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
+    job = Job.objects.get(public_id=public_id)
+    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))
     input_file_path = os.path.join(job_dir, 'input.csv')
 
     # Update job status to 'Processing'
@@ -317,7 +317,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             kcat_predictions, kcat_invalid_indices = dlkcat_predictions(
                 sequences=sequences,
                 substrates=substrates,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids
             )
             results_df['kcat (1/s)'] = kcat_predictions
@@ -332,7 +332,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             kcat_predictions, kcat_invalid_indices = eitlem_predictions(
                 sequences=sequences,
                 substrates=substrates,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids,
                 kinetics_type='KCAT'
             )
@@ -350,7 +350,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
                 sequences=sequences,
                 substrates=substrates,
                 products=products,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids
             )
             results_df['kcat (1/s)'] = kcat_predictions
@@ -366,7 +366,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             kcat_predictions, kcat_invalid_indices = unikp_predictions(
                 sequences=sequences,
                 substrates=substrates,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids,
                 kinetics_type='KCAT'
             )
@@ -409,7 +409,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             km_predictions, km_invalid_indices = eitlem_predictions(
                 sequences=sequences_km,
                 substrates=substrates_km,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids,
                 kinetics_type='KM'
             )
@@ -423,7 +423,7 @@ def run_both_predictions(job_id, kcat_method, km_method):
             km_predictions, km_invalid_indices = unikp_predictions(
                 sequences=sequences_km,
                 substrates=substrates_km,
-                jobID=job.job_id,
+                public_id=job.public_id,
                 protein_ids=protein_ids,
                 kinetics_type='KM'
             )

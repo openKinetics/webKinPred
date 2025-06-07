@@ -165,7 +165,7 @@ function JobSubmissionForm() {
         setSubmissionResult((prev) => ({
           ...prev,
           message: response.data.message,
-          job_id: response.data.job_id
+          public_id: response.data.public_id
         }));
         setShowModal(true);
       })      
@@ -647,7 +647,7 @@ function JobSubmissionForm() {
         </Modal.Header>
         <Modal.Body>
           <h5>{submissionResult?.message}</h5>
-          <p>Job ID: {submissionResult?.job_id}</p>
+          <p>Job ID: {submissionResult?.public_id}</p>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowModal(false)}>
@@ -657,7 +657,7 @@ function JobSubmissionForm() {
             variant="primary"
             onClick={() => {
               setShowModal(false);
-              window.location.href = `/track-job/${submissionResult.job_id}`;
+              window.location.href = `/track-job/${submissionResult.public_id}`;
             }}
           >
             Track Job

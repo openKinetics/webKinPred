@@ -9,7 +9,7 @@ from api.models import Job  # Import the Job model to update progress
 from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
 from webKinPred.settings import MEDIA_ROOT
 
-def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None):
+def turnup_predictions(sequences, substrates, products, public_id, protein_ids=None):
     """
     Run TurNup model on the given sequences, substrates, and products.
 
@@ -20,7 +20,7 @@ def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None)
         A list of substrates; each element may contain multiple substrates separated by semicolons.
     products: list of strings
         A list of products; each element may contain multiple products separated by semicolons.
-    jobID: int
+    public_id: int
         The job ID for tracking.
     protein_ids: list of strings, optional
         A list of protein accession numbers.
@@ -32,7 +32,7 @@ def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None)
     print("Running TurNup model...")
 
     # Get the Job object
-    job = Job.objects.get(job_id=jobID)
+    job = Job.objects.get(public_id=public_id)
 
     # Initialize progress fields
     job.molecules_processed = 0
@@ -47,10 +47,10 @@ def turnup_predictions(sequences, substrates, products, jobID, protein_ids=None)
     # Define paths
     python_path = PYTHON_PATHS['TurNup']
     prediction_script = PREDICTION_SCRIPTS['TurNup']
-    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(jobID))
+    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(public_id))
 
-    input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
-    output_temp_file = os.path.join(job_dir, f'output_{jobID}.csv')
+    input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
+    output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
 
     valid_indices = []
     invalid_indices = []

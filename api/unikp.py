@@ -38,11 +38,11 @@ def run_prediction_subprocess(command, job):
         print(e)
         raise e
 
-def unikp_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_type='KCAT'):
+def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kinetics_type='KCAT'):
     print("Running UniKP model...")
 
     # Get the Job object
-    job = Job.objects.get(job_id=jobID)
+    job = Job.objects.get(public_id=public_id)
 
     # Initialize progress fields
     job.molecules_processed = 0
@@ -53,9 +53,9 @@ def unikp_predictions(sequences, substrates, jobID, protein_ids=None, kinetics_t
     # Define paths
     python_path = PYTHON_PATHS['UniKP']
     prediction_script = PREDICTION_SCRIPTS['UniKP']
-    job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(jobID))
-    input_temp_file = os.path.join(job_dir, f'input_{jobID}.csv')
-    output_temp_file = os.path.join(job_dir, f'output_{jobID}.csv')
+    job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(public_id))
+    input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
+    output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
