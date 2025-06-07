@@ -194,10 +194,14 @@ function JobSubmissionForm() {
               </p>
               <p><strong>Steps:</strong></p>
               <ol>
-                <li>Select what you want to predict (kcat, KM, or both).</li>
+                <li>
+                  Select what you want to predict (
+                  k<sub>cat</sub>, K<sub>M</sub>, or both).
+                </li>
                 <li>Upload your reaction data as a CSV file.</li>
-                <li>Choose prediction method(s) — optionally after preprocessing validation.</li>
+                <li>Choose prediction method(s) — after (optional) preprocessing validation.</li>
               </ol>
+
 
               <h5>CSV Input Format Requirements</h5>
               <ul>
