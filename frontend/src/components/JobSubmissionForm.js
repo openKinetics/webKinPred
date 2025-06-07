@@ -440,7 +440,7 @@ function JobSubmissionForm() {
                         )}
                       </>
                     )}
-                    {submissionResult?.length_violations && (
+                    {Object.values(submissionResult?.length_violations || {}).some(v => v > 0) && ( // Check if there are any length violations
                       <div className="mt-3">
                         <h5>⚠️ Protein Sequence Length Warnings</h5>
                         <Table striped bordered hover size="sm" className="bg-dark">
