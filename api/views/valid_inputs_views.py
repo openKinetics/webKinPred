@@ -27,7 +27,21 @@ def validate_input(request):
 
     invalid_substrates = []
     invalid_proteins = []
-
+    # Define sequence length limits for models
+    model_limits = {
+        'EITLEM': 1024,
+        'TurNup': 1024,
+        'UniKP': 1000,
+        'DLKcat': float('inf'),  # no limit
+    }
+    server_limit = 1500  # server-wide max length
+    length_violations = {
+        'EITLEM': 0,
+        'TurNup': 0,
+        'UniKP': 0,
+        'DLKcat': 0,
+        'Server': 0
+    }
     # Validate Substrates
     if (km_method in ['EITLEM','UniKP']) or (kcat_method in ['DLKcat', 'EITLEM','UniKP']) and 'Substrate' in df.columns:
         for i, val in enumerate(df['Substrate']):
@@ -52,16 +66,28 @@ def validate_input(request):
         for i, seq in enumerate(df['Protein Sequence']):
             if not isinstance(seq, str) or len(seq.strip()) == 0:
                 invalid_proteins.append({'row': i + 1, 'reason': 'Empty sequence'})
-            elif len(seq) > 2000:
-                invalid_proteins.append({'row': i + 1, 'reason': 'Sequence too long'})
-            elif not all(c in 'ACDEFGHIKLMNPQRSTVWY' for c in seq.upper()):
+                continue
+            seq_len = len(seq)
+            if seq_len > server_limit:
+                length_violations['Server'] += 1
+            if seq_len > model_limits['EITLEM']:
+                length_violations['EITLEM'] += 1
+            if seq_len > model_limits['TurNup']:
+                length_violations['TurNup'] += 1
+            if seq_len > model_limits['UniKP']:
+                length_violations['UniKP'] += 1
+            if seq_len > model_limits['DLKcat']:
+                length_violations['DLKcat'] += 1
+            if not all(c in 'ACDEFGHIKLMNPQRSTVWY' for c in seq.upper()):
                 invalid_proteins.append({'row': i + 1, 'reason': 'Invalid characters in sequence'})
 
     return JsonResponse({
         'invalid_substrates': invalid_substrates,
         'invalid_proteins': invalid_proteins,
-        'protein_similarity': []  # placeholder for future
+        'protein_similarity': [],  # placeholder for future
+        'length_violations': length_violations
     })
+
 
 @csrf_exempt
 def sequence_similarity_summary(request):

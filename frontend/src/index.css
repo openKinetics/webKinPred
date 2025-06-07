@@ -18,7 +18,7 @@
   --neon-color: rgba(233, 233, 233, 0.5); /* Slightly transparent for aesthetics */
   --background-gradient: linear-gradient(45deg, #0f0c29, #302b63, #24243e);
   /* Minimalist color palette for content */
-  --card-background: rgba(15, 12, 41, 0.35); /* Semi-transparent version of #0f0c29 */
+  --card-background: rgba(24, 22, 50, 0.9); /* Semi-transparent version of #0f0c29 */
   --border-color-1: hsla(345, 7, 89, 1);
   --box-shadow-1: 0 2px 5px hsla(345, 7, 89, 1);
   --input-background: white; /* White background for inputs */

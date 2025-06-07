@@ -1,11 +1,20 @@
 # api/tasks.py
 from celery import shared_task
 from django.conf import settings
-from api.models import Job
 import pandas as pd
 import os
 from django.utils import timezone
 import subprocess
+
+from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT
+from api.models import Job
+from api.utils.handle_long import get_valid_indices, truncate_sequences
+
+from api.dlkcat import dlkcat_predictions
+from api.turnup import turnup_predictions
+from api.eitlem import eitlem_predictions
+from api.unikp import unikp_predictions
+
 def run_prediction_subprocess(command, job):
     """
     Run a prediction subprocess and update job progress based on stdout.
@@ -61,260 +70,210 @@ def run_prediction_subprocess(command, job):
         print(e)
         raise e
 
+# api/utils/predict_runner.py
+import os, pandas as pd
+from django.utils import timezone
+from django.conf import settings
 
+from api.utils.handle_long import get_valid_indices, truncate_sequences
+from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT   # central limits
+
+
+def run_model(
+    *,
+    job,
+    model_key: str,
+    df: pd.DataFrame,
+    pred_func,                       # callable -> (preds, invalid_idx)
+    requires_cols: list[str],
+    extra_kwargs: dict | None = None,
+    output_col: str,
+    handle_long: str = "skip",
+):
+    """
+    Generic prediction runner.
+
+    Parameters
+    ----------
+    job             : Job   – Django Job row (already fetched)
+    model_key       : str   – key inside MODEL_LIMITS (e.g. 'dlkcat')
+    df              : DataFrame of the CSV
+    pred_func       : callable(**kwargs) -> (preds, invalid_idxs)
+    requires_cols   : list  – columns that must exist in df
+    extra_kwargs    : dict  – pass-through to pred_func (e.g. kinetics_type)
+    output_col      : str   – column to write predictions into
+    handle_long     : 'skip'|'truncate'
+    """
+
+    extra_kwargs = extra_kwargs or {}
+
+    # ------- 1. validate required columns ----------------------------------
+    missing = [c for c in requires_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing column(s) required for {model_key}: {', '.join(missing)}")
+
+    # ------- 2. gather core inputs ----------------------------------------
+    sequences = df["Protein Sequence"].tolist()
+    limit = min(SERVER_LIMIT, MODEL_LIMITS[model_key])
+
+    # ------- 3. length handling -------------------------------------------
+    if handle_long == "truncate":
+        sequences_proc, valid_idx = truncate_sequences(sequences, limit)
+    else:   # skip
+        valid_idx = get_valid_indices(sequences, limit, mode="skip")
+        sequences_proc = [sequences[i] for i in valid_idx]
+
+    # ------- 4. model-specific other inputs --------------------------------
+    kwargs = {"sequences": sequences_proc, "jobID": job.job_id} | extra_kwargs
+
+    if model_key == "DLKcat":
+        kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
+    elif model_key == "TurNup":
+        kwargs["substrates"] = [df["Substrates"][i] for i in valid_idx]
+        kwargs["products"]   = [df["Products"][i]   for i in valid_idx]
+    elif model_key in {"EITLEM", "UniKP"}:
+        kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
+    # (extend for more models as needed)
+
+    # ------- 5. run prediction --------------------------------------------
+    full_preds = ["" for _ in sequences]
+    invalid_global: list[int] = []
+
+    if valid_idx:                      # only call model if anything to predict
+        pred_subset, invalid_subset = pred_func(**kwargs)
+
+        for i, p in zip(valid_idx, pred_subset):
+            full_preds[i] = p
+
+        invalid_global = [valid_idx[i] for i in invalid_subset]
+    # ------- 6. write CSV --------------------------------------------------
+    df.insert(0, output_col, full_preds)
+    csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "output.csv")
+    df.to_csv(csv_out, index=False)
+
+
+    # ------- 7. update job -------------------------------------------------
+    job.output_file.name = os.path.relpath(csv_out, settings.MEDIA_ROOT)
+    job.error_message = (
+        f"Predictions could not be made for {len(invalid_global)} row(s): "
+        + ", ".join(map(str, invalid_global))
+    ) if invalid_global else ""
+    return csv_out
+# ------------------------------------------------------------ DLKcat
 @shared_task
 def run_dlkcat_predictions(job_id):
-    from .models import Job
-    import os
-    import pandas as pd
-    from django.utils import timezone
-    from django.conf import settings
-    from api.dlkcat import dlkcat_predictions
-
     job = Job.objects.get(job_id=job_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
-    input_file_path = os.path.join(job_dir, 'input.csv')
-
-    # Update job status to 'Processing'
-    job.status = 'Processing'
-    job.save()
+    job.status = "Processing"; job.save()
 
     try:
-        # Read the CSV input file
-        df = pd.read_csv(input_file_path)
-        sequences = df['Protein Sequence'].tolist()
-        substrates = df['Substrate'].tolist()
-        protein_ids = None
+        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv"))
 
-        # Run the predictions (molecule processing and tracking are handled inside)
-        predictions, invalid_indices = dlkcat_predictions(
-            sequences=sequences,
-            substrates=substrates,
-            jobID=job.job_id,
-            protein_ids=protein_ids
+        run_model(
+            job            = job,
+            model_key      = "DLKcat",
+            df             = df,
+            pred_func      = dlkcat_predictions,
+            requires_cols  = ["Substrate"],
+            output_col     = "kcat (1/s)",
+            handle_long    = job.handle_long_sequences,
         )
 
-        # Save results to output file
-        output_file_path = os.path.join(job_dir, 'output.csv')
-        df['kcat (1/s)'] = predictions
-        # Reorder columns to put 'kcat (1/s)' first
-        cols = ['kcat (1/s)'] + [col for col in df.columns if col != 'kcat (1/s)']
-        df = df[cols]
-        df.to_csv(output_file_path, index=False)
-
-        # Update job with invalid indices information
-        if invalid_indices:
-            job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s) due to invalid SMILES/InChI.\n"
-                f"Indices:\n- " + "\n- ".join(map(str, invalid_indices))
-            )
-        else:
-            job.error_message = ""
-
-        # Update job status to 'Completed'
-        job.status = 'Completed'
+        job.status = "Completed"
         job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
         job.save()
 
     except Exception as e:
-        # Update job status to 'Failed' and save error message
-        job.status = 'Failed'
+        job.status = "Failed"
         job.error_message = str(e)
         job.completion_time = timezone.now()
         job.save()
 
+# ------------------------------------------------------------ TurNup
 @shared_task
 def run_turnup_predictions(job_id):
-    from .models import Job
-    import os
-    import pandas as pd
-    from django.utils import timezone
-    from django.conf import settings
-    from api.turnup import turnup_predictions
-
     job = Job.objects.get(job_id=job_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
-    input_file_path = os.path.join(job_dir, 'input.csv')
-
-    # Update job status to 'Processing'
-    job.status = 'Processing'
-    job.save()
+    job.status = "Processing"; job.save()
 
     try:
-        # Read the CSV input file
-        df = pd.read_csv(input_file_path)
-        sequences = df['Protein Sequence'].tolist()
-        substrates = df['Substrates'].tolist()
-        products = df['Products'].tolist()
-        protein_ids = None
+        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv"))
 
-        # Run the predictions (molecule processing and tracking are handled inside)
-        predictions, invalid_indices = turnup_predictions(
-            sequences=sequences,
-            substrates=substrates,
-            products=products,
-            jobID=job.job_id,
-            protein_ids=protein_ids
+        run_model(
+            job           = job,
+            model_key     = "TurNup",
+            df            = df,
+            pred_func     = turnup_predictions,
+            requires_cols = ["Substrates", "Products"],
+            output_col    = "kcat (1/s)",
+            handle_long   = job.handle_long_sequences,
+            needs_multi   = True,
         )
-
-        # Save results to output file
-        output_file_path = os.path.join(job_dir, 'output.csv')
-        df['kcat (1/s)'] = predictions
-        # Reorder columns to put 'kcat (1/s)' first
-        cols = ['kcat (1/s)'] + [col for col in df.columns if col != 'kcat (1/s)']
-        df = df[cols]
-        df.to_csv(output_file_path, index=False)
-
-        # Update job with invalid indices information
-        if invalid_indices:
-            job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s): \n"
-                f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
-            )
-        else:
-            job.error_message = ""
-
-        # Update job status to 'Completed'
-        job.status = 'Completed'
-        job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
-        job.save()
+        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
 
     except Exception as e:
-        # Update job status to 'Failed' and save error message
-        job.status = 'Failed'
-        job.error_message = str(e)
-        job.completion_time = timezone.now()
-        job.save()
+        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 
+# ------------------------------------------------------------ EITLEM
 @shared_task
 def run_eitlem_predictions(job_id):
-    from .models import Job
-    import os
-    import pandas as pd
-    from django.utils import timezone
-    from django.conf import settings
-    from api.eitlem import eitlem_predictions
     job = Job.objects.get(job_id=job_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
-    input_file_path = os.path.join(job_dir, 'input.csv')
-
-    # Update job status to 'Processing'
-    job.status = 'Processing'
-    job.save()
+    job.status = "Processing"; job.save()
 
     try:
-        # Read the CSV input file
-        df = pd.read_csv(input_file_path)
-        sequences = df['Protein Sequence'].tolist()
-        substrates = df['Substrate'].tolist()
-        protein_ids = None
-
-        # Run the predictions (molecule processing and tracking are handled inside)
-        predictions, invalid_indices = eitlem_predictions(
-            sequences=sequences,
-            substrates=substrates,
-            jobID=job.job_id,
-            protein_ids=protein_ids,
-            kinetics_type=job.prediction_type.upper()
+        df = pd.read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv")
         )
 
-        # Save results to output file
-        output_file_path = os.path.join(job_dir, 'output.csv')
-        col_name = 'kcat (1/s)' if job.prediction_type.lower() == 'kcat' else 'KM (mM)'
-        df[col_name] = predictions
-        # Reorder columns to put the new column first
-        cols = [col_name] + [col for col in df.columns if col != col_name]
-        df = df[cols]
-        df.to_csv(output_file_path, index=False)
+        kin_flag   = job.prediction_type.upper()          # “KCAT” | “KM”
+        out_col    = "kcat (1/s)" if kin_flag == "KCAT" else "KM (mM)"
 
-        # Update job with invalid indices information
-        if invalid_indices:
-            job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s) \n: {', '.join(map(str, invalid_indices))} "
-                f"due to invalid SMILES/InChI."
-            )
-        else:
-            job.error_message = ""
+        run_model(
+            job           = job,
+            model_key     = "EITLEM",
+            df            = df,
+            pred_func     = eitlem_predictions,
+            requires_cols = ["Substrate"],
+            output_col    = out_col,
+            handle_long   = job.handle_long_sequences,
+            extra_kwargs  = {"kinetics_type": kin_flag},
+        )
 
-        # Update job status to 'Completed'
-        job.status = 'Completed'
-        job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
-        job.save()
+        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
 
     except Exception as e:
-        # Update job status to 'Failed' and save error message
-        job.status = 'Failed'
-        job.error_message = str(e)
-        job.completion_time = timezone.now()
-        job.save()
+        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 
+# ------------------------------------------------------------ UniKP
 @shared_task
 def run_unikp_predictions(job_id):
-    from .models import Job
-    import os
-    import pandas as pd
-    from django.utils import timezone
-    from django.conf import settings
-    from api.unikp import unikp_predictions
     job = Job.objects.get(job_id=job_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.job_id))
-    input_file_path = os.path.join(job_dir, 'input.csv')
-
-    # Update job status to 'Processing'
-    job.status = 'Processing'
-    job.save()
+    job.status = "Processing"; job.save()
 
     try:
-        # Read the CSV input file
-        df = pd.read_csv(input_file_path)
-        sequences = df['Protein Sequence'].tolist()
-        substrates = df['Substrate'].tolist()
-        protein_ids = None
-
-        # Run the predictions (molecule processing and tracking are handled inside)
-        predictions, invalid_indices = unikp_predictions(
-            sequences=sequences,
-            substrates=substrates,
-            jobID=job.job_id,
-            protein_ids=protein_ids,
-            kinetics_type=job.prediction_type.upper()
+        df = pd.read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.job_id), "input.csv")
         )
 
-        # Save results to output file
-        output_file_path = os.path.join(job_dir, 'output.csv')
-        col_name = 'kcat (1/s)' if job.prediction_type.lower() == 'kcat' else 'KM (mM)'
-        df[col_name] = predictions
-        # Reorder columns to put the new column first
-        cols = [col_name] + [col for col in df.columns if col != col_name]
-        df = df[cols]
-        df.to_csv(output_file_path, index=False)
+        # Decide column name & kinetics flag once
+        kin_flag   = job.prediction_type.upper()          # “KCAT” | “KM”
+        out_col    = "kcat (1/s)" if kin_flag == "KCAT" else "KM (mM)"
 
-        # Update job with invalid indices information
-        if invalid_indices:
-            job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s) \n: {', '.join(map(str, invalid_indices))} "
-                f"due to invalid SMILES/InChI."
-            )
-        else:
-            job.error_message = ""
+        run_model(
+            job           = job,
+            model_key     = "UniKP",
+            df            = df,
+            pred_func     = unikp_predictions,
+            requires_cols = ["Substrate"],
+            output_col    = out_col,
+            handle_long   = job.handle_long_sequences,
+            extra_kwargs  = {"kinetics_type": kin_flag},
+        )
 
-        # Update job status to 'Completed'
-        job.status = 'Completed'
-        job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
-        job.save()
+        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
 
     except Exception as e:
-        # Update job status to 'Failed' and save error message
-        job.status = 'Failed'
-        job.error_message = str(e)
-        job.completion_time = timezone.now()
-        job.save()
+        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 
-# tasks.py
+# ------------------------------------------------------------ Run Both
 @shared_task
 def run_both_predictions(job_id, kcat_method, km_method):
     from .models import Job

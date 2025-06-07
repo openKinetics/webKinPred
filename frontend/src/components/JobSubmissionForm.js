@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Container, Row, Col, Card, Alert, Modal, Button } from 'react-bootstrap';
 import axios from 'axios'; // Import axios for sending the file
 import SequenceSimilaritySummary from './SequenceSimilaritySummary';
-
+import { Table } from 'react-bootstrap';
 
 function JobSubmissionForm() {
   const [isValidating, setIsValidating] = useState(false);
@@ -23,6 +23,7 @@ function JobSubmissionForm() {
   const [csvFormatError, setCsvFormatError] = useState('');
   const [csvFormatValid, setCsvFormatValid] = useState(false);
   const [showValidationResults, setShowValidationResults] = useState(false);
+  const [handleLongSeqs, setHandleLongSeqs] = useState('truncate');  
   const kcatMethodsByCsvType = {
     single: ['DLKcat', 'EITLEM', 'UniKP'],
     multi: ['TurNup']
@@ -152,6 +153,7 @@ function JobSubmissionForm() {
     formData.append('kcatMethod', kcatMethod);
     formData.append('kmMethod', kmMethod);
     formData.append('file', csvFile);
+    formData.append('handleLongSequences', handleLongSeqs);
 
     axios
       .post(`${apiBaseUrl}/api/submit-job/`, formData, {
@@ -160,10 +162,13 @@ function JobSubmissionForm() {
         },
       })
       .then((response) => {
-        console.log('Job Submitted:', response.data);
-        setSubmissionResult(response.data); // Set the submission result
-        setShowModal(true); // Show the modal on successful submission
-      })
+        setSubmissionResult((prev) => ({
+          ...prev,
+          message: response.data.message,
+          job_id: response.data.job_id
+        }));
+        setShowModal(true);
+      })      
       .catch((error) => {
         console.error('There was an error submitting the job:', error);
         if (error.response && error.response.data && error.response.data.error) {
@@ -194,7 +199,7 @@ function JobSubmissionForm() {
                 <li>Choose prediction method(s) — optionally after preprocessing validation.</li>
               </ol>
 
-              <h5>🧬 CSV Input Format Requirements</h5>
+              <h5>CSV Input Format Requirements</h5>
               <ul>
                 <li>
                   <strong>'Protein Sequence'</strong> column is required for all methods.
@@ -377,12 +382,14 @@ function JobSubmissionForm() {
                 )}
                 {csvFormatValid && (
                   <div className="mt-4 d-flex justify-content-end">
-                    <Button
-                      variant="outline-secondary"
+                    <button
+                      type="button"
+                      className="kave-btn kave-btn-secondary"
                       onClick={() => setShowPreprocessPrompt(true)}
                     >
+                      <span className="kave-line"></span>
                       Validate Inputs (Optional)
-                    </Button>
+                    </button>
                   </div>
                 )}
               </Card.Body>
@@ -433,13 +440,75 @@ function JobSubmissionForm() {
                         )}
                       </>
                     )}
-
+                    {submissionResult?.length_violations && (
+                      <div className="mt-3">
+                        <h5>⚠️ Protein Sequence Length Warnings</h5>
+                        <Table striped bordered hover size="sm" className="bg-dark">
+                          <thead>
+                            <tr>
+                              <th className="text-white">Model</th>
+                              <th className="text-white">Limit</th>
+                              <th className="text-white">Datapoints Containing Sequence Over Limit</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-secondary">
+                            {[
+                              { key: 'EITLEM', label: 'EITLEM', limit: 1024 },
+                              { key: 'TurNup', label: 'TurNup', limit: 1024 },
+                              { key: 'UniKP', label: 'UniKP', limit: 1000 },
+                              { key: 'DLKcat', label: 'DLKcat', limit: '∞' },
+                              { key: 'Server', label: 'Server', limit: 1500 },
+                            ].map(({ key, label, limit }) =>
+                              submissionResult.length_violations[key] > 0 ? (
+                                <tr key={key}>
+                                  <td className="text-white"><strong>{label}</strong></td>
+                                  <td className="text-white">{limit}</td>
+                                  <td className="text-white">{submissionResult.length_violations[key]}</td>
+                                </tr>
+                              ) : null
+                            )}
+                          </tbody>
+                        </Table>
+                        <Form.Group className="mt-3">
+                          <Form.Label className="text-white" style={{ fontSize: '1rem' }}>
+                            For sequences longer than the model limit:
+                          </Form.Label>
+                          <div>
+                            <Form.Check
+                              inline
+                              type="radio"
+                              id="truncate-option"
+                              label="Truncate (default)"
+                              name="longSeqHandling"
+                              value="truncate"
+                              checked={handleLongSeqs === 'truncate'}
+                              onChange={() => setHandleLongSeqs('truncate')}
+                            />
+                            <Form.Check
+                              inline
+                              type="radio"
+                              id="skip-option"
+                              label="Skip"
+                              name="longSeqHandling"
+                              value="skip"
+                              checked={handleLongSeqs === 'skip'}
+                              onChange={() => setHandleLongSeqs('skip')}
+                            />
+                          </div>
+                          <Form.Text className="text-white" style={{ fontSize: '1rem' }}>
+                            Truncation keeps the first and last halves (e.g. 1200 → 500+500 for a 1000-limit model).
+                            Skipping means these entries will be excluded from predictions.
+                          </Form.Text>
+                        </Form.Group>
+                      </div>
+                    )}
                     {similarityData && (
                       <div className="mt-4">
                         <SequenceSimilaritySummary similarityData={similarityData} />
                       </div>
                     )}
                   </div>
+
                 )}
               </Card.Body>
             </Card>
@@ -551,12 +620,12 @@ function JobSubmissionForm() {
             setIsValidating(true);
             try {
               const validation = await validateCsv();
-              const { invalid_substrates, invalid_proteins } = validation;
+              const { invalid_substrates, invalid_proteins, length_violations } = validation;
               const formData = new FormData();
               formData.append('file', csvFile);
               const similarityResponse = await axios.post(`${apiBaseUrl}/api/sequence-similarity-summary/`, formData);
               setSimilarityData(similarityResponse.data);
-              setSubmissionResult({ invalid_substrates, invalid_proteins });
+              setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations});
               setShowValidationResults(true);               
             } catch (err) {
               alert('Validation failed. Please try again.' + err);
@@ -611,7 +680,7 @@ function JobSubmissionForm() {
           <div className="spinner-border text-light mb-3" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
-          <div>Validating Inputs and Running mmseqs2...</div>
+          <div>Validating Inputs and Running MMseqs2...</div>
         </div>
       )}
     </Container>
