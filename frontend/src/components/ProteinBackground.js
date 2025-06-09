@@ -16,7 +16,7 @@ const CFG = {
     catalysisPulseColor: 'rgba(255, 255, 255, 0.5)',
 
     // --- Physics & Behavior ---
-    moleculeSpeed: 0.15,
+    moleculeSpeed: 0.17,
     enzymeDriftSpeed: 0.05,
     enzymeRotationSpeed: 0.002,
     
@@ -25,7 +25,7 @@ const CFG = {
     bindingDistance: 2.0,      // (px) How close a substrate must be to "dock"
     bindingDepthFactor: 0.25,  // How deep inside the enzyme the molecule goes
     releaseDistance: 200,       // (px) How far a product must travel before enzyme is free
-    releaseSpeed: 0.15,         // The initial "push" speed for product release
+    releaseSpeed: 0.17,         // The initial "push" speed for product release
     affinityRange: [0.3, 1.2], // Range for KM. Higher = stronger attraction & faster orientation.
     kcatRange: [250, 2000],    // Range for kcat. Duration in frames.
     
@@ -37,7 +37,7 @@ const CFG = {
     
     // --- Spawning & Global Effects ---
     minEnzymeDistance: 150,     // The minimum distance between the centers of two enzymes
-    globalAlphaFactor: 0.15,
+    globalAlphaFactor: 0.23,
     fadeScrollPx: 800,
 };
 
