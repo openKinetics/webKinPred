@@ -16,7 +16,7 @@ logging.set_verbosity_error()
 
 SEQ2ID_PATH = "/home/saleh/webKinPred/media/sequence_info/seq_id_to_seq.json"
 SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl"
-PROTT5XL_MODEL_PATH = '/home/saleh/Downloads/prot_t5_xl_uniref50'
+PROTT5XL_MODEL_PATH = '/home/saleh/protT5_xl/prot_t5_xl_uniref50'
 
 def smiles_to_vec(Smiles):
     pad_index = 0
