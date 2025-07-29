@@ -8,20 +8,20 @@ import moment from 'moment';
 import ExpandableErrorMessage from './ExpandableErrorMessage';
 
 function JobStatus() {
-  const { jobId: routeJobId } = useParams();
-  const [inputJobId, setInputJobId] = useState(routeJobId || '');
-  const [jobId, setJobId] = useState(routeJobId || '');
+  const { public_id: routePublicId } = useParams();
+  const [inputPublicId, setInputPublicId] = useState(routePublicId || '');
+  const [public_id, setPublicId] = useState(routePublicId || '');
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState('');
   const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ;
-
+  console.log('public_id:', public_id);
   useEffect(() => {
     let intervalId;
 
-    if (jobId) {
+    if (public_id) {
       const fetchJobStatus = () => {
-        axios.get(`${apiBaseUrl}/api/job-status/${jobId}/`)
+        axios.get(`${apiBaseUrl}/api/job-status/${public_id}/`)
           .then(response => {
             setJobStatus(response.data);
             setError(null);
@@ -39,7 +39,7 @@ function JobStatus() {
     return () => {
       clearInterval(intervalId);
     };
-  }, [jobId]);
+  }, [public_id]);
 
   useEffect(() => {
     let timerId;
@@ -69,7 +69,7 @@ function JobStatus() {
 
   const handleCheckStatus = (e) => {
     e.preventDefault();
-    setJobId(inputJobId);
+    setPublicId(inputPublicId);
     setJobStatus(null);
     setError(null);
   };
@@ -90,14 +90,14 @@ function JobStatus() {
           <Card className="section-container">
             <Card.Body>
               <h3>Track Job Status</h3>
-              {!routeJobId && (
+              {!routePublicId && (
                 <Form onSubmit={handleCheckStatus}>
                   <Form.Group controlId="jobIdInput">
                     <Form.Label>Enter Job ID</Form.Label>
                     <Form.Control
                       type="text"
-                      value={inputJobId}
-                      onChange={(e) => setInputJobId(e.target.value)}
+                      value={inputPublicId}
+                      onChange={(e) => setInputPublicId(e.target.value)}
                       required
                     />
                   </Form.Group>

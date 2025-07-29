@@ -1,39 +1,35 @@
 import numpy as np
 import pandas as pd
-import shutil
-import json
 import torch
 import esm
 import os
 from os.path import join
-import hashlib
+import subprocess
 
 data_dir = '/home/saleh/webKinPred/api/TurNup/data'
 
-
 aa = set("abcdefghiklmnpqrstxvwyzv".upper())
 
-SEQ2ID_PATH = "/home/saleh/webKinPred/media/sequence_info/seq_id_to_seq.json"
 SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1b_turnup"
 os.makedirs(SEQ_VEC_DIR, exist_ok=True)
 
-# Load or initialize seq↔id mapping
-if os.path.exists(SEQ2ID_PATH):
-    with open(SEQ2ID_PATH, "r") as f:
-        seq_id_dict = json.load(f)
-else:
-    seq_id_dict = {}
-seq_to_id = {v: k for k, v in seq_id_dict.items()}
-existing_ids = set(seq_id_dict.keys())
+# seqmap CLI (SQLite resolver)
+SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
+SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
+SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
 
-def generate_unique_seq_id(existing_ids, sequence):
-    base_id = hashlib.sha256(sequence.encode()).hexdigest()[:12]
-    suffix = 0
-    new_id = base_id
-    while new_id in existing_ids:
-        suffix += 1
-        new_id = f"{base_id}_{suffix}"
-    return new_id
+def resolve_seq_ids_via_cli(sequences):
+    """Resolve IDs for all sequences in order (increments uses_count per occurrence)."""
+    payload = "\n".join(sequences) + "\n"
+    cmd = [SEQMAP_PY, SEQMAP_CLI, "--db", SEQMAP_DB, "batch-get-or-create", "--stdin"]
+    proc = subprocess.run(cmd, input=payload, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"seqmap CLI failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+    ids = proc.stdout.strip().splitlines()
+    if len(ids) != len(sequences):
+        raise RuntimeError(f"seqmap returned {len(ids)} ids for {len(sequences)} sequences")
+    return ids
 
 def validate_enzyme(seq, alphabet=aa):
     "Checks that a sequence only contains values from an alphabet"
@@ -47,16 +43,14 @@ def calcualte_esm1b_ts_vectors(enzyme_list):
     sequences_to_embed = []
     df_enzyme["enzyme rep"] = pd.Series([None] * len(df_enzyme), dtype=object)
 
+    # Resolve IDs in a single call (updates uses_count & last_seen_at)
+    seqs = df_enzyme["model_input"].tolist()
+    ids  = resolve_seq_ids_via_cli(seqs)
+    df_enzyme["ID"] = ids
+
     for ind in df_enzyme.index:
-        seq = df_enzyme.at[ind, "model_input"]
-        if seq in seq_to_id:
-            seq_id = seq_to_id[seq]
-        else:
-            seq_id = generate_unique_seq_id(existing_ids, seq)
-            seq_id_dict[seq_id] = seq
-            seq_to_id[seq] = seq_id
-            existing_ids.add(seq_id)
-        df_enzyme.at[ind, "ID"] = seq_id
+        seq_id = df_enzyme.at[ind, "ID"]
+        seq    = df_enzyme.at[ind, "model_input"]
 
         vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
         if os.path.exists(vec_path):
@@ -92,16 +86,13 @@ def calcualte_esm1b_ts_vectors(enzyme_list):
             np.save(os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy"), rep)
             df_enzyme.at[needed_ids[i], "enzyme rep"] = rep
 
-    # Save updated mapping
-    with open(SEQ2ID_PATH, "w") as f:
-        json.dump(seq_id_dict, f, indent=2)
-
     return df_enzyme
 
-
 def preprocess_enzymes(enzyme_list):
-	df_enzyme = pd.DataFrame(data = {"amino acid sequence" : list(set(enzyme_list))})
-	df_enzyme["ID"] = ["protein_" + str(ind) for ind in df_enzyme.index]
-	#if length of sequence is longer than 1020 amino acids, we crop it:
-	df_enzyme["model_input"] = [seq[:1022] for seq in df_enzyme["amino acid sequence"]]
-	return(df_enzyme)
+    # If you want per-occurrence counting in uses_count, remove the set():
+    # df_enzyme = pd.DataFrame(data={"amino acid sequence": list(enzyme_list)})
+    df_enzyme = pd.DataFrame(data = {"amino acid sequence" : list(set(enzyme_list))})
+    df_enzyme["ID"] = ["protein_" + str(ind) for ind in df_enzyme.index]
+    # if length of sequence is longer than 1020 amino acids, we crop it:
+    df_enzyme["model_input"] = [seq[:1022] for seq in df_enzyme["amino acid sequence"]]
+    return(df_enzyme)

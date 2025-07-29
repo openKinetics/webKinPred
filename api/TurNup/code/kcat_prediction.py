@@ -44,15 +44,11 @@ def kcat_predicton(substrates, products, enzymes):
     df_kcat.reset_index(inplace = True, drop = True)
     return(df_kcat)
 
-
-
-
 def predict_kcat(X):
 	bst = pickle.load(open(join(data_dir, "saved_models", "xgboost", "xgboost_train_and_test.pkl"), "rb"))
 	dX = xgb.DMatrix(X)
 	kcats = 10**bst.predict(dX)
 	return(kcats)
-
 
 def calculate_xgb_input_matrix(df):
 	fingerprints = np.reshape(np.array(list(df["difference_fp"])), (-1,2048))
@@ -60,9 +56,6 @@ def calculate_xgb_input_matrix(df):
 	X = np.concatenate([fingerprints, ESM1b], axis = 1)
 	return(X)
 
-
-
-    
 def merging_reaction_and_enzyme_df(df_reaction, df_enzyme, df_kcat):
 	df_kcat["difference_fp"], df_kcat["enzyme rep"] = "", ""
 	df_kcat["complete"] = True

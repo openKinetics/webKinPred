@@ -205,7 +205,6 @@ def run_turnup_predictions(public_id):
             requires_cols = ["Substrates", "Products"],
             output_col    = "kcat (1/s)",
             handle_long   = job.handle_long_sequences,
-            needs_multi   = True,
         )
         job.status = "Completed"; job.completion_time = timezone.now(); job.save()
 

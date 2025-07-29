@@ -9,29 +9,26 @@ from torch_geometric.data import Data, Batch
 # Adjust the import paths according to your project structure
 from KCM import EitlemKcatPredictor
 from KMP import EitlemKmPredictor
-import hashlib
 import os
 import numpy as np
-import json
+import subprocess
 
 ESM_EMB_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1v"
-SEQ2ID_PATH = "/home/saleh/webKinPred/media/sequence_info/seq_id_to_seq.json"
+SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
+SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
+SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
 
-
-with open(SEQ2ID_PATH, "r") as f:
-    seq_id_dict = json.load(f)
-
-seq_to_id = {v: k for k, v in seq_id_dict.items()}
-existing_ids = set(seq_id_dict.keys())
-
-def generate_unique_seq_id(existing_ids, sequence):
-    base_id = hashlib.sha256(sequence.encode()).hexdigest()[:12]
-    suffix = 0
-    new_id = base_id
-    while new_id in existing_ids:
-        suffix += 1
-        new_id = f"{base_id}_{suffix}"
-    return new_id
+def resolve_seq_ids_via_cli(sequences):
+    """Call the seqmap CLI once to resolve IDs for all sequences (increments uses_count)."""
+    payload = "\n".join(sequences) + "\n"
+    cmd = [SEQMAP_PY, SEQMAP_CLI, "--db", SEQMAP_DB, "batch-get-or-create", "--stdin"]
+    proc = subprocess.run(cmd, input=payload, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"seqmap CLI failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+    ids = proc.stdout.strip().splitlines()
+    if len(ids) != len(sequences):
+        raise RuntimeError(f"seqmap returned {len(ids)} ids for {len(sequences)} sequences")
+    return ids
 
 os.makedirs(ESM_EMB_DIR, exist_ok=True)
 esm_model = None
@@ -60,11 +57,14 @@ def main():
     sequences = df_input['Protein Sequence'].tolist()
     substrates = df_input['Substrate SMILES'].tolist()
 
+    # Resolve all IDs up-front (counts per occurrence, duplicates included)
+    seq_ids = resolve_seq_ids_via_cli(sequences)
+
     # Define paths to model weights
     modelPath = {
         'KCAT':'/home/saleh/webKinPred/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
         'KM': '/home/saleh/webKinPred/api/EITLEM/Weights/KM/iter8_trainR2_0.9303_devR2_0.7163_RMSE_0.6960_MAE_0.4802',
-        }
+    }
 
     if kinetics_type not in modelPath:
         print(f"Invalid kinetics type: {kinetics_type}")
@@ -83,7 +83,7 @@ def main():
     total_predictions = len(sequences)
     i = 0  # Counter for predictions made
 
-    for idx, (sequence, substrate) in enumerate(zip(sequences, substrates)):
+    for idx, (sequence, substrate, seq_id) in enumerate(zip(sequences, substrates, seq_ids)):
         try:
             # Convert substrate SMILES to molecule
             mol = Chem.MolFromSmiles(substrate)
@@ -92,23 +92,17 @@ def main():
 
             # Compute MACCS Keys
             mol_feature = MACCSkeys.GenMACCSKeys(mol).ToList()
-            if sequence in seq_to_id:
-                seq_id = seq_to_id[sequence]
-            else:
-                seq_id = generate_unique_seq_id(existing_ids, sequence)
-                seq_id_dict[seq_id] = sequence
-                seq_to_id[sequence] = seq_id
-                existing_ids.add(seq_id)
 
             vec_path = os.path.join(ESM_EMB_DIR, f"{seq_id}.npy")
             if os.path.exists(vec_path):
                 rep = np.load(vec_path)
             else:
                 load_esm_model_once()
-                if len(sequence) > 1023:
+                sequence_for_embedding = sequence
+                if len(sequence_for_embedding) > 1023:
                     # take first 500 + last 500 residues
-                    sequence = sequence[:500] + sequence[-500:]
-                data = [("protein", sequence)]
+                    sequence_for_embedding = sequence_for_embedding[:500] + sequence_for_embedding[-500:]
+                data = [("protein", sequence_for_embedding)]
                 _, _, batch_tokens = batch_converter(data)
                 batch_lens = (batch_tokens != alphabet.padding_idx).sum(1)
                 with torch.no_grad():
@@ -117,10 +111,11 @@ def main():
                 tokens_len = batch_lens[0]
                 rep = token_representations[0, 1:tokens_len - 1].cpu().numpy()
                 np.save(vec_path, rep)
+
             # Use mean of per-residue embedding
             sequence_rep = torch.FloatTensor(rep)
             sample = Data(
-                x=torch.FloatTensor(mol_feature).unsqueeze(0), 
+                x=torch.FloatTensor(mol_feature).unsqueeze(0),
                 pro_emb=sequence_rep
             )
 
@@ -137,9 +132,6 @@ def main():
         finally:
             i += 1
             print(f"Progress: {i}/{total_predictions} predictions made", flush=True)
-
-    with open(SEQ2ID_PATH, "w") as f:
-        json.dump(seq_id_dict, f, indent=2)
 
     # Save predictions to output file
     df_output = pd.DataFrame({

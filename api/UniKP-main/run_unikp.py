@@ -4,19 +4,21 @@ import pandas as pd
 import torch
 import numpy as np
 import re
-import json
 import pickle
 from build_vocab import WordVocab
 from pretrain_trfm import TrfmSeq2seq
 from utils import split
 from transformers import T5Tokenizer, T5EncoderModel
-import hashlib
 from transformers.utils import logging
+import subprocess
 logging.set_verbosity_error()
 
-SEQ2ID_PATH = "/home/saleh/webKinPred/media/sequence_info/seq_id_to_seq.json"
-SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl"
+SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl_global"
 PROTT5XL_MODEL_PATH = '/home/saleh/protT5_xl/prot_t5_xl_uniref50'
+# seqmap CLI (SQLite resolver)
+SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
+SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
+SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
 
 def smiles_to_vec(Smiles):
     pad_index = 0
@@ -55,41 +57,28 @@ def smiles_to_vec(Smiles):
     X = trfm.encode(torch.t(xid))
     return X
 
-def generate_unique_seq_id(existing_ids, sequence):
-    # Generate SHA256-based ID and shorten for filename use
-    base_id = hashlib.sha256(sequence.encode()).hexdigest()[:12]
-    suffix = 0
-    new_id = base_id
-    while new_id in existing_ids:
-        suffix += 1
-        new_id = f"{base_id}_{suffix}"
-    return new_id
+def resolve_seq_ids_via_cli(sequences):
+    """Resolve IDs for all sequences in order (increments uses_count per occurrence)."""
+    payload = "\n".join(sequences) + "\n"
+    cmd = [SEQMAP_PY, SEQMAP_CLI, "--db", SEQMAP_DB, "batch-get-or-create", "--stdin"]
+    proc = subprocess.run(cmd, input=payload, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"seqmap CLI failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+    ids = proc.stdout.strip().splitlines()
+    if len(ids) != len(sequences):
+        raise RuntimeError(f"seqmap returned {len(ids)} ids for {len(sequences)} sequences")
+    return ids
 
 def Seq_to_vec(sequences):
-    # Load or create seq_id mapping
-    if os.path.exists(SEQ2ID_PATH):
-        with open(SEQ2ID_PATH, "r") as f:
-            seq_id_dict = json.load(f)
-    else:
-        seq_id_dict = {}
-
-    # Reverse lookup for fast checking
-    seq_to_id = {v: k for k, v in seq_id_dict.items()}
-    existing_ids = set(seq_id_dict.keys())
+    # Resolve IDs once for all sequences (duplicates included)
+    ids = resolve_seq_ids_via_cli(sequences)
 
     vecs = []
     seqs_to_embed = []
     ids_to_embed = []
 
-    for seq in sequences:
-        if seq in seq_to_id:
-            seq_id = seq_to_id[seq]
-        else:
-            seq_id = generate_unique_seq_id(existing_ids, seq)
-            seq_id_dict[seq_id] = seq
-            seq_to_id[seq] = seq_id
-            existing_ids.add(seq_id)
-
+    for seq, seq_id in zip(sequences, ids):
         vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
         if os.path.exists(vec_path):
             vecs.append(np.load(vec_path))
@@ -103,7 +92,7 @@ def Seq_to_vec(sequences):
         gc.collect()
         torch.cuda.empty_cache()
         tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
-        model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, low_cpu_mem_usage=True,torch_dtype=torch.float32)
+        model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, low_cpu_mem_usage=True, torch_dtype=torch.float32)
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         model = model.eval()
         print("Model loaded and moved to device.")
@@ -120,10 +109,6 @@ def Seq_to_vec(sequences):
             seq_vec = embedding[:seq_len - 1].mean(axis=0)
             np.save(os.path.join(SEQ_VEC_DIR, f"{sid}.npy"), seq_vec)
             vecs.append(seq_vec)
-
-        # Update the mapping file only if new entries were added
-        with open(SEQ2ID_PATH, "w") as f:
-            json.dump(seq_id_dict, f, indent=2)
 
     return np.stack(vecs)
 
@@ -164,5 +149,5 @@ if __name__ == "__main__":
 
     input_csv = sys.argv[1]
     output_csv = sys.argv[2]
-    task = sys.argv[3].upper() # 
+    task = sys.argv[3].upper() #
     main(input_csv, output_csv, task)
