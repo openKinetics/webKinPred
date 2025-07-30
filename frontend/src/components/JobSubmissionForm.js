@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { Form, Container, Row, Col, Card, Alert, Modal, Button } from 'react-bootstrap';
 import axios from 'axios'; // Import axios for sending the file
 import SequenceSimilaritySummary from './SequenceSimilaritySummary';
+import './JobSubmissionForm.css';
 import { Table } from 'react-bootstrap';
 
 function JobSubmissionForm() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [predictionType, setPredictionType] = useState('');
   const [kcatMethod, setKcatMethod] = useState('');
@@ -147,7 +149,7 @@ function JobSubmissionForm() {
   };
 
   const submitJob = () => {
-
+    setIsSubmitting(true);
     const formData = new FormData();
     formData.append('predictionType', predictionType);
     formData.append('kcatMethod', kcatMethod);
@@ -176,6 +178,9 @@ function JobSubmissionForm() {
         } else {
           alert('Failed to submit job');
         }
+      })
+      .finally(() => {
+        setIsSubmitting(false);
       });
   };
   const allowedKcatMethods = csvFormatInfo?.csv_type
@@ -446,13 +451,18 @@ function JobSubmissionForm() {
                     )}
                     {Object.values(submissionResult?.length_violations || {}).some(v => v > 0) && ( // Check if there are any length violations
                       <div className="mt-3">
-                        <h5>⚠️ Protein Sequence Length Warnings</h5>
+                        <h5 className="text-center mt-3 mb-3">⚠️ Protein Sequence Length Warnings</h5>
                         <Table striped bordered hover size="sm" className="bg-dark">
                           <thead>
                             <tr>
-                              <th className="text-white">Model</th>
+                              <th className="text-white" colSpan="3" style={{ backgroundColor: '#4e4e4e' }}>
+                                <strong>Model Limits</strong>
+                              </th>
+                            </tr>
+                            <tr>
+                              <th className="text-white">Category</th>
                               <th className="text-white">Limit</th>
-                              <th className="text-white">Datapoints Containing Sequence Over Limit</th>
+                              <th className="text-white">Violations</th>
                             </tr>
                           </thead>
                           <tbody className="text-secondary">
@@ -461,22 +471,37 @@ function JobSubmissionForm() {
                               { key: 'TurNup', label: 'TurNup', limit: 1024 },
                               { key: 'UniKP', label: 'UniKP', limit: 1000 },
                               { key: 'DLKcat', label: 'DLKcat', limit: '∞' },
-                              { key: 'Server', label: 'Server', limit: 1500 },
                             ].map(({ key, label, limit }) =>
                               submissionResult.length_violations[key] > 0 ? (
                                 <tr key={key}>
-                                  <td className="text-white"><strong>{label}</strong></td>
+                                  <td className="text-white">{label}</td>
                                   <td className="text-white">{limit}</td>
-                                  <td className="text-white">{submissionResult.length_violations[key]}</td>
+                                  <td className="text-danger">{submissionResult.length_violations[key]}</td>
                                 </tr>
                               ) : null
                             )}
+
+                            {/* Server-Wide Limit Section */}
+                            {submissionResult.length_violations.Server > 0 && (
+                              <>
+                                <tr>
+                                  <th className="text-white" colSpan="3" style={{ backgroundColor: '#4e4e4e' }}>
+                                    <strong>Server-Wide Limit</strong>
+                                  </th>
+                                </tr>
+                                <tr>
+                                  <td className="text-white">Server</td>
+                                  <td className="text-white">1500</td>
+                                  <td className="text-danger">{submissionResult.length_violations.Server}</td>
+                                </tr>
+                              </>
+                            )}
                           </tbody>
+                          <td colSpan="3" className="text-warning">
+                            Some sequences exceed length limits. You may choose to truncate or skip them.
+                          </td>
                         </Table>
                         <Form.Group className="mt-3">
-                          <Form.Label className="text-white" style={{ fontSize: '1rem' }}>
-                            For sequences longer than the model limit:
-                          </Form.Label>
                           <div>
                             <Form.Check
                               inline
@@ -500,16 +525,19 @@ function JobSubmissionForm() {
                             />
                           </div>
                           <Form.Text className="text-white" style={{ fontSize: '1rem' }}>
-                            Truncation keeps the first and last halves (e.g. 1200 → 500+500 for a 1000-limit model).
+                            Truncation keeps the first and last halves (e.g. 1200 → 500+500 for a 1000-limit model). This does not significantly hurt accuracy. <br />
                             Skipping means these entries will be excluded from predictions.
                           </Form.Text>
                         </Form.Group>
                       </div>
                     )}
                     {similarityData && (
-                      <div className="mt-4">
-                        <SequenceSimilaritySummary similarityData={similarityData} />
-                      </div>
+                      <>
+                        <hr style={{ borderTop: '5px solid rgb(229, 228, 243)' }} />
+                        <div className="mt-4">
+                          <SequenceSimilaritySummary similarityData={similarityData} />
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -579,9 +607,18 @@ function JobSubmissionForm() {
               </Card.Body>
               {csvFormatValid && (kcatMethod || kmMethod) && (
                 <div className="mt-4 d-flex justify-content-end">
-                  <button type="button" className="kave-btn" onClick={submitJob}>
-                    <span className="kave-line"></span>
-                    Submit Job
+                  <button
+                    type="button"
+                    className="kave-btn"
+                    onClick={submitJob}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <div className="spinner-border text-light me-2" role="status">
+                        <span className="visually-hidden">Submitting...</span>
+                      </div>
+                    ) : null}
+                    {isSubmitting ? 'Submitting...' : 'Submit Job'}
                   </button>
                 </div>
               )}

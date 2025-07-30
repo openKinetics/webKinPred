@@ -17,6 +17,10 @@ function SequenceSimilarityHistogram({ similarityData }) {
     ? modelData.histogram_mean || {}
     : modelData.histogram_max || {};
   
+  const histogramCounts = similarityType === 'mean'
+  ? modelData.count_mean || {}
+  : modelData.count_max || {};
+
   const averageSimilarity = similarityType === 'mean'
     ? modelData.average_mean_similarity
     : modelData.average_max_similarity;
@@ -26,12 +30,14 @@ function SequenceSimilarityHistogram({ similarityData }) {
     .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
 
   const dataValues = labels.map(percent => histogram[percent]);
+  const countValues = labels.map(percent => histogramCounts[percent]);
 
   const data = {
     labels,
     datasets: [{
       label: `% of input at similarity `,
       data: dataValues,
+      count: countValues,
       backgroundColor: 'rgba(75,192,192,0.4)',
       borderColor: 'rgba(75,192,192,1)',
       borderWidth: 1,
@@ -58,9 +64,10 @@ function SequenceSimilarityHistogram({ similarityData }) {
           title: (tooltipItems) =>
             tooltipItems.map(item => `${item.label}% Similarity`),
           label: (context) => {
-            const value = context.parsed.y;
-            return value !== null ? `${value.toFixed(1)}% of input is at this similarity` : '';
-          }          
+            const percentage = context.parsed.y;
+            const count = countValues[context.dataIndex]; // Get the count from the countValues array
+            return `${percentage.toFixed(1)}% of input (${count} sequence${count !== 1 ? 's' : ''}) is at this similarity`;
+          }
         }
       }
     },
@@ -102,15 +109,29 @@ function SequenceSimilarityHistogram({ similarityData }) {
 
   return (
     <div className="mt-4">
-      <h5 className="text-white">Sequence Similarity Histogram</h5>
+      <h5 className="text-center mt-3 mb-3">Sequence Similarity Histogram</h5>
       <p className="text-white">
-        Each input sequence is searched against the pre-created model training databases using mmseqs2.<br />
-        The mean/max (toggle) sequence similarity for each query is rounded to the nearest percent (0–100%) and this histogram shows 
-        the percentage frequency for each similarity value.
+        Each input protein sequence is searched against the <i>k</i><sub>cat</sub> training data of each model using MMseqs2. The histogram displays the distribution of sequence similarities, which can be viewed in two ways:
+        <br />
+        <ul className="ms-4">
+          <li>
+            <strong>Max Similarity</strong> – the single highest percentage identity found for each of your sequences against the training data. This is the largest similarity value among all alignment hits.
+          </li>
+          <li className="mt-2">
+            <strong>Mean Similarity</strong> – the average percentage identity calculated from all significant alignment hits found for each sequence. This is the mean of the identities from those hits, not from the entire target database. If a sequence has only one hit, its mean and max similarity will be identical.
+          </li>
+        </ul>
+        Both values are rounded to the nearest percent. If no hits are found for a sequence, both the mean and max similarity are set to 0%. This histogram shows the frequency of each similarity value (0–100%).
+        <br /><br />
+        <strong>MMseqs2 Parameters:</strong>
+        <ul className="ms-4">
+          <li><code>-s</code> (sensitivity): <code>7.5</code></li>
+          <li><code>-e</code> (E-value threshold): <code>0.1</code></li>
+          <li><code>--max-seqs</code> (maximum number of target sequences to consider per query): <code>5000</code></li>
+        </ul>
         <br />
         Click a model below to toggle between the training datasets.
       </p>
-
       <div className="mb-3 d-flex align-items-center">
         <div className="me-3">
           {models.map(model => (
@@ -143,7 +164,10 @@ function SequenceSimilarityHistogram({ similarityData }) {
 
       {averageSimilarity !== null && (
         <div className="text-white mb-3">
-          <strong>Average {similarityType === 'mean' ? 'Mean' : 'Max'} Similarity with {activeModel} Training Data:</strong> {averageSimilarity}%
+          <strong>
+            {similarityType === 'mean' ? 'Mean' : 'Max'} similarity distribution of your input sequences 
+            against {activeModel}'s training data
+          </strong>
         </div>
       )}
 

@@ -169,15 +169,22 @@ def calculate_sequence_similarity_by_histogram(
 
         try:
             subprocess.run(
-                [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search", 
-                query_db, target_db, result_db, tmp_dir],
-                check=True
+                [   CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search",
+                    query_db, target_db, result_db, tmp_dir,
+                    "--max-seqs", "5000", "-s", "7.5",
+                    "-e", "0.1"
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT
             )
             subprocess.run(
                 [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
                 query_db, target_db, result_db, result_file,
                 "--format-output", "query,target,pident"],
-                check=True
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT
             )
 
             max_identity = {}
@@ -243,13 +250,12 @@ def calculate_sequence_similarity_by_histogram(
             "histogram_max": histogram_max_perc,
             "histogram_mean": histogram_mean_perc,
             "average_max_similarity": round(sum(query_to_max.values()) / total_seqs, 2),
-            "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs, 2)
+            "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs, 2),
+            "count_max": histogram_max, 
+            "count_mean": histogram_mean  
         }
-
     # Clean up temporary files.
     os.remove(query_file_path)
     shutil.rmtree(temp_query_dir)
-
-
 
     return method_histograms
