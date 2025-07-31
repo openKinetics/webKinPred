@@ -72,7 +72,7 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
         # Check for invalid molecules
         if None in sub_mols or None in prod_mols:
             print(f"Invalid reaction at row {idx + 1}: substrates or products contain invalid molecules.")
-            invalid_indices.append(idx + 1)  # Rows are 1-indexed
+            invalid_indices.append(idx)
             job.invalid_molecules += 1
         else:
             # Convert mols to InChIs

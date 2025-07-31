@@ -7,6 +7,7 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 from ..models import Job
 from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
+from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT
 
 @csrf_exempt
 def submit_job(request):
@@ -17,7 +18,9 @@ def submit_job(request):
         kcat_method = request.POST.get('kcatMethod')
         km_method = request.POST.get('kmMethod')
         handleLongSeq = request.POST.get('handleLongSequences')
-        assert handleLongSeq in ['truncate', 'skip'], "Invalid handleLongSeq value. Expected 'truncate' or 'skip'."
+    
+        if handleLongSeq not in ['truncate', 'skip']:
+            return JsonResponse({'error': 'Invalid handleLongSeq value. Expected "truncate" or "skip".'}, status=400)
         # Check if the file is a CSV
         if not file.name.endswith('.csv'):
             return JsonResponse({'error': 'File format not supported. Please upload a CSV file.'}, status=400)
@@ -26,8 +29,8 @@ def submit_job(request):
             df = pd.read_csv(file)
         except Exception as e:
             return JsonResponse({'error': f'Error reading file: {str(e)}'}, status=400)
+        
         required_columns = ['Protein Sequence']
-
         # Determine additional required columns based on the selected method
         if kcat_method == 'TurNup':
             required_columns.extend(['Substrates', 'Products'])
@@ -41,13 +44,36 @@ def submit_job(request):
         if missing_columns:
             return JsonResponse({'error': f'Missing required columns: {", ".join(missing_columns)}'}, status=400)
         
-        # Create a Job object
+        ip_address = get_client_ip(request)
+        requested_rows = int(len(df))  # 1 row = 1 reaction
+        allowed, remaining, ttl = reserve_or_reject(ip_address, requested_rows)
+
+        # Optional: helpful headers for the client
+        rate_headers = {
+            "X-RateLimit-Limit": str(DAILY_LIMIT),
+            "X-RateLimit-Remaining": str(max(0, remaining)),
+            "X-RateLimit-Reset": str(ttl),  # seconds until midnight UTC
+        }
+
+        if not allowed:
+            resp = JsonResponse({
+                "error": (
+                    f"Upload rejected: daily limit exceeded. "
+                    f"{remaining} predictions remaining today; this upload requires {requested_rows}."
+                )
+            }, status=429)
+            for k, v in rate_headers.items():
+                resp[k] = v
+            return resp
+        file.seek(0)
         job = Job(
             prediction_type=prediction_type,
             kcat_method=kcat_method,
             km_method=km_method,
             status='Pending',
             handle_long_sequences=handleLongSeq,
+            ip_address=ip_address,
+            requested_rows=requested_rows,
         )
         job.save()
         print("Saved Job:", job.public_id)

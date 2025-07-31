@@ -68,7 +68,7 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
             valid_indices.append(idx)
         else:
             print(f"Invalid substrate at row {idx + 1}: {substrate}")
-            invalid_indices.append(idx + 1)  # Rows are 1-indexed
+            invalid_indices.append(idx)  # Rows are 1-indexed
             job.invalid_molecules += 1
 
         # Save job progress after each molecule

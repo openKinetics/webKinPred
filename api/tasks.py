@@ -70,15 +70,6 @@ def run_prediction_subprocess(command, job):
         print(e)
         raise e
 
-# api/utils/predict_runner.py
-import os, pandas as pd
-from django.utils import timezone
-from django.conf import settings
-
-from api.utils.handle_long import get_valid_indices, truncate_sequences
-from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT   # central limits
-
-
 def run_model(
     *,
     job,
@@ -95,13 +86,13 @@ def run_model(
 
     Parameters
     ----------
-    job             : Job   – Django Job row (already fetched)
-    model_key       : str   – key inside MODEL_LIMITS (e.g. 'dlkcat')
+    job             : Job   - Django Job row (already fetched)
+    model_key       : str   - key inside MODEL_LIMITS (e.g. 'dlkcat')
     df              : DataFrame of the CSV
     pred_func       : callable(**kwargs) -> (preds, invalid_idxs)
-    requires_cols   : list  – columns that must exist in df
-    extra_kwargs    : dict  – pass-through to pred_func (e.g. kinetics_type)
-    output_col      : str   – column to write predictions into
+    requires_cols   : list  - columns that must exist in df
+    extra_kwargs    : dict  - pass-through to pred_func (e.g. kinetics_type)
+    output_col      : str   - column to write predictions into
     handle_long     : 'skip'|'truncate'
     """
 
@@ -138,19 +129,15 @@ def run_model(
     # ------- 5. run prediction --------------------------------------------
     full_preds = ["" for _ in sequences]
     invalid_global: list[int] = []
-
     if valid_idx:                      # only call model if anything to predict
         pred_subset, invalid_subset = pred_func(**kwargs)
-
         for i, p in zip(valid_idx, pred_subset):
             full_preds[i] = p
-
         invalid_global = [valid_idx[i] for i in invalid_subset]
     # ------- 6. write CSV --------------------------------------------------
     df.insert(0, output_col, full_preds)
     csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "output.csv")
     df.to_csv(csv_out, index=False)
-
 
     # ------- 7. update job -------------------------------------------------
     job.output_file.name = os.path.relpath(csv_out, settings.MEDIA_ROOT)
@@ -284,6 +271,7 @@ def run_both_predictions(public_id, kcat_method, km_method):
     from api.turnup import turnup_predictions
     from api.eitlem import eitlem_predictions
     from api.unikp import unikp_predictions
+
 
     job = Job.objects.get(public_id=public_id)
     job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))

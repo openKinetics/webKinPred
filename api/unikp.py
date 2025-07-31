@@ -78,7 +78,7 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
             valid_indices.append(idx)
         else:
             print(f"Invalid substrate at row {idx + 1}: {substrate}")
-            invalid_indices.append(idx + 1)
+            invalid_indices.append(idx)
             job.invalid_molecules += 1
 
         # Save job progress after each molecule

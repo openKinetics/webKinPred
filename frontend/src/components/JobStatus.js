@@ -1,5 +1,3 @@
-// JobStatus.js
-
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Form, Container, Row, Col, Card, Alert, ProgressBar, Spinner } from 'react-bootstrap';
@@ -14,17 +12,26 @@ function JobStatus() {
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState('');
-  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ;
-  console.log('public_id:', public_id);
-  useEffect(() => {
-    let intervalId;
+  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+  const intervalDuration = 1000; 
+  const [pollingInterval, setPollingInterval] = useState(intervalDuration);
+  let intervalId = null; 
 
+  useEffect(() => {
     if (public_id) {
+      // Function to fetch job status
       const fetchJobStatus = () => {
         axios.get(`${apiBaseUrl}/api/job-status/${public_id}/`)
           .then(response => {
             setJobStatus(response.data);
             setError(null);
+            console.log('Job status fetched:', response.data);
+            
+            if (response.data.status === 'Completed' || response.data.status === 'Failed') {
+              clearInterval(intervalId); 
+            } else {
+              setPollingInterval(intervalDuration); 
+            }
           })
           .catch(error => {
             console.error('Error fetching job status:', error);
@@ -32,40 +39,28 @@ function JobStatus() {
             setJobStatus(null);
           });
       };
-      fetchJobStatus();
-      intervalId = setInterval(fetchJobStatus, 500); 
-    }
 
+      fetchJobStatus();
+      intervalId = setInterval(fetchJobStatus, pollingInterval);
+    }
     return () => {
-      clearInterval(intervalId);
+      clearInterval(intervalId); // Cleanup interval when component unmounts or public_id changes
     };
-  }, [public_id]);
+  }, [public_id, pollingInterval]); // Re-run effect when public_id or pollingInterval changes
 
   useEffect(() => {
-    let timerId;
-  
     if (jobStatus && jobStatus.submission_time) {
-      if (jobStatus.status === 'Processing' || jobStatus.status === 'Completed' || jobStatus.status === 'Failed') {
-        timerId = setInterval(() => {
-          const submissionTime = moment(jobStatus.submission_time);
-          const currentTime = moment();
-          
-          let endTime = currentTime;
-          if (jobStatus.status === 'Completed' || jobStatus.status === 'Failed') {
-            // Use completion time if the job has finished
-            endTime = jobStatus.completion_time ? moment(jobStatus.completion_time) : currentTime;
-          }
-  
-          const duration = moment.duration(endTime.diff(submissionTime));
-          setTimeElapsed(formatDuration(duration));
-        }, 5000);
+      const submissionTime = moment(jobStatus.submission_time);
+      let endTime = moment();
+
+      if (jobStatus.status === 'Completed' && jobStatus.completion_time) {
+        endTime = moment(jobStatus.completion_time); // Use completion time for completed jobs
       }
+
+      const duration = moment.duration(endTime.diff(submissionTime));
+      setTimeElapsed(formatDuration(duration));
     }
-  
-    return () => {
-      clearInterval(timerId);
-    };
-  }, [jobStatus]);  
+  }, [jobStatus]);
 
   const handleCheckStatus = (e) => {
     e.preventDefault();
@@ -143,6 +138,9 @@ function JobStatus() {
                         <div className="mb-3">
                           <p>Predictions Made: {jobStatus.predictions_made} / {jobStatus.total_predictions}</p>
                           <ProgressBar now={(jobStatus.predictions_made / jobStatus.total_predictions) * 100} />
+                          <p className="mb-2" style={{ color: '#808080' }}>
+                            (Note: Real-time progress updates are only accurate for TurNup, DLKcat, and EITLEM-kinetics.)
+                          </p>
                         </div>
                       )}
                       {/* Spinner during processing */}

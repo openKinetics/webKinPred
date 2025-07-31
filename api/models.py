@@ -12,6 +12,8 @@ class Job(models.Model):
     job_id = models.AutoField(primary_key=True)
     public_id = models.CharField(max_length=10, unique=True)
     prediction_type = models.CharField(max_length=10)
+    ip_address      = models.CharField(max_length=45, blank=True, default="")  # IPv4/IPv6
+    requested_rows  = models.PositiveIntegerField(default=0)
     kcat_method = models.CharField(max_length=50, null=True, blank=True)
     km_method = models.CharField(max_length=50, null=True, blank=True)
     status = models.CharField(max_length=20)

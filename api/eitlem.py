@@ -100,7 +100,7 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
             valid_sequences.append(seq)
             valid_indices.append(idx)
         else:
-            invalid_indices.append(idx + 1)
+            invalid_indices.append(idx)
             job.invalid_molecules += 1
         # Save job progress after each molecule
         job.save()
