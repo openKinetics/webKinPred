@@ -1,12 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from django_redis import get_redis_connection
 
-DAILY_LIMIT = 20_000
-
-def _seconds_until_midnight_utc() -> int:
-    now = datetime.now(timezone.utc)
-    reset = datetime.combine((now + timedelta(days=1)).date(), datetime.min.time(), tzinfo=timezone.utc)
-    return int((reset - now).total_seconds())
+DAILY_LIMIT = 100_000
 
 def get_client_ip(request) -> str:
     # Adjust if you sit behind a trusted proxy; otherwise REMOTE_ADDR is fine.
@@ -14,6 +9,11 @@ def get_client_ip(request) -> str:
     if xff:
         return xff.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "0.0.0.0")
+
+def _seconds_until_midnight_utc() -> int:
+    now = datetime.now(timezone.utc)
+    reset = datetime.combine((now + timedelta(days=1)).date(), datetime.min.time(), tzinfo=timezone.utc)
+    return int((reset - now).total_seconds())
 
 def _key(ip: str) -> str:
     today = datetime.now(timezone.utc).date().isoformat()

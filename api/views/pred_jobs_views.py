@@ -47,7 +47,7 @@ def submit_job(request):
         ip_address = get_client_ip(request)
         requested_rows = int(len(df))  # 1 row = 1 reaction
         allowed, remaining, ttl = reserve_or_reject(ip_address, requested_rows)
-
+        print(f"remaining: {remaining}, ttl: {ttl}, allowed: {allowed}")
         # Optional: helpful headers for the client
         rate_headers = {
             "X-RateLimit-Limit": str(DAILY_LIMIT),
@@ -96,17 +96,7 @@ def submit_job(request):
                 'UniKP': run_unikp_predictions
             }
             pred_func = method_to_func.get(kcat_method)  
-            from celery.result import AsyncResult
-            task = pred_func.apply_async(args=[job.public_id])
-            print("✅ Task ID:", task.id)
-
-            # Just for debugging — check its status right after dispatch
-            from celery.result import AsyncResult
-            result = AsyncResult(task.id)
-            print("🚦 Task state:", result.status)
-
-            print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
-
+            pred_func.delay(job.public_id)
         elif prediction_type == 'Km':
             method_to_func = {
                 'EITLEM': run_eitlem_predictions,
@@ -116,7 +106,7 @@ def submit_job(request):
             if pred_func:
                 pred_func.delay(job.public_id)
                 print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
-             
+
             else:
                 return JsonResponse({'error': 'Invalid prediction type'}, status=400)
         else:

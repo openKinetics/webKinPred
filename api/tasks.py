@@ -9,11 +9,12 @@ import subprocess
 from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT
 from api.models import Job
 from api.utils.handle_long import get_valid_indices, truncate_sequences
-
+from api.utils.safe_read import safe_read_csv
 from api.dlkcat import dlkcat_predictions
 from api.turnup import turnup_predictions
 from api.eitlem import eitlem_predictions
 from api.unikp import unikp_predictions
+from api.utils.quotas import credit_back
 
 def run_prediction_subprocess(command, job):
     """
@@ -96,65 +97,79 @@ def run_model(
     handle_long     : 'skip'|'truncate'
     """
 
-    extra_kwargs = extra_kwargs or {}
+    try:
+        extra_kwargs = extra_kwargs or {}
+        # ------- 1. validate required columns ----------------------------------
+        missing = [c for c in requires_cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"Missing column(s) required for {model_key}: {', '.join(missing)}")
 
-    # ------- 1. validate required columns ----------------------------------
-    missing = [c for c in requires_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing column(s) required for {model_key}: {', '.join(missing)}")
+        # ------- 2. gather core inputs ----------------------------------------
+        sequences = df["Protein Sequence"].tolist()
+        limit = min(SERVER_LIMIT, MODEL_LIMITS[model_key])
 
-    # ------- 2. gather core inputs ----------------------------------------
-    sequences = df["Protein Sequence"].tolist()
-    limit = min(SERVER_LIMIT, MODEL_LIMITS[model_key])
+        # ------- 3. length handling -------------------------------------------
+        if handle_long == "truncate":
+            sequences_proc, valid_idx = truncate_sequences(sequences, limit)
+        else:   # skip
+            valid_idx = get_valid_indices(sequences, limit, mode="skip")
+            sequences_proc = [sequences[i] for i in valid_idx]
 
-    # ------- 3. length handling -------------------------------------------
-    if handle_long == "truncate":
-        sequences_proc, valid_idx = truncate_sequences(sequences, limit)
-    else:   # skip
-        valid_idx = get_valid_indices(sequences, limit, mode="skip")
-        sequences_proc = [sequences[i] for i in valid_idx]
+        # ------- 4. model-specific other inputs --------------------------------
+        kwargs = {"sequences": sequences_proc, "public_id": job.public_id} | extra_kwargs
 
-    # ------- 4. model-specific other inputs --------------------------------
-    kwargs = {"sequences": sequences_proc, "public_id": job.public_id} | extra_kwargs
+        if model_key == "DLKcat":
+            kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
+        elif model_key == "TurNup":
+            kwargs["substrates"] = [df["Substrates"][i] for i in valid_idx]
+            kwargs["products"]   = [df["Products"][i]   for i in valid_idx]
+        elif model_key in {"EITLEM", "UniKP"}:
+            kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
+        # (extend for more models as needed)
 
-    if model_key == "DLKcat":
-        kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
-    elif model_key == "TurNup":
-        kwargs["substrates"] = [df["Substrates"][i] for i in valid_idx]
-        kwargs["products"]   = [df["Products"][i]   for i in valid_idx]
-    elif model_key in {"EITLEM", "UniKP"}:
-        kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
-    # (extend for more models as needed)
-
-    # ------- 5. run prediction --------------------------------------------
-    full_preds = ["" for _ in sequences]
-    invalid_global: list[int] = []
-    if valid_idx:                      # only call model if anything to predict
-        pred_subset, invalid_subset = pred_func(**kwargs)
-        for i, p in zip(valid_idx, pred_subset):
-            full_preds[i] = p
-        invalid_global = [valid_idx[i] for i in invalid_subset]
-    # ------- 6. write CSV --------------------------------------------------
-    df.insert(0, output_col, full_preds)
-    csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "output.csv")
-    df.to_csv(csv_out, index=False)
-
-    # ------- 7. update job -------------------------------------------------
-    job.output_file.name = os.path.relpath(csv_out, settings.MEDIA_ROOT)
-    job.error_message = (
-        f"Predictions could not be made for {len(invalid_global)} row(s): "
-        + ", ".join(map(str, invalid_global))
-    ) if invalid_global else ""
-    return csv_out
+        # ------- 5. run prediction --------------------------------------------
+        full_preds = ["" for _ in sequences]
+        invalid_global: list[int] = []
+        if valid_idx:
+            pred_subset, invalid_subset = pred_func(**kwargs)
+            for i, p in zip(valid_idx, pred_subset):
+                full_preds[i] = p
+            invalid_global = [valid_idx[i] for i in invalid_subset]
+        # ------- 6. write CSV --------------------------------------------------
+        df.insert(0, output_col, full_preds)
+        csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "output.csv")
+        df.to_csv(csv_out, index=False)
+        # ------- 7. process results and credit back --------------------------
+        try:
+            processed_rows = int((df[output_col] != "").sum())   # non-empty predictions
+        except Exception:
+            processed_rows = 0 
+        # Credit back unused reactions
+        to_refund = max(0, int(job.requested_rows) - processed_rows)
+        credit_back(job.ip_address, to_refund)
+        # ------- 7. update job -------------------------------------------------
+        job.output_file.name = os.path.relpath(csv_out, settings.MEDIA_ROOT)
+        job.error_message = (
+            f"Predictions could not be made for {len(invalid_global)} row(s): "
+            + ", ".join(map(str, invalid_global))
+        ) if invalid_global else ""
+        return csv_out
+    except Exception as e:
+        credit_back(job.ip_address, job.requested_rows)
+        raise e
 # ------------------------------------------------------------ DLKcat
 @shared_task
 def run_dlkcat_predictions(public_id):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
-
     try:
-        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"))
-
+        df = safe_read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
+            job.ip_address,
+            job.requested_rows
+        )
+        if df is None:
+            raise ValueError("Failed to read input CSV file.")
         run_model(
             job            = job,
             model_key      = "DLKcat",
@@ -164,26 +179,24 @@ def run_dlkcat_predictions(public_id):
             output_col     = "kcat (1/s)",
             handle_long    = job.handle_long_sequences,
         )
-
         job.status = "Completed"
         job.completion_time = timezone.now()
         job.save()
-
     except Exception as e:
-        job.status = "Failed"
-        job.error_message = str(e)
-        job.completion_time = timezone.now()
-        job.save()
-
+        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 # ------------------------------------------------------------ TurNup
 @shared_task
 def run_turnup_predictions(public_id):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
-
     try:
-        df = pd.read_csv(os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"))
-
+        df = safe_read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
+            job.ip_address,
+            job.requested_rows
+        )
+        if df is None:
+            raise ValueError("Failed to read input CSV file.")
         run_model(
             job           = job,
             model_key     = "TurNup",
@@ -205,10 +218,13 @@ def run_eitlem_predictions(public_id):
     job.status = "Processing"; job.save()
 
     try:
-        df = pd.read_csv(
-            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv")
+        df = safe_read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
+            job.ip_address,
+            job.requested_rows
         )
-
+        if df is None:
+            raise ValueError("Failed to read input CSV file.")
         kin_flag   = job.prediction_type.upper()          # “KCAT” | “KM”
         out_col    = "kcat (1/s)" if kin_flag == "KCAT" else "KM (mM)"
 
@@ -235,9 +251,13 @@ def run_unikp_predictions(public_id):
     job.status = "Processing"; job.save()
 
     try:
-        df = pd.read_csv(
-            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv")
+        df = safe_read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
+            job.ip_address,
+            job.requested_rows
         )
+        if df is None:
+            raise ValueError("Failed to read input CSV file.")
 
         # Decide column name & kinetics flag once
         kin_flag   = job.prediction_type.upper()          # “KCAT” | “KM”
@@ -271,7 +291,6 @@ def run_both_predictions(public_id, kcat_method, km_method):
     from api.turnup import turnup_predictions
     from api.eitlem import eitlem_predictions
     from api.unikp import unikp_predictions
-
 
     job = Job.objects.get(public_id=public_id)
     job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))
@@ -361,7 +380,6 @@ def run_both_predictions(public_id, kcat_method, km_method):
             invalid_indices.update(kcat_invalid_indices)
         else:
             raise ValueError('Invalid kcat method.')
-        
         job.kcat_complete = True  # Mark that kcat predictions are complete
         job.save()
         # Reset predictions made for KM predictions
@@ -445,6 +463,8 @@ def run_both_predictions(public_id, kcat_method, km_method):
                 f"Predictions could not be made for {len(invalid_indices)} row(s): \n"
                 f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
             )
+            to_refund = max(0, job.requested_rows - len(invalid_indices))
+            credit_back(job.ip_address, to_refund)
         else:
             job.error_message = ""
 
@@ -456,6 +476,7 @@ def run_both_predictions(public_id, kcat_method, km_method):
 
     except Exception as e:
         # Update job status to 'Failed' and save error message
+        credit_back(job.ip_address, job.requested_rows)
         job.status = 'Failed'
         job.error_message = str(e)
         job.completion_time = timezone.now()
