@@ -12,7 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
-from webKinPred.config_local import ALLOWED_FRONTEND_IPS
+from webKinPred.config_local import ALLOWED_FRONTEND_IPS, DEBUG
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,7 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-4bv*yd3s*pewklc+$$#m&ida!xc1+*+jthh&6r1l71&ubz&86-'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = DEBUG
 ALLOWED_FRONTEND_IPS = ALLOWED_FRONTEND_IPS
 # Application definition
 INSTALLED_APPS = [

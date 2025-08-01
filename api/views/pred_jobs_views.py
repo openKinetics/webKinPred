@@ -45,7 +45,6 @@ def submit_job(request):
         ip_address = get_client_ip(request)
         requested_rows = int(len(df))  # 1 row = 1 reaction
         allowed, remaining, ttl = reserve_or_reject(ip_address, requested_rows)
-        print(f"remaining: {remaining}, ttl: {ttl}, allowed: {allowed}")
         # Optional: helpful headers for the client
         rate_headers = {
             "X-RateLimit-Limit": str(DAILY_LIMIT),
