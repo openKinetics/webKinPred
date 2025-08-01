@@ -7,7 +7,10 @@ class ApiKeyMiddleware:
     def __call__(self, request):
         if request.path.startswith('/api/'):
             origin = request.headers.get('Origin')
-            if origin not in ['https://kineticxpredictor.humanmetabolism.org', 'http://localhost:3000']:
+            if not origin:
+                origin = request.headers.get('Host')
+            print(f"Origin: {origin}")
+            if origin not in ['kineticxpredictor.humanmetabolism.org', 'http://localhost:3000']:
                 return JsonResponse({'error': 'Forbidden: Invalid Origin.'}, status=403)
 
         response = self.get_response(request)
