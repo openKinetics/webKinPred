@@ -1,6 +1,5 @@
 import pandas as pd
 from django.http import JsonResponse
-from django.core.files.storage import FileSystemStorage
 from django.views.decorators.csrf import csrf_exempt
 import os
 from django.conf import settings
@@ -12,7 +11,6 @@ from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT
 @csrf_exempt
 def submit_job(request):
     if request.method == 'POST' and 'file' in request.FILES:
-        print("Received POST to submit-job")
         file = request.FILES['file']
         prediction_type = request.POST.get('predictionType')
         kcat_method = request.POST.get('kcatMethod')
@@ -143,8 +141,7 @@ def job_status(request, public_id):
 @csrf_exempt
 def detect_csv_format(request):
     if request.method != 'POST' or 'file' not in request.FILES:
-        return JsonResponse({'error': 'POST with CSV file required.'}, status=400)
-
+        return JsonResponse({'error': 'CSV file is missing.'}, status=400)
     file = request.FILES['file']
     try:
         df = pd.read_csv(file)

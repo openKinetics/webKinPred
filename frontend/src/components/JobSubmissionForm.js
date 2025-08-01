@@ -1,10 +1,10 @@
 // src/components/JobSubmissionForm.js
 import React, { useState, useEffect } from 'react';
 import { Form, Container, Row, Col, Card, Alert, Modal, Button } from 'react-bootstrap';
-import axios from 'axios'; // Import axios for sending the file
 import SequenceSimilaritySummary from './SequenceSimilaritySummary';
 import './JobSubmissionForm.css';
 import { Table } from 'react-bootstrap';
+import apiClient from './appClient';
 
 function JobSubmissionForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,7 +110,7 @@ function JobSubmissionForm() {
     formData.append('kmMethod', kmMethod);
   
     try {
-      const response = await axios.post(`${apiBaseUrl}/api/validate-input/`, formData);
+      const response = await apiClient.post(`/api/validate-input/`, formData);
       return response.data;
     } catch (err) {
       console.error('Validation error:', err);
@@ -120,9 +120,8 @@ function JobSubmissionForm() {
   const detectCsvFormat = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-  
     try {
-      const response = await axios.post(`${apiBaseUrl}/api/detect-csv-format/`, formData);
+      const response = await apiClient.post(`/api/detect-csv-format/`, formData);
       const data = response.data;
   
       if (data.status === 'valid') {
@@ -157,8 +156,7 @@ function JobSubmissionForm() {
     formData.append('file', csvFile);
     formData.append('handleLongSequences', handleLongSeqs);
 
-    axios
-      .post(`${apiBaseUrl}/api/submit-job/`, formData, {
+    apiClient.post(`${apiBaseUrl}/api/submit-job/`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -664,7 +662,7 @@ function JobSubmissionForm() {
               const { invalid_substrates, invalid_proteins, length_violations } = validation;
               const formData = new FormData();
               formData.append('file', csvFile);
-              const similarityResponse = await axios.post(`${apiBaseUrl}/api/sequence-similarity-summary/`, formData);
+              const similarityResponse = await apiClient.post(`/api/sequence-similarity-summary/`, formData);
               setSimilarityData(similarityResponse.data);
               setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations});
               setShowValidationResults(true);               

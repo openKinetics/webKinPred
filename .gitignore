@@ -11,8 +11,8 @@ frontend/coverage
 
 # production
 frontend/build
-
 # misc
+frontend/src/.env
 frontend/.DS_Store
 frontend/.env.local
 frontend/.env.development.local

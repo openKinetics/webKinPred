@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Form, Container, Row, Col, Card, Alert, ProgressBar, Spinner } from 'react-bootstrap';
-import axios from 'axios';
 import moment from 'moment';
 import ExpandableErrorMessage from './ExpandableErrorMessage';
+import apiClient from './appClient';
 
 function JobStatus() {
   const { public_id: routePublicId } = useParams();
@@ -19,9 +19,8 @@ function JobStatus() {
 
   useEffect(() => {
     if (public_id) {
-      // Function to fetch job status
       const fetchJobStatus = () => {
-        axios.get(`${apiBaseUrl}/api/job-status/${public_id}/`)
+        apiClient.get(`/api/job-status/${public_id}/`)
           .then(response => {
             setJobStatus(response.data);
             setError(null);

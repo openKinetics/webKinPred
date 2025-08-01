@@ -9,6 +9,7 @@ import tempfile
 import os
 import shutil
 from webKinPred.config_local import CONDA_PATH,TARGET_DBS
+ 
 @csrf_exempt
 def validate_input(request):
     if request.method != 'POST':
@@ -88,7 +89,6 @@ def validate_input(request):
         'length_violations': length_violations
     })
 
-
 @csrf_exempt
 def sequence_similarity_summary(request):
     if request.method != 'POST':
@@ -114,7 +114,6 @@ def sequence_similarity_summary(request):
         print(e)
         return JsonResponse({'error': str(e)}, status=500)
     
-
 
 def calculate_sequence_similarity_by_histogram(
     input_sequences: list[str]

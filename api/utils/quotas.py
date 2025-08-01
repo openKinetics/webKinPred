@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from django_redis import get_redis_connection
 
-DAILY_LIMIT = 100_000
+DAILY_LIMIT = 20_000
 
 def get_client_ip(request) -> str:
     # Adjust if you sit behind a trusted proxy; otherwise REMOTE_ADDR is fine.
