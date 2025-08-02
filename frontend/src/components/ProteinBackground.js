@@ -222,7 +222,11 @@ function ProteinBackground() {
     const ctx = canvas.getContext('2d');
     const { width, height } = canvas.getBoundingClientRect();
 
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);   // identity matrix
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
     ctx.globalAlpha = fadeEffect.current * CFG.globalAlphaFactor;
 
     const { enzymes, molecules } = entities.current;
@@ -385,7 +389,8 @@ function ProteinBackground() {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // start from scratch
+      ctx.scale(dpr, dpr);                // apply DPR exactly once
       spawnEntities(width, height);
     };
     
