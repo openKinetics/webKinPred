@@ -7,11 +7,12 @@ from django.shortcuts import get_object_or_404
 from ..models import Job
 from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
 from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT
-
+from api.utils.get_experimental import lookup_experimental
 @csrf_exempt
 def submit_job(request):
     if request.method == 'POST' and 'file' in request.FILES:
         file = request.FILES['file']
+        use_experimental = request.POST.get('useExperimental') == 'true'
         prediction_type = request.POST.get('predictionType')
         kcat_method = request.POST.get('kcatMethod')
         km_method = request.POST.get('kmMethod')
@@ -29,13 +30,20 @@ def submit_job(request):
             return JsonResponse({'error': f'Error reading file: {str(e)}'}, status=400)
         
         required_columns = ['Protein Sequence']
-        # Determine additional required columns based on the selected method
-        if kcat_method == 'TurNup':
-            required_columns.extend(['Substrates', 'Products'])
-        elif kcat_method in ['DLKcat', 'EITLEM', 'UniKP']:
-            required_columns.append('Substrate')
-        else:
-            return JsonResponse({'error': 'Invalid kcat method'}, status=400)
+        if prediction_type not in ['kcat', 'Km', 'both']:
+            return JsonResponse({'error': 'Invalid prediction type. Expected "kcat", "Km", or "both".'}, status=400)
+        if prediction_type in ['kcat', 'both']:
+            if kcat_method == 'TurNup':
+                required_columns.extend(['Substrates', 'Products'])
+            elif kcat_method in ['DLKcat', 'EITLEM', 'UniKP']:
+                required_columns.append('Substrate')
+            else:
+                return JsonResponse({'error': 'Invalid kcat method'}, status=400)
+        elif prediction_type == 'Km':
+            if km_method in ['EITLEM', 'UniKP']:
+                required_columns.append('Substrate')
+            else:
+                return JsonResponse({'error': 'Invalid Km method'}, status=400)
         # Check if the required columns are present
         missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -63,6 +71,13 @@ def submit_job(request):
                 resp[k] = v
             return resp
         file.seek(0)
+        experimental_results = None
+        if use_experimental and kcat_method != 'TurNup':
+            experimental_results = lookup_experimental(
+                df['Protein Sequence'].tolist(),
+                df['Substrate'].tolist(),
+                param_type=prediction_type
+            )
         job = Job(
             prediction_type=prediction_type,
             kcat_method=kcat_method,
@@ -78,14 +93,13 @@ def submit_job(request):
         job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))
         os.makedirs(job_dir, exist_ok=True)
         file_path = os.path.join(job_dir, 'input.csv')
-
-        with open(file_path, 'wb+') as destination:
-            for chunk in file.chunks():
-                destination.write(chunk)
+        input_df = pd.read_csv(file)
+        input_df.dropna(how='all', inplace=True)  # Remove empty rows
+        input_df.to_csv(file_path, index=False)
 
         if prediction_type == 'both':
-            run_both_predictions.delay(job.public_id, kcat_method, km_method)
-        elif prediction_type == 'kcat':
+            run_both_predictions.delay(job.public_id, experimental_results)
+        elif prediction_type == 'kcat': 
             method_to_func = {
                 'DLKcat': run_dlkcat_predictions,
                 'TurNup': run_turnup_predictions,
@@ -93,7 +107,7 @@ def submit_job(request):
                 'UniKP': run_unikp_predictions
             }
             pred_func = method_to_func.get(kcat_method)  
-            pred_func.delay(job.public_id)
+            pred_func.delay(job.public_id, experimental_results)
         elif prediction_type == 'Km':
             method_to_func = {
                 'EITLEM': run_eitlem_predictions,
@@ -101,23 +115,18 @@ def submit_job(request):
             }
             pred_func = method_to_func.get(km_method)
             if pred_func:
-                pred_func.delay(job.public_id)
+                pred_func.delay(job.public_id, experimental_results)
                 print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
 
             else:
-                return JsonResponse({'error': 'Invalid prediction type'}, status=400)
+                return JsonResponse({'error': 'Invalid prediction method'}, status=400)
         else:
             return JsonResponse({'error': 'Invalid prediction type'}, status=400)
-
-        print("Task dispatched")
 
         return JsonResponse({
             'message': 'Job submitted successfully',
             'public_id': job.public_id
         })
-    else:
-        return JsonResponse({'error': 'File upload failed'}, status=400)
-
 # views.py
 def job_status(request, public_id):
     job = get_object_or_404(Job, public_id=public_id)

@@ -5,6 +5,7 @@ import SequenceSimilaritySummary from './SequenceSimilaritySummary';
 import './JobSubmissionForm.css';
 import { Table } from 'react-bootstrap';
 import apiClient from './appClient';
+import { OverlayTrigger, Tooltip } from 'react-bootstrap';
 
 function JobSubmissionForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,6 +27,7 @@ function JobSubmissionForm() {
   const [csvFormatValid, setCsvFormatValid] = useState(false);
   const [showValidationResults, setShowValidationResults] = useState(false);
   const [handleLongSeqs, setHandleLongSeqs] = useState('truncate');  
+  const [useExperimental, setUseExperimental] = useState(false);
   const kcatMethodsByCsvType = {
     single: ['DLKcat', 'EITLEM', 'UniKP'],
     multi: ['TurNup']
@@ -155,7 +157,7 @@ function JobSubmissionForm() {
     formData.append('kmMethod', kmMethod);
     formData.append('file', csvFile);
     formData.append('handleLongSequences', handleLongSeqs);
-
+    formData.append('useExperimental', useExperimental);
     apiClient.post(`${apiBaseUrl}/api/submit-job/`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -184,7 +186,12 @@ function JobSubmissionForm() {
   const allowedKcatMethods = csvFormatInfo?.csv_type
   ? kcatMethodsByCsvType[csvFormatInfo.csv_type] || []
   : [];
-
+  const renderExperimentalTip = (props) => (
+    <Tooltip id="exp-tip" className="exp-tip" {...props}>
+      If ticked, we look up any matching k<sub>cat</sub> or K<sub>M</sub> measurements in
+      BRENDA, SABIO-RK or UniProt and use them instead of model predictions.
+    </Tooltip>
+  );
   return (
     <Container className="mt-5 pb-5">
       <Row className="justify-content-center">
@@ -195,6 +202,11 @@ function JobSubmissionForm() {
               <p>
                 This tool predicts kinetic parameters (kcat and/or KM) for enzyme-catalyzed reactions using various ML models.
               </p>
+              <p>
+                If you tick the <strong>"Use available experimental data where possible"</strong> option, the system will 
+                first check BRENDA, Sabio-RK, and UniProt to see if experimental values are available for your 
+                protein–substrate pair. If a match is found, that value will be returned instead of a model prediction.  
+              </p>
               <p><strong>Steps:</strong></p>
               <ol>
                 <li>
@@ -202,28 +214,53 @@ function JobSubmissionForm() {
                   k<sub>cat</sub>, K<sub>M</sub>, or both).
                 </li>
                 <li>Upload your reaction data as a CSV file.</li>
-                <li>Choose prediction method(s) — after (optional) preprocessing validation.</li>
+                <li>Choose prediction method(s) (after optional preprocessing validation).</li>
               </ol>
+              <h5 className="mt-4">CSV Input Headers &amp; Expected Cell Contents</h5>
 
+              <ul className="list-unstyled ps-3">
 
-              <h5>CSV Input Format Requirements</h5>
-              <ul>
-                <li>
-                  <strong>'Protein Sequence'</strong> column is required for all methods.
+                {/* ── universal ─────────────────────────────────────────────── */}
+                <li className="mb-2">
+                  <span className="csv-col">Protein&nbsp;Sequence</span> — each row holds the
+                  full amino-acid sequence.
                 </li>
-                <li>
-                  <strong>Single-substrate models (DLKcat, EITLEM, UniKP):</strong> one <code>SMILES</code> per row, in 'Substrate' column.
+
+                {/* ── single-substrate models ───────────────────────────────── */}
+                <li className="mb-1 fw-bold">
+                  Single-substrate models &nbsp;(<span>DLKcat / EITLEM / UniKP</span>)
                 </li>
-                <li>
-                  <strong>Multi-substrate model (TurNup):</strong> use a <code>Substrates</code> column (semicolon-separated SMILES) and a <code>Products</code> column.
+                <ul className="ps-3 mb-2">
+                  <li>
+                    <span className="csv-col">Substrate</span> — one
+                    <code className="ms-1">SMILES</code> or <code>InChI</code> string
+                  </li>
+                </ul>
+
+                {/* ── multi-substrate model ─────────────────────────────────── */}
+                <li className="mb-1 fw-bold">
+                  Multi-substrate model &nbsp;(<span>TurNup</span>)
                 </li>
+                <ul className="ps-3">
+                  <li>
+                    <span className="csv-col">Substrates</span> — semicolon-separated&nbsp;
+                    <code className="ms-1">SMILES</code>/<code>InChI</code> list
+                  </li>
+                  <li>
+                    <span className="csv-col">Products</span> — semicolon-separated&nbsp;
+                    <code className="ms-1">SMILES</code>/<code>InChI</code> list
+                  </li>
+                </ul>
+
               </ul>
 
-              <p className="ps-3" style={{ marginLeft: '1rem' }}>
-                You can also use multi-substrate data for KM predictions. Each substrate in the <code>Substrates</code> column will receive its own KM prediction, returned as a semicolon-separated list.  
-                <br />
-                If using single-substrate data, one KM value will be predicted per row.
+              <p className="ps-1">
+                Multi-substrate CSVs can also be used for KM predictions. Each entry in
+                <span className="csv-col mx-1">Substrates</span> receives its own KM value
+                (semicolon-separated in the output). A single-substrate row produces one
+                KM value.
               </p>
+
               <h6>📥 Example Templates:</h6>
               <ul>
                 <li><a href="/templates/single_substrate_template.csv" download>Download single-substrate template</a></li>
@@ -605,6 +642,21 @@ function JobSubmissionForm() {
               </Card.Body>
               {csvFormatValid && (kcatMethod || kmMethod) && (
                 <div className="mt-4 d-flex justify-content-end">
+                  <Form.Group controlId="useExperimental" className="mt-3">
+                    <div className="exp-switch-wrapper me-3">
+                      <Form.Check
+                        id="useExperimental"
+                        type="switch"
+                        label="Prefer experimental data"
+                        checked={useExperimental}
+                        onChange={(e) => setUseExperimental(e.target.checked)}
+                        className="exp-switch"
+                      />
+                      <OverlayTrigger placement="right" overlay={renderExperimentalTip}>
+                        <span className="info-icon ms-1" role="button" tabIndex={0}>i</span>
+                      </OverlayTrigger>
+                    </div>
+                  </Form.Group>
                   <button
                     type="button"
                     className="kave-btn"
@@ -662,6 +714,7 @@ function JobSubmissionForm() {
               const { invalid_substrates, invalid_proteins, length_violations } = validation;
               const formData = new FormData();
               formData.append('file', csvFile);
+              formData.append('useExperimental', useExperimental);
               const similarityResponse = await apiClient.post(`/api/sequence-similarity-summary/`, formData);
               setSimilarityData(similarityResponse.data);
               setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations});

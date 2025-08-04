@@ -15,6 +15,7 @@ from api.turnup import turnup_predictions
 from api.eitlem import eitlem_predictions
 from api.unikp import unikp_predictions
 from api.utils.quotas import credit_back
+from api.utils.extra_info import build_extra_info, _source
 
 def run_prediction_subprocess(command, job):
     """
@@ -81,6 +82,7 @@ def run_model(
     extra_kwargs: dict | None = None,
     output_col: str,
     handle_long: str = "skip",
+    experimental_results: dict | None = None
 ):
     """
     Generic prediction runner.
@@ -95,6 +97,7 @@ def run_model(
     extra_kwargs    : dict  - pass-through to pred_func (e.g. kinetics_type)
     output_col      : str   - column to write predictions into
     handle_long     : 'skip'|'truncate'
+    experimental_results : dict | None - If provided, will be used instead of predictions
     """
 
     try:
@@ -129,13 +132,34 @@ def run_model(
 
         # ------- 5. run prediction --------------------------------------------
         full_preds = ["" for _ in sequences]
+        extra_info = ["" for _ in sequences]
+        sources = ["" for _ in sequences]  # For storing source info if needed
         invalid_global: list[int] = []
         if valid_idx:
             pred_subset, invalid_subset = pred_func(**kwargs)
             for i, p in zip(valid_idx, pred_subset):
                 full_preds[i] = p
+                sources [i] = f"Prediction from {model_key}"  
             invalid_global = [valid_idx[i] for i in invalid_subset]
+        exp_res_key = 'km_value' if job.prediction_type == 'Km' else 'kcat_value'
+        experimental_results = experimental_results or []
+        for exp_res in experimental_results:
+            if exp_res['found']:
+                idx = exp_res['idx']
+                if exp_res['protein_sequence'] != sequences[idx]:
+                    print(
+                        f"Protein sequence mismatch at index {idx}: "
+                        f"expected {sequences[idx]}, got {exp_res['protein_sequence']}"
+                    )
+                    continue
+                prediction = full_preds[idx]
+                full_preds[idx] = exp_res[exp_res_key]
+                sources[idx] = _source(exp_res)
+                extra_info[idx] = build_extra_info(exp_res, job.prediction_type, prediction, model_key)
+        
         # ------- 6. write CSV --------------------------------------------------
+        df.insert(0, "Extra Info", extra_info)
+        df.insert(0, "Source", sources)
         df.insert(0, output_col, full_preds)
         csv_out = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "output.csv")
         df.to_csv(csv_out, index=False)
@@ -159,7 +183,7 @@ def run_model(
         raise e
 # ------------------------------------------------------------ DLKcat
 @shared_task
-def run_dlkcat_predictions(public_id):
+def run_dlkcat_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
     try:
@@ -178,6 +202,7 @@ def run_dlkcat_predictions(public_id):
             requires_cols  = ["Substrate"],
             output_col     = "kcat (1/s)",
             handle_long    = job.handle_long_sequences,
+            experimental_results = experimental_results
         )
         job.status = "Completed"
         job.completion_time = timezone.now()
@@ -186,7 +211,7 @@ def run_dlkcat_predictions(public_id):
         job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 # ------------------------------------------------------------ TurNup
 @shared_task
-def run_turnup_predictions(public_id):
+def run_turnup_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
     try:
@@ -205,6 +230,7 @@ def run_turnup_predictions(public_id):
             requires_cols = ["Substrates", "Products"],
             output_col    = "kcat (1/s)",
             handle_long   = job.handle_long_sequences,
+            experimental_results = experimental_results
         )
         job.status = "Completed"; job.completion_time = timezone.now(); job.save()
 
@@ -213,7 +239,7 @@ def run_turnup_predictions(public_id):
 
 # ------------------------------------------------------------ EITLEM
 @shared_task
-def run_eitlem_predictions(public_id):
+def run_eitlem_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
@@ -237,6 +263,7 @@ def run_eitlem_predictions(public_id):
             output_col    = out_col,
             handle_long   = job.handle_long_sequences,
             extra_kwargs  = {"kinetics_type": kin_flag},
+            experimental_results = experimental_results
         )
 
         job.status = "Completed"; job.completion_time = timezone.now(); job.save()
@@ -246,7 +273,7 @@ def run_eitlem_predictions(public_id):
 
 # ------------------------------------------------------------ UniKP
 @shared_task
-def run_unikp_predictions(public_id):
+def run_unikp_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"; job.save()
 
@@ -272,6 +299,7 @@ def run_unikp_predictions(public_id):
             output_col    = out_col,
             handle_long   = job.handle_long_sequences,
             extra_kwargs  = {"kinetics_type": kin_flag},
+            experimental_results = experimental_results
         )
 
         job.status = "Completed"; job.completion_time = timezone.now(); job.save()
@@ -280,204 +308,201 @@ def run_unikp_predictions(public_id):
         job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
 
 # ------------------------------------------------------------ Run Both
+# ------------------------------------------------------------ Run Both
 @shared_task
-def run_both_predictions(public_id, kcat_method, km_method):
+def run_both_predictions(public_id, experimental_results=None):
+    """
+    Predict kcat **and** KM for every row, optionally overwriting either
+    (or both) with experimental values supplied via `experimental_results`.
+
+    experimental_results is a flat list whose items have at least:
+        {'found': bool, 'idx': <row>, 'kcat_value' or 'km_value', …}
+    For `lookup_experimental(..., param_type="both")` the list is
+    interleaved:  kcat₀, KM₀, kcat₁, KM₁, …
+    """
+    from collections import defaultdict
     from .models import Job
-    import os
-    import pandas as pd
-    from django.utils import timezone
+    import os, pandas as pd
     from django.conf import settings
+    from django.utils import timezone
     from api.dlkcat import dlkcat_predictions
     from api.turnup import turnup_predictions
     from api.eitlem import eitlem_predictions
     from api.unikp import unikp_predictions
+    from api.utils.extra_info import build_extra_info, _source
+    from api.utils.quotas import credit_back
 
-    job = Job.objects.get(public_id=public_id)
-    job_dir = os.path.join(settings.MEDIA_ROOT, 'jobs', str(job.public_id))
-    input_file_path = os.path.join(job_dir, 'input.csv')
+    # ───────────────────────── 0.  House-keeping ─────────────────────────
+    job      = Job.objects.get(public_id=public_id)
+    job_dir  = os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id))
+    infile   = os.path.join(job_dir, "input.csv")
 
-    # Update job status to 'Processing'
-    job.status = 'Processing'
-    job.predictions_made = 0
-    job.total_predictions = 0
-    job.save()
-    multisub = False
+    job.status, job.predictions_made, job.total_predictions = "Processing", 0, 0
+    job.save(update_fields=["status", "predictions_made", "total_predictions"])
+
+    kcat_method = job.kcat_method
+    km_method   = job.km_method
+
+    multisub = False          # only true for TurNup
+    invalid_indices = set()   # will accumulate across both passes
 
     try:
-        # Read the CSV input file
-        df = pd.read_csv(input_file_path)
-        sequences = df['Protein Sequence'].tolist()
-        protein_ids = None
+        df              = pd.read_csv(infile)
+        sequences       = df["Protein Sequence"].tolist()
+        results_df      = df.copy()        # will receive new columns
+        protein_ids     = None             # placeholder for future use
 
-        # Initialize the DataFrame to store results
-        results_df = df.copy()
-        invalid_indices = set()
+        # ─────────────────── 1.  default meta-columns ────────────────────
+        n_rows          = len(df)
+        kcat_src        = [f"Prediction from {kcat_method}"] * n_rows
+        km_src          = [f"Prediction from {km_method}"]   * n_rows
+        kcat_extra      = [""] * n_rows
+        km_extra        = [""] * n_rows
 
-        # Run kcat predictions
-        if kcat_method == 'DLKcat':
-            if 'Substrate' not in df.columns:
-                raise ValueError('Missing "Substrate" column required for DLKcat kcat predictions.')
-            substrates = df['Substrate'].tolist()
-
-            # Run DLKcat predictions
-            kcat_predictions, kcat_invalid_indices = dlkcat_predictions(
-                sequences=sequences,
-                substrates=substrates,
-                public_id=job.public_id,
-                protein_ids=protein_ids
+        # ─────────────────── 2.  kcat predictions  ───────────────────────
+        if kcat_method == "DLKcat":
+            subs = df["Substrate"].tolist()
+            kcat_pred, bad = dlkcat_predictions(
+                sequences=sequences, substrates=subs,
+                public_id=job.public_id, protein_ids=protein_ids
             )
-            results_df['kcat (1/s)'] = kcat_predictions
-            invalid_indices.update(kcat_invalid_indices)
-
-        elif kcat_method == 'EITLEM':
-            if 'Substrate' not in df.columns:
-                raise ValueError('Missing "Substrate" column required for EITLEM kcat predictions.')
-            substrates = df['Substrate'].tolist()
-
-            # Run EITLEM kcat predictions
-            kcat_predictions, kcat_invalid_indices = eitlem_predictions(
-                sequences=sequences,
-                substrates=substrates,
-                public_id=job.public_id,
-                protein_ids=protein_ids,
-                kinetics_type='KCAT'
+        elif kcat_method == "EITLEM":
+            subs = df["Substrate"].tolist()
+            kcat_pred, bad = eitlem_predictions(
+                sequences=sequences, substrates=subs,
+                public_id=job.public_id, protein_ids=protein_ids,
+                kinetics_type="KCAT"
             )
-            results_df['kcat (1/s)'] = kcat_predictions
-            invalid_indices.update(kcat_invalid_indices)
-
-        elif kcat_method == 'TurNup':
-            if 'Substrates' not in df.columns or 'Products' not in df.columns:
-                raise ValueError('Missing "Substrates" or "Products" columns required for TurNup kcat predictions.')
-            substrates = df['Substrates'].tolist()
-            products = df['Products'].tolist()
-
-            # Run TurNup predictions
-            kcat_predictions, kcat_invalid_indices = turnup_predictions(
-                sequences=sequences,
-                substrates=substrates,
-                products=products,
-                public_id=job.public_id,
-                protein_ids=protein_ids
+        elif kcat_method == "UniKP":
+            subs = df["Substrate"].tolist()
+            kcat_pred, bad = unikp_predictions(
+                sequences=sequences, substrates=subs,
+                public_id=job.public_id, protein_ids=protein_ids,
+                kinetics_type="KCAT"
             )
-            results_df['kcat (1/s)'] = kcat_predictions
-            invalid_indices.update(kcat_invalid_indices)
-            multisub = True
-        
-        elif kcat_method == 'UniKP': 
-            if 'Substrate' not in df.columns:
-                raise ValueError('Missing "Substrate" column required for UniKP kcat predictions.')
-            substrates = df['Substrate'].tolist()
-
-            # Run UniKP predictions
-            kcat_predictions, kcat_invalid_indices = unikp_predictions(
-                sequences=sequences,
-                substrates=substrates,
-                public_id=job.public_id,
-                protein_ids=protein_ids,
-                kinetics_type='KCAT'
+        elif kcat_method == "TurNup":
+            multisub      = True
+            subs, prods   = df["Substrates"].tolist(), df["Products"].tolist()
+            kcat_pred, bad = turnup_predictions(
+                sequences=sequences, substrates=subs, products=prods,
+                public_id=job.public_id, protein_ids=protein_ids
             )
-            results_df['kcat (1/s)'] = kcat_predictions
-            invalid_indices.update(kcat_invalid_indices)
         else:
-            raise ValueError('Invalid kcat method.')
-        job.kcat_complete = True  # Mark that kcat predictions are complete
-        job.save()
-        # Reset predictions made for KM predictions
-        job.predictions_made = 0
-        job.total_predictions = 0
-        job.save()
+            raise ValueError("Invalid kcat method")
 
-        # If multisubstrate format, augment KM input
+        results_df["kcat (1/s)"] = kcat_pred
+        invalid_indices.update(bad)
+
+        # ─────────────────── 3.  KM predictions  ─────────────────────────
         if multisub:
-            augmented_rows = []  # For storing (original_idx, sequence, substrate)
+            # explode Substrates to one-row-per-substrate
+            aug_rows = []
             for idx, row in df.iterrows():
-                smi_list = [s.strip() for s in str(row['Substrates']).split(';') if s.strip()]
-                for smi in smi_list:
-                    augmented_rows.append({
-                        'original_idx': idx,
-                        'sequence': row['Protein Sequence'],
-                        'substrate': smi
-                    })
-            # Create augmented DataFrame
-            augmented_df = pd.DataFrame(augmented_rows)
-            aug_sequences = augmented_df['sequence'].tolist()
-            aug_substrates = augmented_df['substrate'].tolist()
-
-        # Run KM predictions
-        if km_method == 'EITLEM':
-            if not multisub and 'Substrate' not in df.columns:
-                raise ValueError('Missing "Substrate" column required for EITLEM KM predictions.')
-            sequences_km = aug_sequences if multisub else sequences
-            substrates_km = aug_substrates if multisub else df['Substrate'].tolist()
-
-            # Run EITLEM KM predictions
-            km_predictions, km_invalid_indices = eitlem_predictions(
-                sequences=sequences_km,
-                substrates=substrates_km,
-                public_id=job.public_id,
-                protein_ids=protein_ids,
-                kinetics_type='KM'
-            )
-            invalid_indices.update(km_invalid_indices)
-        elif km_method == 'UniKP':
-            if not multisub and 'Substrate' not in df.columns:
-                raise ValueError('Missing "Substrate" column required for UniKP KM predictions.')
-            sequences_km = aug_sequences if multisub else sequences
-            substrates_km = aug_substrates if multisub else df['Substrate'].tolist()
-            # Run UniKP KM predictions  
-            km_predictions, km_invalid_indices = unikp_predictions(
-                sequences=sequences_km,
-                substrates=substrates_km,
-                public_id=job.public_id,
-                protein_ids=protein_ids,
-                kinetics_type='KM'
-            )
-            invalid_indices.update(km_invalid_indices)
+                for smi in [s.strip() for s in str(row["Substrates"]).split(";") if s.strip()]:
+                    aug_rows.append({"original_idx": idx,
+                                     "sequence": row["Protein Sequence"],
+                                     "substrate": smi})
+            aug_df       = pd.DataFrame(aug_rows)
+            seq_km       = aug_df["sequence"].tolist()
+            subs_km      = aug_df["substrate"].tolist()
         else:
-            raise ValueError('Invalid KM method.')
-        
+            seq_km       = sequences
+            subs_km      = df["Substrate"].tolist()
+
+        if km_method == "EITLEM":
+            km_pred, bad = eitlem_predictions(
+                sequences=seq_km, substrates=subs_km,
+                public_id=job.public_id, protein_ids=protein_ids,
+                kinetics_type="KM"
+            )
+        elif km_method == "UniKP":
+            km_pred, bad = unikp_predictions(
+                sequences=seq_km, substrates=subs_km,
+                public_id=job.public_id, protein_ids=protein_ids,
+                kinetics_type="KM"
+            )
+        else:
+            raise ValueError("Invalid KM method")
+
+        invalid_indices.update(bad)
+
         if multisub:
-            # Convert predictions to semicolon-separated format per original row
+            # regroup semicolon-separated predictions
             from collections import defaultdict
             km_map = defaultdict(list)
-            for row_idx, pred in zip(augmented_df['original_idx'], km_predictions):
-                km_map[row_idx].append(str(pred))
-
-            km_merged = [ ';'.join(km_map[i]) for i in range(len(df)) ]
-            results_df['KM (mM)'] = km_merged
+            for r, pred in zip(aug_df["original_idx"], km_pred):
+                km_map[r].append(str(pred))
+            results_df["KM (mM)"] = [";".join(km_map[i]) for i in range(n_rows)]
         else:
-            results_df['KM (mM)'] = km_predictions
+            results_df["KM (mM)"] = km_pred
 
-        # Reorder columns to have 'kcat' and 'KM' at the front
-        cols = ['kcat (1/s)', 'KM (mM)'] + [col for col in results_df.columns if col not in ['kcat (1/s)', 'KM (mM)']]
-        results_df = results_df[cols]
+        # ─────────────────── 4.  experimental overwrites ─────────────────
+        if experimental_results:
+            for exp in experimental_results:
+                if not exp.get("found"):
+                    continue
+                idx   = exp["idx"]
+                p_seq = exp["protein_sequence"]
+                if p_seq != sequences[idx]:
+                    print(
+                        f"Protein sequence mismatch at index {idx}: "
+                        f"expected {sequences[idx]}, got {p_seq}"
+                    )
+                    continue
 
-        # Save results to output file
-        output_file_path = os.path.join(job_dir, 'output.csv')
-        results_df.to_csv(output_file_path, index=False)
+                if "kcat_value" in exp:          # kcat overwrite
+                    prev_val               = results_df.at[idx, "kcat (1/s)"]
+                    results_df.at[idx, "kcat (1/s)"] = exp["kcat_value"]
+                    kcat_src[idx]          = _source(exp)
+                    kcat_extra[idx]        = build_extra_info(
+                        exp, "kcat", prev_val, kcat_method
+                    )
+                elif "km_value" in exp:          # KM overwrite
+                    prev_val               = results_df.at[idx, "KM (mM)"]
+                    results_df.at[idx, "KM (mM)"] = exp["km_value"]
+                    km_src[idx]            = _source(exp)
+                    km_extra[idx]          = build_extra_info(
+                        exp, "Km", prev_val, km_method
+                    )
 
-        # Update job with invalid indices information
+        # ─────────────────── 5.  attach meta-columns  ────────────────────
+        results_df.insert(0, "Extra Info KM",   km_extra)
+        results_df.insert(0, "Source KM",       km_src)
+        results_df.insert(0, "Extra Info kcat", kcat_extra)
+        results_df.insert(0, "Source kcat",     kcat_src)
+
+        # bring prediction columns to the front
+        preferred_order = [
+            "kcat (1/s)", "Source kcat", "Extra Info kcat",
+            "KM (mM)",    "Source KM",   "Extra Info KM"
+        ]
+        results_df = results_df[
+            preferred_order + [c for c in results_df.columns if c not in preferred_order]
+        ]
+
+        # ─────────────────── 6.  save & update job  ──────────────────────
+        out_csv = os.path.join(job_dir, "output.csv")
+        results_df.to_csv(out_csv, index=False)
+
         if invalid_indices:
-            invalid_indices = sorted(list(invalid_indices))
+            invalid_indices = sorted(invalid_indices)
             job.error_message = (
-                f"Predictions could not be made for {len(invalid_indices)} row(s): \n"
-                f"{', '.join(map(str, invalid_indices))} due to invalid SMILES/InChI."
+                f"Predictions could not be made for {len(invalid_indices)} row(s): "
+                f"{', '.join(map(str, invalid_indices))}"
             )
-            to_refund = max(0, job.requested_rows - len(invalid_indices))
-            credit_back(job.ip_address, to_refund)
+            credit_back(job.ip_address,
+                        max(0, job.requested_rows - len(invalid_indices)))
         else:
             job.error_message = ""
 
-        # Update job status to 'Completed'
-        job.status = 'Completed'
+        job.status          = "Completed"
         job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(output_file_path, settings.MEDIA_ROOT)
+        job.output_file.name = os.path.relpath(out_csv, settings.MEDIA_ROOT)
         job.save()
 
-    except Exception as e:
-        # Update job status to 'Failed' and save error message
+    except Exception as exc:
         credit_back(job.ip_address, job.requested_rows)
-        job.status = 'Failed'
-        job.error_message = str(e)
+        job.status          = "Failed"
+        job.error_message   = str(exc)
         job.completion_time = timezone.now()
         job.save()

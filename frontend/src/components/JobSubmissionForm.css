@@ -1,6 +1,81 @@
-/* Add this to your CSS for spinner styling */
 .spinner-border {
   width: 1.5rem;
   height: 1.5rem;
   border-width: 0.2rem;
+}
+/* ─── experimental-data switch + info icon ───────────────────── */
+.exp-switch .form-check-input {
+  cursor: pointer;
+}
+.exp-switch-wrapper {
+  display: flex;
+  align-items: center;
+}
+/* JobSubmissionForm.css */
+
+/* thumb / track when OFF */
+.exp-switch .form-check-input {
+  background-color: #6c757d;      /* muted grey */
+  border-color:    #6c757d;
+}
+
+/* thumb / track when ON */
+.exp-switch .form-check-input:checked {
+  background-color: #198754;      /* Bootstrap “success” green */
+  border-color:    #198754;
+}
+
+/* optional: focus ring */
+.exp-switch .form-check-input:focus {
+  box-shadow: 0 0 0 0.25rem rgba(25,135,84,.25);
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0dcaf0;          /* Bootstrap info colour */
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+.info-icon:hover,
+.info-icon:focus {
+  background: #31d2f2;          /* lighten on hover/focus */
+  outline: none;
+}
+/* colour the balloon */
+.exp-tip .tooltip-inner {
+  background-color: #0d6efd;   /* primary blue */
+  color: #fff;                 /* white text */
+  font-size: 0.85rem;
+}
+
+/* arrow (top/bottom/left/right) */
+.exp-tip.bs-tooltip-top   .tooltip-arrow::before,
+.exp-tip.bs-tooltip-auto[x-placement^="top"] .tooltip-arrow::before,
+.exp-tip.bs-tooltip-bottom .tooltip-arrow::before,
+.exp-tip.bs-tooltip-auto[x-placement^="bottom"] .tooltip-arrow::before,
+.exp-tip.bs-tooltip-start .tooltip-arrow::before,
+.exp-tip.bs-tooltip-auto[x-placement^="left"]  .tooltip-arrow::before,
+.exp-tip.bs-tooltip-end   .tooltip-arrow::before,
+.exp-tip.bs-tooltip-auto[x-placement^="right"] .tooltip-arrow::before {
+  background-color: #0d6efd;
+}
+/* ─── pill badge for column names ──────────────────────────── */
+.csv-col {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "Courier New", monospace;
+  background: #e9ecef;               /* light grey */
+  color: #212529;                    /* body text colour */
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
