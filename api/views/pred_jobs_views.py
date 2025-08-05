@@ -153,6 +153,7 @@ def detect_csv_format(request):
     file = request.FILES['file']
     try:
         df = pd.read_csv(file)
+        df = df.dropna(how='all')  # Remove empty rows
     except Exception as e:
         return JsonResponse({'status': 'invalid', 'errors': [f'Error reading CSV: {str(e)}']}, status=400)
 
@@ -170,9 +171,15 @@ def detect_csv_format(request):
     if errors:
         return JsonResponse({'status': 'invalid', 'errors': errors})
 
+    if has_substrates_products and has_substrate:
+        return JsonResponse({'status': 'invalid', 'errors': ["Cannot have both 'Substrate' and 'Substrates'/'Products' columns."]}, status=400)
+
+    valid_response = {'status': 'valid', 'num_rows': len(df)}
     if has_substrates_products:
-        return JsonResponse({'status': 'valid', 'csv_type': 'multi'})
-    elif has_substrate:
-        return JsonResponse({'status': 'valid', 'csv_type': 'single'})
+        valid_response['csv_type'] = 'multi'
     else:
-        return JsonResponse({'status': 'invalid', 'errors': ['Could not determine format.']}, status=400)
+        if not has_substrate:
+            return JsonResponse({'status': 'invalid', 'errors': ["Could not determine CSV format. Read instructions and check the example CSV files."]}, status=400)
+        valid_response['csv_type'] = 'single'
+    return JsonResponse(valid_response, status=200)
+

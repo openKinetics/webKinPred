@@ -4,7 +4,7 @@ import { Card, Form } from 'react-bootstrap';
 
 export default function PredictionTypeSelect({ value, onChange }) {
   return (
-    <Card className="section-container section-prediction-type">
+    <Card className="section-container section-how-to-use mb-4">
       <Card.Body>
         <h3>What would you like to predict?</h3>
         <Form.Group controlId="predictionType">

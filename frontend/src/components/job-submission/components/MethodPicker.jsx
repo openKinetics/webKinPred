@@ -21,7 +21,7 @@ export default function MethodPicker({
   const showKm = predictionType === 'Km' || predictionType === 'both';
 
   return (
-    <Card className="section-container section-method-selection">
+    <Card className="section-container section-method-selection mb-4">
       <Card.Body>
         <h3>Select Prediction Method</h3>
         <Row>

@@ -7,7 +7,7 @@ export default function HowToUseCard() {
       <Card.Body>
         <h3>How to Use This Tool</h3>
         <p>
-          This tool predicts kinetic parameters (kcat and/or KM) for enzyme-catalysed reactions using various ML models.
+          This tool predicts kinetic parameters (k<sub>cat</sub> and/or K<sub>M</sub>) for enzyme-catalysed reactions using various ML models.
         </p>
         <p>
           If you tick <strong>“Prefer experimental data”</strong>, the system will first check BRENDA, SABIO-RK,

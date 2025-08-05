@@ -24,8 +24,7 @@ function JobStatus() {
           .then(response => {
             setJobStatus(response.data);
             setError(null);
-            console.log('Job status fetched:', response.data);
-            
+
             if (response.data.status === 'Completed' || response.data.status === 'Failed') {
               clearInterval(intervalId); 
             } else {
@@ -81,7 +80,7 @@ function JobStatus() {
     <Container className="mt-5 pb-5">
       <Row className="justify-content-center">
         <Col md={8}>
-          <Card className="section-container">
+          <Card className="section-container mb-4">
             <Card.Body>
               <h3>Track Job Status</h3>
               {!routePublicId && (

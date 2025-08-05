@@ -73,32 +73,11 @@ body {
   overflow: hidden;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.section-container section-reaction-info {
-  /* bottom margin for the last section */
-  margin-bottom: 50px;
-}
 
 .section-container:hover {
   transform: scale(1.01);
   box-shadow: var(--box-shadow-1);
 }
-
-/* Unique Styles for Each Section */
-.section-prediction-type {
-  border-color: var(--border-color-1);
-  box-shadow: var(--box-shadow-1);
-}
-
-.section-method-selection {
-  border-color: var(--border-color-1);
-  box-shadow: var(--box-shadow-1);
-}
-
-.section-reaction-info {
-  border-color: var(--border-color-1);
-  box-shadow: var(--box-shadow-1);
-}
-
 /* Input and Select Styles */
 .custom-input,
 .custom-select {
@@ -147,12 +126,11 @@ body {
   background-color: var(--dropdown-bg);
   font-family: 'Roboto', sans-serif;
 }
-
-/* Focus Styles */
-/* Kave Button Styles */
-.kave-btn {
+/* Base Kave button when used on a Bootstrap Button element */
+.btn.kave-btn {
+  /* Keep your original design: */
   position: relative;
-  border: solid 1px black;
+  border: 1px solid rgba(233, 233, 233, 0.5);
   background: none;
   color: white;
   font-family: "Roboto", sans-serif;
@@ -167,9 +145,18 @@ body {
   cursor: pointer;
   border-radius: 5px;
   overflow: hidden;
+
+  --bs-btn-bg: transparent;
+  --bs-btn-color: white;
+  --bs-btn-border-color: black;
+  --bs-btn-hover-bg: transparent;
+  --bs-btn-hover-color: white;
+  --bs-btn-padding-x: 0;
+  --bs-btn-padding-y: 0;
+  --bs-btn-border-width: 1px;
 }
 
-.kave-btn .kave-line {
+.btn.kave-btn .kave-line {
   position: absolute;
   width: 100%;
   height: 100%;
@@ -177,8 +164,8 @@ body {
   left: 0;
 }
 
-.kave-btn .kave-line:before,
-.kave-btn .kave-line:after {
+.btn.kave-btn .kave-line:before,
+.btn.kave-btn .kave-line:after {
   content: "";
   position: absolute;
   width: 1px;
@@ -187,32 +174,116 @@ body {
   transition: all 0.25s ease;
 }
 
-.kave-btn .kave-line:before {
+.btn.kave-btn .kave-line:before {
   bottom: 30%;
   right: 0;
   transform: translateX(1px);
 }
 
-.kave-btn .kave-line:after {
+.btn.kave-btn .kave-line:after {
   top: 30%;
   left: 0;
   transform: translateX(-1px);
 }
 
-.kave-btn:hover {
-  box-shadow: 0 0 10px rgba(50,205,50,0.8);
+.btn.kave-btn:hover,
+.btn.kave-btn:focus {
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.3); 
   color: white;
-  text-shadow: 0 0 8px rgba(50,205,50,0.3);
+  background-color: transparent; 
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
-.kave-btn:hover:before {
-  left: 0;
-  width: 20px;
+/* Optional: better disabled state */
+.btn.kave-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
-.kave-btn:hover:after {
-  right: 0;
-  width: 20px;
+.btn.kave-btn.kave-btn-secondary {
+  /* choose your secondary colours here */
+  border-color: rgba(233, 233, 233, 0.5);
+  background: none;
+  color: white;
+  letter-spacing: 1.2px;
+  width: 200px;
+  height: 70px;
+  overflow: hidden;
+}
+.btn.kave-btn.kave-btn-secondary:hover,
+.btn.kave-btn.kave-btn-secondary:focus {
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); 
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.3); 
+  color: white;
+  background-color: transparent;
+  border-color: rgba(255, 255, 255, 0.5); 
+}
+/* Base themed upload button (you already added something like this) */
+.btn.kave-btn-upload {
+  background: transparent;
+  color: var(--text-color);
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  height: 48px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.8px;
+  text-transform: none;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+
+.btn.kave-btn-upload:hover,
+.btn.kave-btn-upload:focus {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+  outline: none;
+}
+
+/* “Has file” state: solid border + subtle fill to signal selection */
+.btn.kave-btn-upload.has-file {
+  border-style: solid;                /* not dashed anymore */
+  border-color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.08); /* gentle fill that fits dark blue bg */
+}
+
+.btn.kave-btn-upload.has-file:hover,
+.btn.kave-btn-upload.has-file:focus {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* File name styling; emphasise when a file is selected */
+.file-selected {
+  margin-left: 12px;
+  color: wheat;
+  overflow-wrap: anywhere;
+}
+
+.file-selected.has-file {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+/* Small clear button that sits nicely next to the file name */
+.btn.kave-btn-upload-clear {
+  margin-left: 10px;
+  background: transparent;
+  color: var(--text-color);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  height: 36px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.btn.kave-btn-upload-clear:hover,
+.btn.kave-btn-upload-clear:focus {
+  border-color: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
 }
 
 
