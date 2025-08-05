@@ -24,7 +24,6 @@ const hasFile = !!fileName && fileName !== 'No file chosen';
               <Form.Control
               key={fileInputKey}
               ref={fileRef}
-              id="csvFile"
               type="file"
               accept=".csv"
               onChange={(e) => onFileSelected(e.target.files?.[0] || null)}

@@ -110,27 +110,39 @@ function SequenceSimilarityHistogram({ similarityData }) {
   return (
     <div className="mt-4">
       <h5 className="text-center mt-3 mb-3">Sequence Similarity Histogram</h5>
-      <p className="text-white">
-        Each input protein sequence is searched against the <i>k</i><sub>cat</sub> training data of each model using MMseqs2. The histogram displays the distribution of sequence similarities, which can be viewed in two ways:
-        <br />
+      <div className="text-white">
+        <p>
+          Each input protein sequence is searched against the <i>k</i><sub>cat</sub> training data of each model using
+          MMseqs2. The histogram displays the distribution of sequence similarities, which can be viewed in two ways:
+        </p>
+
         <ul className="ms-4">
           <li>
-            <strong>Max Similarity</strong> – the single highest percentage identity found for each of your sequences against the training data. This is the largest similarity value among all alignment hits.
+            <strong>Max Similarity</strong> – the single highest percentage identity found for each of your sequences
+            against the training data. This is the largest similarity value among all alignment hits.
           </li>
           <li className="mt-2">
-            <strong>Mean Similarity</strong> – the average percentage identity calculated from all significant alignment hits found for each sequence. This is the mean of the identities from those hits, not from the entire target database. 
+            <strong>Mean Similarity</strong> – the average percentage identity calculated from all significant alignment
+            hits found for each sequence. This is the mean of the identities from those hits, not from the entire target
+            database.
           </li>
         </ul>
-        Both values are rounded to the nearest percent. If no hits are found for a sequence, both the mean and max similarity are set to 0%. This histogram shows the frequency of each similarity value (0–100%).
-        <br />
-        <strong>MMseqs2 Parameters:</strong>
+
+        <p>
+          Both values are rounded to the nearest percent. If no hits are found for a sequence, both the mean and max
+          similarity are set to 0%. This histogram shows the frequency of each similarity value (0–100%).
+        </p>
+
+        <p><strong>MMseqs2 Parameters:</strong></p>
         <ul className="ms-4">
           <li><code>-s</code> (sensitivity): <code>7.5</code></li>
           <li><code>-e</code> (significance cutoff, E-value): <code>0.001</code></li>
           <li><code>--max-seqs</code> (maximum number of target sequences to consider per query): <code>5000</code></li>
         </ul>
-        Click a model below to toggle between the training datasets.
-      </p>
+
+        <p>Click a model below to toggle between the training datasets.</p>
+      </div>
+
       <div className="mb-3 d-flex align-items-center">
         <div className="me-3">
           {models.map(model => (
