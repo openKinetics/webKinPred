@@ -1,3 +1,4 @@
+// /home/saleh/webKinPred/frontend/src/components/job-submission/JobSubmissionForm.jsx
 import React from 'react';
 import { Container, Row, Col } from 'react-bootstrap';
 
@@ -9,6 +10,7 @@ import MethodPicker from './components/MethodPicker';
 import ValidationResults from './components/ValidationResults';
 import PreprocessModal from './components/PreprocessModal';
 import SubmissionResultModal from './components/SubmissionResultModal';
+import LiveLogOverlay from './components/LiveLogOverlay';
 
 import './JobSubmissionForm.css';
 
@@ -81,29 +83,18 @@ export default function JobSubmissionForm() {
             message={state.submissionResult?.message}
             publicId={state.submissionResult?.public_id}
           />
-
-          {/* Full-screen validating overlay */}
-          {state.isValidating && (
-            <div style={{
-              position: 'fixed',
-              top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.85)',
-              zIndex: 9999,
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              color: 'white',
-              fontSize: '1.5rem',
-              flexDirection: 'column',
-            }}>
-              <div className="spinner-border text-light mb-3" role="status">
-                <span className="visually-hidden">Loading…</span>
-              </div>
-              <div>Validating Inputs and Running MMseqs2…</div>
-            </div>
-          )}
         </Col>
       </Row>
+
+      {/* New Live Progress Overlay */}
+      <LiveLogOverlay
+        show={state.isValidating}
+        logs={state.liveLogs}
+        connected={state.streamConnected}
+        autoScroll={state.autoScroll}
+        setAutoScroll={state.setAutoScroll}
+        onCancel={state.cancelValidation}
+      />
     </Container>
   );
 }

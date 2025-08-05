@@ -1,0 +1,163 @@
+/* /home/saleh/webKinPred/frontend/src/components/job-submission/components/LiveLogOverlay.css */
+
+.wkp-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, rgba(116,131,255,0.12), transparent),
+              rgba(0,0,0,0.86);
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.wkp-terminal-card {
+  width: min(1100px, 92vw);
+  height: min(70vh, 720px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(6px);
+}
+
+.wkp-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0));
+}
+
+.wkp-lights {
+  display: flex;
+  gap: 8px;
+}
+.wkp-light-btn {
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.wkp-light.red {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #ff5f56;
+  box-shadow: 0 0 8px rgba(0,0,0,0.4);
+  transition: transform .08s ease, filter .15s ease;
+}
+.wkp-light.red:hover {
+  filter: brightness(1.15);
+}
+.wkp-light.red:active {
+  transform: scale(0.92);
+}
+
+.wkp-title {
+  flex: 1;
+  color: #eaeefb;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.wkp-actions {
+  display: flex; gap: 8px; align-items: center;
+}
+
+.wkp-btn {
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.04);
+  color: #eaeefb;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.wkp-btn:hover {
+  border-color: rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.08);
+}
+.wkp-btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.wkp-pill {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+}
+.wkp-pill.ok { color: #78ffb3; }
+.wkp-pill.warn { color: #ffd78e; }
+
+.wkp-progress {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.wkp-progress-bar {
+  height: 100%;
+  width: 30%;
+  background: linear-gradient(90deg, #7da2ff, #a077ff, #7da2ff);
+  animation: wkp-progress 1.8s ease-in-out infinite;
+}
+@keyframes wkp-progress {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(50%); }
+  100% { transform: translateX(200%); }
+}
+
+.wkp-terminal {
+  flex: 1;
+  padding: 14px 18px;
+  background: radial-gradient(600px 400px at 20% 10%, rgba(80,92,200,0.05), transparent);
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color: #cfe3ff;
+}
+
+.wkp-line {
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 0;
+}
+.wkp-lineno {
+  min-width: 38px;
+  color: #7a8bbf;
+  user-select: none;
+  text-align: right;
+}
+.wkp-code {
+  color: #d5e6ff;
+}
+
+.wkp-empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  opacity: 0.9;
+}
+
+.wkp-footer {
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: #a9b7df;
+  font-size: 12px;
+}

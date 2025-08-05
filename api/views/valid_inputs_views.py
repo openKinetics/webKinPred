@@ -2,6 +2,7 @@ import json
 import pandas as pd
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse, StreamingHttpResponse
 from api.utils.convert_to_mol import convert_to_mol
 import csv
 import subprocess
@@ -9,7 +10,79 @@ import tempfile
 import os
 import shutil
 from webKinPred.config_local import CONDA_PATH,TARGET_DBS
- 
+from api.progress import (
+    start_session, push_line, finish_session, sse_generator,
+    register_proc, unregister_proc, cancel_session, is_cancelled
+)
+from api.log_sanitiser import sanitise_log_line
+
+@csrf_exempt
+def progress_stream(request):
+    """
+    SSE endpoint: /api/progress-stream/?session_id=XYZ
+    Streams logs for the given session_id.
+    """
+    session_id = request.GET.get("session_id")
+    if not session_id:
+        return JsonResponse({"error": "session_id query param required"}, status=400)
+
+    start_session(session_id)  # ensure exists
+
+    response = StreamingHttpResponse(
+        streaming_content=sse_generator(session_id),
+        content_type="text/event-stream",
+    )
+    # Helpful SSE headers
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"  # for Nginx
+    return response
+
+
+def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | None = None, fail_ok=False):
+    echoed = "$ " + " ".join(cmd)
+    push_line(session_id, sanitise_log_line(echoed, TARGET_DBS))
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+    )
+    register_proc(session_id, proc)
+    try:
+        for raw in proc.stdout:
+            safe = sanitise_log_line(raw.rstrip("\n"), TARGET_DBS)
+            push_line(session_id, safe)
+        rc = proc.wait()
+    finally:
+        unregister_proc(session_id, proc)
+
+    if is_cancelled(session_id):
+        push_line(session_id, "[CANCELLED] Step stopped")
+        return
+
+    if rc != 0 and not fail_ok:
+        push_line(session_id, f"[ERROR] Command failed with exit code {rc}")
+        raise subprocess.CalledProcessError(rc, cmd)
+    elif rc != 0 and fail_ok:
+        push_line(session_id, f"[WARN] Command returned non-zero exit code {rc} (continuing)")
+    else:
+        push_line(session_id, "[OK] Completed")
+
+@csrf_exempt
+def cancel_validation(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+    session_id = request.POST.get("session_id")
+    if not session_id:
+        return JsonResponse({"error": "session_id required"}, status=400)
+    ok = cancel_session(session_id)
+    return JsonResponse({"ok": bool(ok)})
+
 @csrf_exempt
 def validate_input(request):
     if request.method != 'POST':
@@ -23,6 +96,7 @@ def validate_input(request):
 
     try:
         df = pd.read_csv(file)
+        df = df.dropna(how='all')  # Remove empty rows
     except Exception as e:
         return JsonResponse({'error': f'Invalid CSV format: {str(e)}'}, status=400)
 
@@ -81,7 +155,8 @@ def validate_input(request):
                 length_violations['DLKcat'] += 1
             if not all(c in 'ACDEFGHIKLMNPQRSTVWY' for c in seq.upper()):
                 invalid_proteins.append({'row': i + 1, 'reason': 'Invalid characters in sequence'})
-
+    else:
+        return JsonResponse({'error': 'CSV must contain a "Protein Sequence" column'}, status=400)
     return JsonResponse({
         'invalid_substrates': invalid_substrates,
         'invalid_proteins': invalid_proteins,
@@ -93,26 +168,35 @@ def validate_input(request):
 def sequence_similarity_summary(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests allowed'}, status=405)
+    session_id = request.POST.get('validationSessionId') or "default"
+    start_session(session_id)
     try:
         if 'file' not in request.FILES:
             return JsonResponse({'error': 'CSV file not provided'}, status=400)
+
         csv_file = request.FILES['file']
         df = pd.read_csv(csv_file)
         if 'Protein Sequence' not in df.columns:
             return JsonResponse({'error': 'CSV must contain a "Protein Sequence" column'}, status=400)
+
         sequences = df['Protein Sequence'].dropna().tolist()
         if not sequences:
             return JsonResponse({'error': 'No valid protein sequences found in CSV'}, status=400)
-        result = calculate_sequence_similarity_by_histogram(sequences)
+        push_line(session_id, "==> Starting MMseqs2 similarity analysis")
+        result = calculate_sequence_similarity_by_histogram(sequences, session_id=session_id)
+        push_line(session_id, "==> Similarity histograms computed successfully")
         return JsonResponse(result, status=200)
 
     except Exception as e:
-        print(e)
+        push_line(session_id, f"[EXCEPTION] {e}")
         return JsonResponse({'error': str(e)}, status=500)
+    finally:
+        finish_session(session_id)
     
 
 def calculate_sequence_similarity_by_histogram(
-    input_sequences: list[str]
+    input_sequences: list[str],
+    session_id: str = "default"
 ) -> dict:
     """ 
     Computes the distribution histogram of maximum sequence identity of user-provided protein 
@@ -135,56 +219,50 @@ def calculate_sequence_similarity_by_histogram(
         Each key maps to a sub-dictionary where each key is an integer (as a string) representing a percent identity (0 to 100),
         and the value is the percentage of input sequences that have that rounded identity value.
     """
-    # Pre-created target databases (assumed built and stored already).
     target_dbs = TARGET_DBS
-    # Write input sequences to a temporary FASTA file.
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as query_file:
         query_file_path = query_file.name
         for idx, seq in enumerate(input_sequences, start=1):
-            query_file.write(f">seq{idx}\n")
-            query_file.write(seq + "\n")
-    
-    # Create the query database once (using the pre-created query FASTA).
+            query_file.write(f">seq{idx}\n{seq}\n")
+
     temp_query_dir = tempfile.mkdtemp()
     query_db = os.path.join(temp_query_dir, "queryDB")
-    subprocess.run(
+
+    _run_and_stream(
         [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "createdb", query_file_path, query_db],
-        check=True
+        session_id=session_id
     )
-    
-    def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str) -> tuple[dict, dict]:
-        """
-        Returns:
-        - max_identity: max % identity per sequence
-        - mean_identity: mean % identity per sequence
-        """
+
+    def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str, method_name: str) -> tuple[dict, dict]:
         tmp_dir = tempfile.mkdtemp()
         result_db = os.path.join(tmp_dir, "resultDB")
         result_file = os.path.join(tmp_dir, "result.m8")
 
         try:
-            subprocess.run(
-                [   CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search",
+            push_line(session_id, f"--> [{method_name}] Running search")
+            _run_and_stream(
+                [
+                    CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search",
                     query_db, target_db, result_db, tmp_dir,
-                    "--max-seqs", "5000", "-s", "7.5",
-                    "-e", "0.1"
+                    "--max-seqs", "5000", "-s", "7.5", "-e", "0.001"
                 ],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT
+                session_id=session_id,
+                fail_ok=True  # allow no-hits gracefully
             )
-            subprocess.run(
-                [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
-                query_db, target_db, result_db, result_file,
-                "--format-output", "query,target,pident"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT
+
+            push_line(session_id, f"--> [{method_name}] Converting alignments")
+            _run_and_stream(
+                [
+                    CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "convertalis",
+                    query_db, target_db, result_db, result_file,
+                    "--format-output", "query,target,pident"
+                ],
+                session_id=session_id,
+                fail_ok=True
             )
 
             max_identity = {}
             identity_lists = {}
-
             if os.path.exists(result_file):
                 with open(result_file, "r") as f:
                     for line in f:
@@ -196,7 +274,6 @@ def calculate_sequence_similarity_by_histogram(
                             pident = float(fields[2])
                         except ValueError:
                             continue
-
                         if query_id not in max_identity or pident > max_identity[query_id]:
                             max_identity[query_id] = pident
                         identity_lists.setdefault(query_id, []).append(pident)
@@ -211,34 +288,31 @@ def calculate_sequence_similarity_by_histogram(
                         if qid not in identity_lists:
                             identity_lists[qid] = [0.0]
 
-            mean_identity = {k: sum(v)/len(v) for k, v in identity_lists.items()}
+            mean_identity = {k: (sum(v) / len(v)) for k, v in identity_lists.items()}
+            push_line(session_id, f"--> [{method_name}] Aggregated {len(max_identity)} sequences")
             return max_identity, mean_identity
 
         finally:
-            shutil.rmtree(tmp_dir)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # Prepare the final histogram dictionary.
-    # For each method, create a histogram that maps each integer identity (as a string) to the percentage frequency.
     method_histograms = {}
-    
     for method, target_db in target_dbs.items():
-        query_to_max, query_to_mean = run_mmseqs_search_with_precreated_query(query_db, target_db, query_file_path)
+        push_line(session_id, f"==> Processing DB: {method}")
+        query_to_max, query_to_mean = run_mmseqs_search_with_precreated_query(query_db, target_db, query_file_path, method)
         total_seqs = len(query_to_max)
 
-        # Histogram based on max identities
         histogram_max = {str(i): 0 for i in range(101)}
         for identity in query_to_max.values():
-            identity_int = int(round(identity))
-            identity_int = max(0, min(100, identity_int))
-            histogram_max[str(identity_int)] += 1
+            ii = int(round(identity))
+            ii = max(0, min(100, ii))
+            histogram_max[str(ii)] += 1
         histogram_max_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_max.items()}
 
-        # Histogram based on mean identities
         histogram_mean = {str(i): 0 for i in range(101)}
         for identity in query_to_mean.values():
-            identity_int = int(round(identity))
-            identity_int = max(0, min(100, identity_int))
-            histogram_mean[str(identity_int)] += 1
+            ii = int(round(identity))
+            ii = max(0, min(100, ii))
+            histogram_mean[str(ii)] += 1
         histogram_mean_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_mean.items()}
 
         method_histograms[method] = {
@@ -246,11 +320,14 @@ def calculate_sequence_similarity_by_histogram(
             "histogram_mean": histogram_mean_perc,
             "average_max_similarity": round(sum(query_to_max.values()) / total_seqs, 2),
             "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs, 2),
-            "count_max": histogram_max, 
-            "count_mean": histogram_mean  
+            "count_max": histogram_max,
+            "count_mean": histogram_mean
         }
-    # Clean up temporary files.
-    os.remove(query_file_path)
-    shutil.rmtree(temp_query_dir)
 
+    # Clean up
+    try:
+        os.remove(query_file_path)
+    except Exception:
+        pass
+    shutil.rmtree(temp_query_dir, ignore_errors=True)
     return method_histograms

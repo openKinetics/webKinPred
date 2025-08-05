@@ -1,4 +1,5 @@
-import apiClient from '../../appClient'; 
+// /home/saleh/webKinPred/frontend/src/components/job-submission/services/api.js
+import apiClient from '../../appClient';
 
 export async function detectCsvFormat(file) {
   const formData = new FormData();
@@ -7,7 +8,7 @@ export async function detectCsvFormat(file) {
   return data;
 }
 
-export async function validateCsv({ file, predictionType, kcatMethod, kmMethod }) {
+export async function validateCsv({ file, predictionType, kcatMethod, kmMethod}) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('predictionType', predictionType);
@@ -17,10 +18,11 @@ export async function validateCsv({ file, predictionType, kcatMethod, kmMethod }
   return data;
 }
 
-export async function fetchSequenceSimilaritySummary({ file, useExperimental }) {
+export async function fetchSequenceSimilaritySummary({ file, useExperimental, validationSessionId }) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('useExperimental', useExperimental);
+  if (validationSessionId) formData.append('validationSessionId', validationSessionId);
   const { data } = await apiClient.post('/api/sequence-similarity-summary/', formData);
   return data;
 }
@@ -43,5 +45,16 @@ export async function submitJob({
   const { data } = await apiClient.post('/api/submit-job/', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+  return data;
+}
+export function openProgressStream(sessionId) {
+  const baseURL = process.env.REACT_APP_API_BASE_URL;
+  const url = `${baseURL}api/progress-stream/?session_id=${encodeURIComponent(sessionId)}`;
+  return new EventSource(url);
+}
+export async function cancelValidationApi(sessionId) {
+  const formData = new FormData();
+  formData.append('session_id', sessionId);
+  const { data } = await apiClient.post('/api/cancel-validation/', formData);
   return data;
 }

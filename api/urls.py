@@ -7,4 +7,6 @@ urlpatterns = [
     path('detect-csv-format/', pred_jobs_views.detect_csv_format, name='detect_csv_format'),
     path('validate-input/', valid_inputs_views.validate_input, name='validate-input'),
     path('sequence-similarity-summary/', valid_inputs_views.sequence_similarity_summary, name='sequence_similarity_summary'),
+    path('progress-stream/', valid_inputs_views.progress_stream, name='progress-stream'),
+    path('cancel-validation/', valid_inputs_views.cancel_validation, name='cancel-validation'),
 ]

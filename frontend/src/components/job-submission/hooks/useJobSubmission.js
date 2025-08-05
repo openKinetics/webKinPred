@@ -1,11 +1,19 @@
-import { useState, useMemo } from 'react';
+// /home/saleh/webKinPred/frontend/src/components/job-submission/hooks/useJobSubmission.js
+import { useState, useMemo, useRef, useEffect } from 'react';
 import kcatMethodsByCsvType from '../constants/kcatMethodsByCsvType';
 import {
   detectCsvFormat,
   validateCsv,
   fetchSequenceSimilaritySummary,
   submitJob as submitJobApi,
+  openProgressStream,
+  cancelValidationApi
 } from '../services/api';
+
+function makeSessionId() {
+  // Simple UUID-ish
+  return 'vs_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 export default function useJobSubmission() {
   // UI state
@@ -29,7 +37,15 @@ export default function useJobSubmission() {
   const [csvFormatValid, setCsvFormatValid] = useState(false);
   const [csvFormatError, setCsvFormatError] = useState('');
   const [similarityData, setSimilarityData] = useState(null);
-  const [submissionResult, setSubmissionResult] = useState(null); // { message, public_id, invalid_* , length_violations }
+  const [submissionResult, setSubmissionResult] = useState(null);
+
+  // New: live log state
+  const [validationSessionId, setValidationSessionId] = useState('');
+  const userCancelledRef = useRef(false);
+  const [liveLogs, setLiveLogs] = useState([]);
+  const [streamConnected, setStreamConnected] = useState(false);
+  const eventSourceRef = useRef(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   // Allowed methods derived from format
   const allowedKcatMethods = useMemo(() => {
@@ -37,7 +53,6 @@ export default function useJobSubmission() {
     return kcatMethodsByCsvType[csvFormatInfo.csv_type] || [];
   }, [csvFormatInfo]);
 
-  // Handlers
   const resetMethods = () => {
     setKcatMethod('');
     setKmMethod('');
@@ -84,31 +99,87 @@ export default function useJobSubmission() {
     }
   };
 
+  const openStream = (sid) => {
+    if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch {}
+    }
+
+    const es = openProgressStream(sid);
+    eventSourceRef.current = es;
+    setLiveLogs([]);
+    setStreamConnected(true);
+
+    es.onmessage = (evt) => {
+        if (!evt?.data) return;
+        console.log("Received SSE message:", evt.data);  // Debug log for incoming messages
+        setLiveLogs((prev) => [...prev, evt.data]);
+    };
+
+    es.onerror = (err) => {
+        // Log any errors
+        console.error("SSE connection error:", err);
+        setStreamConnected(false);
+    };
+    };
+
+  const closeStream = () => {
+    if (eventSourceRef.current) {
+      try { eventSourceRef.current.close(); } catch {}
+      eventSourceRef.current = null;
+    }
+    setStreamConnected(false);
+  };
+
+  useEffect(() => {
+    // Clean up on unmount
+    return () => closeStream();
+  }, []);
+
   const runValidation = async () => {
     if (!csvFile) return;
+    const sid = makeSessionId();
+    setValidationSessionId(sid);
+    userCancelledRef.current = false;
+    openStream(sid);
     setIsValidating(true);
     try {
-      const validation = await validateCsv({
+        const validation = await validateCsv({
         file: csvFile,
         predictionType,
         kcatMethod,
         kmMethod,
-      });
-      const sim = await fetchSequenceSimilaritySummary({
-        file: csvFile,
-        useExperimental,
-      });
-      setSimilarityData(sim);
-      const { invalid_substrates, invalid_proteins, length_violations } = validation;
-      setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations });
-      setShowValidationResults(true);
+        });
+        const simPromise = fetchSequenceSimilaritySummary({ file: csvFile, useExperimental, validationSessionId: sid });
+        const sim = await simPromise;
+        if (userCancelledRef.current) return
+        // Handle the results after both promises resolve
+        setSimilarityData(sim);
+        const { invalid_substrates, invalid_proteins, length_violations } = validation;
+        setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations });
+        setShowValidationResults(true);
     } catch (err) {
-      // Surface for now; in production, prefer a toast system
-      alert('Validation failed. Please try again. ' + (err?.message || ''));
-      // leave state visible for debugging
+      if (!userCancelledRef.current) {
+        alert('Validation failed. Please try again. ' + (err?.message || ''));
+      }
     } finally {
-      setIsValidating(false);
+        setTimeout(() => closeStream(), 1000);
+        setIsValidating(false);
     }
+    };
+
+  const cancelValidation = async () => {
+    if (!validationSessionId) {
+      // just close UI if nothing started
+      setIsValidating(false);
+      closeStream();
+      return;
+    }
+    userCancelledRef.current = true;
+    try {
+      await cancelValidationApi(validationSessionId);
+    } catch { /* swallow */ }
+    setIsValidating(false);
+    closeStream();
   };
 
   const submitJob = async () => {
@@ -168,9 +239,16 @@ export default function useJobSubmission() {
 
     allowedKcatMethods,
 
+    // logs
+    liveLogs,
+    streamConnected,
+    autoScroll,
+    setAutoScroll,
+
     // actions
     onFileSelected,
     runValidation,
     submitJob,
+    cancelValidation,
   };
 }
