@@ -86,29 +86,25 @@ def validate_input(request):
         'invalid_substrates': invalid_substrates,
         'invalid_proteins': invalid_proteins,
         'protein_similarity': [],  # placeholder for future
-        'length_violations': length_violations
-    })
+        'length_violations': length_violations,
+    }, status=200)
 
 @csrf_exempt
 def sequence_similarity_summary(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests allowed'}, status=405)
-
     try:
         if 'file' not in request.FILES:
             return JsonResponse({'error': 'CSV file not provided'}, status=400)
-
         csv_file = request.FILES['file']
-        decoded_file = csv_file.read().decode('utf-8').splitlines()
-
-        reader = csv.DictReader(decoded_file)
-        sequences = [row['Protein Sequence'].strip() for row in reader if row.get('Protein Sequence')]
-
+        df = pd.read_csv(csv_file)
+        if 'Protein Sequence' not in df.columns:
+            return JsonResponse({'error': 'CSV must contain a "Protein Sequence" column'}, status=400)
+        sequences = df['Protein Sequence'].dropna().tolist()
         if not sequences:
             return JsonResponse({'error': 'No valid protein sequences found in CSV'}, status=400)
-        
         result = calculate_sequence_similarity_by_histogram(sequences)
-        return JsonResponse(result, safe=False)
+        return JsonResponse(result, status=200)
 
     except Exception as e:
         print(e)

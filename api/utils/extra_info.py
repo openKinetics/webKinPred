@@ -66,8 +66,6 @@ def build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key
     if descr_bits:
         parts[-1] += f" ({' '.join(descr_bits)})"
 
-    parts[-1] += f" with {exp.get('substrate_inchi')}"
-
     # standard deviation
     sd_key = f"{param_type.lower()}_SD"
     sd_val = exp.get(sd_key)

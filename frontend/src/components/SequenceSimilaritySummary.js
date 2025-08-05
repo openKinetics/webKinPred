@@ -126,7 +126,7 @@ function SequenceSimilarityHistogram({ similarityData }) {
         <strong>MMseqs2 Parameters:</strong>
         <ul className="ms-4">
           <li><code>-s</code> (sensitivity): <code>7.5</code></li>
-          <li><code>-e</code> (E-value threshold): <code>0.1</code></li>
+          <li><code>-e</code> (significance cutoff, E-value): <code>0.1</code></li>
           <li><code>--max-seqs</code> (maximum number of target sequences to consider per query): <code>5000</code></li>
         </ul>
         <br />

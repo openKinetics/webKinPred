@@ -1,7 +1,7 @@
 // App.js
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import JobSubmissionForm from './components/JobSubmissionForm';
+import JobSubmissionForm from './components/job-submission/JobSubmissionForm';
 import JobStatus from './components/JobStatus';
 import About from './components/About';
 import Evaluation from './components/Evaluation';
