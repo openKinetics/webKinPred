@@ -57,7 +57,7 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
     subs_inchis = []
     prods_inchis = []
     valid_sequences = []
-
+    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
     predictions = [None] * total_molecules  # Initialize with None
 
     # Process reactions and update progress
@@ -68,10 +68,9 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
         prod_list = prod.split(';')
         sub_mols = [convert_to_mol(s.strip()) for s in sub_list]
         prod_mols = [convert_to_mol(p.strip()) for p in prod_list]
-
+        seq_valid = all(c in alphabet for c in seq)
         # Check for invalid molecules
-        if None in sub_mols or None in prod_mols:
-            print(f"Invalid reaction at row {idx + 1}: substrates or products contain invalid molecules.")
+        if (None in sub_mols) or (None in prod_mols) or (not seq_valid):
             invalid_indices.append(idx)
             job.invalid_molecules += 1
         else:

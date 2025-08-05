@@ -52,6 +52,7 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     invalid_indices = []
     smiles_list = []
     valid_sequences = []
+    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
 
     predictions = [None] * total_molecules  # Initialize with None
 
@@ -59,8 +60,8 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         job.molecules_processed += 1
         mol = convert_to_mol(substrate)
-
-        if mol:
+        seq_valid = all(c in alphabet for c in seq)
+        if mol and seq_valid:
             mol = Chem.AddHs(mol)
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)

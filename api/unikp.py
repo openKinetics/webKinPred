@@ -65,13 +65,13 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     invalid_indices = []
     smiles_list = []
     valid_sequences = []
-
+    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
     # Process substrates and update progress
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
+        seq_valid = all(c in alphabet for c in seq)
         job.molecules_processed += 1
-
-        if mol:
+        if mol and seq_valid:
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)
             valid_sequences.append(seq)

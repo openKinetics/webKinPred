@@ -111,13 +111,11 @@ export default function useJobSubmission() {
 
     es.onmessage = (evt) => {
         if (!evt?.data) return;
-        console.log("Received SSE message:", evt.data);  // Debug log for incoming messages
         setLiveLogs((prev) => [...prev, evt.data]);
     };
 
     es.onerror = (err) => {
         // Log any errors
-        console.error("SSE connection error:", err);
         setStreamConnected(false);
     };
     };

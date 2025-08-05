@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { Card, Button, Alert, Table, Form } from 'react-bootstrap';
 import SequenceSimilaritySummary from '../../SequenceSimilaritySummary';
+import InvalidItems from './InvalidItems';
 
 export default function ValidationResults({
   submissionResult,
@@ -36,25 +37,20 @@ export default function ValidationResults({
               </Alert>
             ) : (
               <>
+                <Alert variant="warning">
+                    ⚠️ Some entries are invalid. Predictions will not be generated for them (outputs remain empty). You do not need to remove them from the CSV.
+                </Alert>
                 {submissionResult?.invalid_substrates?.length > 0 && (
-                  <>
-                    <h5>Invalid Substrates</h5>
-                    <ul>
-                      {submissionResult.invalid_substrates.map((entry, i) => (
-                        <li key={i}>Row {entry.row}: {entry.reason}</li>
-                      ))}
-                    </ul>
-                  </>
+                <InvalidItems
+                    title="Invalid Substrates"
+                    items={submissionResult.invalid_substrates}
+                />
                 )}
                 {submissionResult?.invalid_proteins?.length > 0 && (
-                  <>
-                    <h5>Invalid Proteins</h5>
-                    <ul>
-                      {submissionResult.invalid_proteins.map((entry, i) => (
-                        <li key={i}>Row {entry.row}: {entry.reason}</li>
-                      ))}
-                    </ul>
-                  </>
+                <InvalidItems
+                    title="Invalid Proteins"
+                    items={submissionResult.invalid_proteins}
+                />
                 )}
               </>
             )}

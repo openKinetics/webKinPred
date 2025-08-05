@@ -118,18 +118,17 @@ function SequenceSimilarityHistogram({ similarityData }) {
             <strong>Max Similarity</strong> – the single highest percentage identity found for each of your sequences against the training data. This is the largest similarity value among all alignment hits.
           </li>
           <li className="mt-2">
-            <strong>Mean Similarity</strong> – the average percentage identity calculated from all significant alignment hits found for each sequence. This is the mean of the identities from those hits, not from the entire target database. If a sequence has only one hit, its mean and max similarity will be identical.
+            <strong>Mean Similarity</strong> – the average percentage identity calculated from all significant alignment hits found for each sequence. This is the mean of the identities from those hits, not from the entire target database. 
           </li>
         </ul>
         Both values are rounded to the nearest percent. If no hits are found for a sequence, both the mean and max similarity are set to 0%. This histogram shows the frequency of each similarity value (0–100%).
-        <br /><br />
+        <br />
         <strong>MMseqs2 Parameters:</strong>
         <ul className="ms-4">
           <li><code>-s</code> (sensitivity): <code>7.5</code></li>
           <li><code>-e</code> (significance cutoff, E-value): <code>0.001</code></li>
           <li><code>--max-seqs</code> (maximum number of target sequences to consider per query): <code>5000</code></li>
         </ul>
-        <br />
         Click a model below to toggle between the training datasets.
       </p>
       <div className="mb-3 d-flex align-items-center">

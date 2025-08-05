@@ -6,7 +6,6 @@ from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
 from webKinPred.settings import MEDIA_ROOT
 from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
-
 def run_prediction_subprocess(command, job):
     """
     Run a prediction subprocess and update job progress based on stdout.
@@ -89,12 +88,14 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
     invalid_indices = []
     smiles_list = []
     valid_sequences = []
+    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
 
     # Process substrates and update progress
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
         job.molecules_processed += 1
-        if mol:
+        seq_valid = all(c in alphabet for c in seq)
+        if mol and seq_valid:
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)
             valid_sequences.append(seq)

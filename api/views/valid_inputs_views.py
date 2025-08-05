@@ -89,8 +89,6 @@ def validate_input(request):
         return JsonResponse({'error': 'Only POST method is allowed.'}, status=405)
 
     file = request.FILES.get('file')
-    kcat_method = request.POST.get('kcatMethod')
-    km_method = request.POST.get('kmMethod')
     if not file:
         return JsonResponse({'error': 'No file provided.'}, status=400)
 
@@ -102,6 +100,7 @@ def validate_input(request):
 
     invalid_substrates = []
     invalid_proteins = []
+
     # Define sequence length limits for models
     model_limits = {
         'EITLEM': 1024,
@@ -110,38 +109,72 @@ def validate_input(request):
         'DLKcat': float('inf'),  # no limit
     }
     server_limit = 1500  # server-wide max length
-    length_violations = {
-        'EITLEM': 0,
-        'TurNup': 0,
-        'UniKP': 0,
-        'DLKcat': 0,
-        'Server': 0
-    }
-    # Validate Substrates
-    if (km_method in ['EITLEM','UniKP']) or (kcat_method in ['DLKcat', 'EITLEM','UniKP']) and 'Substrate' in df.columns:
-        for i, val in enumerate(df['Substrate']):
-            mol = convert_to_mol(val)
-            if mol is None:
-                invalid_substrates.append({'row': i + 1, 'value': val, 'reason': 'Invalid SMILES/InChI'})
+    length_violations = {'EITLEM': 0, 'TurNup': 0, 'UniKP': 0, 'DLKcat': 0, 'Server': 0}
 
-    elif kcat_method == 'TurNup' and 'Substrates' in df.columns and 'Products' in df.columns:
+    def convert_to_mol_safe(x):
+        # Robust guard for NaN / non-str / empty strings
+        try:
+            if pd.isna(x):
+                return None
+        except Exception:
+            pass
+        if not isinstance(x, str):
+            return None
+        s = x.strip()
+        if not s:
+            return None
+        return convert_to_mol(s)
+
+    # Validate Substrates
+    if 'Substrate' in df.columns:
+        # Single-substrate schema
+        for i, val in enumerate(df['Substrate']):
+            if convert_to_mol_safe(val) is None:
+                invalid_substrates.append({
+                    'row': i + 1,
+                    'value': val,  # offending SMILES/InChI
+                    'reason': 'Invalid SMILES/InChI'
+                })
+
+    elif ('Substrates' in df.columns and 'Products' in df.columns):
+        # Multi-substrate schema
         for i, (subs, prods) in enumerate(zip(df['Substrates'], df['Products'])):
-            all_valid = True
-            for s in subs.split(';'):
-                if convert_to_mol(s.strip()) is None:
-                    all_valid = False
-            for p in prods.split(';'):
-                if convert_to_mol(p.strip()) is None:
-                    all_valid = False
-            if not all_valid:
-                invalid_substrates.append({'row': i + 1, 'value': f"{subs} => {prods}", 'reason': 'Invalid substrate/product SMILES/InChI'})
+            invalid_tokens = []
+
+            # Validate each substrate token
+            for s in str(subs).split(';'):
+                tok = s.strip()
+                if tok and convert_to_mol_safe(tok) is None:
+                    invalid_tokens.append(tok)
+
+            # Validate each product token
+            for p in str(prods).split(';'):
+                tok = p.strip()
+                if tok and convert_to_mol_safe(tok) is None:
+                    invalid_tokens.append(tok)
+
+            if invalid_tokens:
+                invalid_substrates.append({
+                    'row': i + 1,
+                    'value': invalid_tokens,  # list of offending tokens
+                    'reason': 'Invalid substrate/product SMILES/InChI'
+                })
+    else:
+        return JsonResponse(
+            {'error': 'CSV must contain "Substrate" column OR "Substrates" and "Products" columns'},
+            status=400
+        )
 
     # Validate Proteins
     if 'Protein Sequence' in df.columns:
+        alphabet = set('ACDEFGHIKLMNPQRSTVWY')
         for i, seq in enumerate(df['Protein Sequence']):
+            rownum = i + 1
             if not isinstance(seq, str) or len(seq.strip()) == 0:
-                invalid_proteins.append({'row': i + 1, 'reason': 'Empty sequence'})
+                invalid_proteins.append({'row': rownum, 'value': seq or '', 'reason': 'Empty sequence'})
                 continue
+
+            seq = seq.strip()
             seq_len = len(seq)
             if seq_len > server_limit:
                 length_violations['Server'] += 1
@@ -151,16 +184,25 @@ def validate_input(request):
                 length_violations['TurNup'] += 1
             if seq_len > model_limits['UniKP']:
                 length_violations['UniKP'] += 1
+            # DLKcat is inf; kept for symmetry
             if seq_len > model_limits['DLKcat']:
                 length_violations['DLKcat'] += 1
-            if not all(c in 'ACDEFGHIKLMNPQRSTVWY' for c in seq.upper()):
-                invalid_proteins.append({'row': i + 1, 'reason': 'Invalid characters in sequence'})
+
+            invalid_chars = sorted({c for c in seq if c not in alphabet})
+            if invalid_chars:
+                invalid_proteins.append({
+                    'row': rownum,
+                    'value': seq,               # offending sequence
+                    'invalid_chars': invalid_chars,
+                    'reason': 'Invalid characters in sequence'
+                })
     else:
         return JsonResponse({'error': 'CSV must contain a "Protein Sequence" column'}, status=400)
+
     return JsonResponse({
         'invalid_substrates': invalid_substrates,
         'invalid_proteins': invalid_proteins,
-        'protein_similarity': [],  # placeholder for future
+        'protein_similarity': [],  # placeholder
         'length_violations': length_violations,
     }, status=200)
 
