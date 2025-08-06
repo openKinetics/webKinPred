@@ -266,12 +266,12 @@ def calculate_sequence_similarity_by_histogram(
         and the value is the percentage of input sequences that have that rounded identity value.
     """
     target_dbs = TARGET_DBS
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir="/tmp/mmseqs_work") as query_file:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir="/home/saleh/mmseqs_tmp") as query_file:
         query_file_path = query_file.name
         for idx, seq in enumerate(input_sequences, start=1):
             query_file.write(f">seq{idx}\n{seq}\n")
 
-    temp_query_dir = tempfile.mkdtemp(dir="/tmp/mmseqs_work")
+    temp_query_dir = tempfile.mkdtemp(dir="/home/saleh/mmseqs_tmp")
     query_db = os.path.join(temp_query_dir, "queryDB")
 
     _run_and_stream(
@@ -280,7 +280,7 @@ def calculate_sequence_similarity_by_histogram(
     )
 
     def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str, method_name: str) -> tuple[dict, dict]:
-        tmp_dir = tempfile.mkdtemp(dir="/tmp/mmseqs_work")
+        tmp_dir = tempfile.mkdtemp(dir="/home/saleh/mmseqs_tmp")
         result_db = os.path.join(tmp_dir, "resultDB")
         result_file = os.path.join(tmp_dir, "result.m8")
 
