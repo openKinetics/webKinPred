@@ -1,0 +1,38 @@
+/* index.css */
+
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron&family=Roboto&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+/* Root variables for colors and gradients */
+:root {
+  --primary-color: #0f0c29;
+  --secondary-color: #302b63;
+  --accent-color: rgba(233, 233, 233, 0.5);/* Main accent color */
+  --text-color: #ffffff;
+  --neon-color: rgba(233, 233, 233, 0.5); /* Slightly transparent for aesthetics */
+  --background-gradient: linear-gradient(45deg, #0f0c29, #302b63, #24243e);
+  /* Minimalist color palette for content */
+  --card-background: rgba(24, 22, 50, 0.9); /* Semi-transparent version of #0f0c29 */
+  --border-color-1: hsla(345, 7, 89, 1);
+  --box-shadow-1: 0 2px 5px hsla(345, 7, 89, 1);
+  --input-background: white; /* White background for inputs */
+  --dropdown-bg: #f0f0f0; /* Light background for dropdowns */
+  --dropdown-text: #333333; /* Dark grey text for dropdowns */
+  
+}
+body {
+  background: var(--background-gradient);
+  font-family: 'Roboto', sans-serif;
+  color: var(--text-color);
+  margin: 0;
+  padding: 0;
+  overflow: scroll;
+  --bs-body-bg : var(--card-background);
+  --bs-heading-color : var(--text-color);
+  --bs-body-color : var(--text-color);
+  --bs-primary-bg-subtle: var(--dropdown-bg);
+}

@@ -1,0 +1,48 @@
+
+/* Header Styles */
+.custom-navbar {
+  background: var(--background-gradient);
+  border-bottom: 1px solid var(--neon-color);
+  box-shadow: 0 4px 6px -1px rgba(0, 214, 252, 0.1);
+  padding-top: 0px; /* Reduced padding */
+  padding-bottom: 5px; /* Reduced padding */
+  font-size: large;
+}
+
+.custom-navbar .navbar-brand {
+  color: var(--text-color);
+  font-family: 'Orbitron', sans-serif;
+  transition: text-shadow 0.3s ease;
+}
+
+.custom-navbar .navbar-brand:hover {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+.custom-navbar .nav-link {
+  color: var(--text-color);
+  font-family: 'Roboto', sans-serif;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.custom-navbar .nav-link:hover {
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+  transform: translateY(-1px);
+}
+
+.custom-navbar .nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background-color: rgba(255, 255, 255, 0.7);
+  transition: width 0.3s ease;
+}
+
+.custom-navbar .nav-link:hover::after {
+  width: 100%;
+}

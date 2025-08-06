@@ -140,6 +140,7 @@ export default function useJobSubmission() {
     userCancelledRef.current = false;
     openStream(sid);
     setIsValidating(true);
+
     try {
         const validation = await validateCsv({
         file: csvFile,

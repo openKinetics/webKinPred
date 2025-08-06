@@ -16,17 +16,17 @@ export default function PreprocessModal({
       <Modal.Body>
         <p>Would you like to validate your input data before running predictions?</p>
         <p>
-          This will identify invalid SMILES/InChIs and protein sequences and perform sequence similarity checks
+          This will identify invalid SMILES/InChIs and protein sequences, and perform sequence similarity checks
           (using mmseqs2) against the training datasets of the methods.
         </p>
         <p><strong>Note:</strong> Even if you skip this step, invalid rows will be automatically excluded during prediction and will not produce results.</p>
         <p className="fw-bold">Recommended if you’re unsure about input quality.</p>
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="secondary" onClick={onHide} disabled={isValidating}>
+        <Button className="btn kave-btn-run-val" onClick={onHide} disabled={isValidating}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={onRunValidation} disabled={isValidating}>
+        <Button className="btn kave-btn-run-val" onClick={onRunValidation} disabled={isValidating}>
           {isValidating ? 'Validating…' : 'Run Validation'}
         </Button>
       </Modal.Footer>

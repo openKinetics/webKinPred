@@ -12,8 +12,6 @@ import PreprocessModal from './components/PreprocessModal';
 import SubmissionResultModal from './components/SubmissionResultModal';
 import LiveLogOverlay from './components/LiveLogOverlay';
 
-import './JobSubmissionForm.css';
-
 export default function JobSubmissionForm() {
   const state = useJobSubmission();
 

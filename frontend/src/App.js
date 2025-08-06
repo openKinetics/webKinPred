@@ -8,7 +8,7 @@ import Evaluation from './components/Evaluation';
 import Header from './components/Header';
 import ProteinBackground from './components/ProteinBackground';
 import Footer from './components/Footer';
-import './App.css'; // Ensure this import is present
+import './styles/App.css'; 
 
 function App() {
   return (
@@ -22,7 +22,7 @@ function App() {
             <Route path="/track-job/:public_id" element={<JobStatus />} />
             <Route path="/track-job" element={<JobStatus />} />
             <Route path="/about" element={<About />} />
-            <Route path="/evaluation" element={<Evaluation />} />
+            {/* <Route path="/evaluation" element={<Evaluation />} /> */}
           </Routes>
         </main>
         <Footer />

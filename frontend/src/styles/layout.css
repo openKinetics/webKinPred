@@ -1,0 +1,21 @@
+/* Container Padding */
+.container {
+  padding-top: 10px;
+}
+
+/* Section Container Styles */
+.section-container {
+  border: 1px solid var(--neon-color);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+  color: var(--text-color);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.section-container:hover {
+  transform: scale(1.01);
+  box-shadow: var(--box-shadow-1);
+}
