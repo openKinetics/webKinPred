@@ -233,6 +233,7 @@ def sequence_similarity_summary(request):
         return JsonResponse(result, status=200)
 
     except Exception as e:
+        print(e)
         push_line(session_id, f"[EXCEPTION] {e}")
         return JsonResponse({'error': str(e)}, status=500)
     finally:
