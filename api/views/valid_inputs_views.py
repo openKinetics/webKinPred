@@ -39,7 +39,6 @@ def progress_stream(request):
 
 
 def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | None = None, fail_ok=False):
-    full_cmd = ["stdbuf", "-oL", "-eL"] + cmd
     echoed = "$ " + " ".join(cmd)
     print(f"echoed: {echoed}")
     san_line = sanitise_log_line(echoed, TARGET_DBS)
@@ -47,7 +46,7 @@ def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | No
     push_line(session_id, san_line)
 
     proc = subprocess.Popen(
-        full_cmd,
+        cmd,
         cwd=cwd,
         env=env,
         stdout=subprocess.PIPE,
