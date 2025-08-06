@@ -39,11 +39,15 @@ def progress_stream(request):
 
 
 def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | None = None, fail_ok=False):
+    full_cmd = ["stdbuf", "-oL", "-eL"] + cmd
     echoed = "$ " + " ".join(cmd)
-    push_line(session_id, sanitise_log_line(echoed, TARGET_DBS))
+    print(f"echoed: {echoed}")
+    san_line = sanitise_log_line(echoed, TARGET_DBS)
+    print(f"sanitised: {san_line}")
+    push_line(session_id, san_line)
 
     proc = subprocess.Popen(
-        cmd,
+        full_cmd,
         cwd=cwd,
         env=env,
         stdout=subprocess.PIPE,
@@ -262,12 +266,12 @@ def calculate_sequence_similarity_by_histogram(
         and the value is the percentage of input sequences that have that rounded identity value.
     """
     target_dbs = TARGET_DBS
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as query_file:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir="/tmp/mmseqs_work") as query_file:
         query_file_path = query_file.name
         for idx, seq in enumerate(input_sequences, start=1):
             query_file.write(f">seq{idx}\n{seq}\n")
 
-    temp_query_dir = tempfile.mkdtemp()
+    temp_query_dir = tempfile.mkdtemp(dir="/tmp/mmseqs_work")
     query_db = os.path.join(temp_query_dir, "queryDB")
 
     _run_and_stream(
