@@ -280,7 +280,7 @@ def calculate_sequence_similarity_by_histogram(
     )
 
     def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str, method_name: str) -> tuple[dict, dict]:
-        tmp_dir = tempfile.mkdtemp()
+        tmp_dir = tempfile.mkdtemp(dir="/tmp/mmseqs_work")
         result_db = os.path.join(tmp_dir, "resultDB")
         result_file = os.path.join(tmp_dir, "result.m8")
 
