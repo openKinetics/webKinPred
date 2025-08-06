@@ -40,9 +40,7 @@ def progress_stream(request):
 
 def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | None = None, fail_ok=False):
     echoed = "$ " + " ".join(cmd)
-    print(f"echoed: {echoed}")
     san_line = sanitise_log_line(echoed, TARGET_DBS)
-    print(f"sanitised: {san_line}")
     push_line(session_id, san_line)
 
     proc = subprocess.Popen(
@@ -60,7 +58,7 @@ def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | No
         for raw in proc.stdout:
             raw = raw.rstrip("\n")
             safe = sanitise_log_line(raw, TARGET_DBS)
-            push_line(session_id, raw)
+            push_line(session_id, safe)
         rc = proc.wait()
     finally:
         unregister_proc(session_id, proc)
