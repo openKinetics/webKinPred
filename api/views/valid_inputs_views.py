@@ -58,8 +58,9 @@ def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | No
     register_proc(session_id, proc)
     try:
         for raw in proc.stdout:
-            safe = sanitise_log_line(raw.rstrip("\n"), TARGET_DBS)
-            push_line(session_id, safe)
+            raw = raw.rstrip("\n")
+            safe = sanitise_log_line(raw, TARGET_DBS)
+            push_line(session_id, raw)
         rc = proc.wait()
     finally:
         unregister_proc(session_id, proc)
@@ -233,7 +234,6 @@ def sequence_similarity_summary(request):
         return JsonResponse(result, status=200)
 
     except Exception as e:
-        print(e)
         push_line(session_id, f"[EXCEPTION] {e}")
         return JsonResponse({'error': str(e)}, status=500)
     finally:
