@@ -288,7 +288,8 @@ def calculate_sequence_similarity_by_histogram(
                 [
                     CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", "search",
                     query_db, target_db, result_db, tmp_dir,
-                    "--max-seqs", "5000", "-s", "7.5", "-e", "0.001"
+                    "--max-seqs", "5000", "-s", "7.5", 
+                    "-e", "0.001", "-v", "0",
                 ],
                 session_id=session_id,
                 fail_ok=True  # allow no-hits gracefully

@@ -161,7 +161,7 @@ export default function useJobSubmission() {
         alert('Validation failed. Please try again. ' + (err?.message || ''));
       }
     } finally {
-        setTimeout(() => closeStream(), 1000);
+        setTimeout(() => closeStream(), 3500);
         setIsValidating(false);
     }
     };
