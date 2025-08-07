@@ -1,0 +1,37 @@
+/* src/components/HowToUseCard.css */
+
+.lead {
+  font-size: 1.1rem;
+  font-weight: 300;
+}
+.step-col {
+  padding: 1rem;
+}
+
+.step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  background-color: rgba(var(--bs-primary-rgb), 0.1);
+  color: var(--bs-primary);
+  border-radius: 50%;
+  margin-bottom: 1rem;
+}
+
+.format-card {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.csv-col {
+  display: inline-block;
+  background-color: #e9ecef;
+  color: #495057;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.25rem;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-right: 0.5em;
+}
