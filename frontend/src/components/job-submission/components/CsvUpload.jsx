@@ -15,9 +15,13 @@ const [fileInputKey, setFileInputKey] = useState(0);
 const hasFile = !!fileName && fileName !== 'No file chosen';
   return (
     <Card className="section-container section-reaction-info mb-4">
+      <Card.Header as="h3" className="text-center">
+        Upload Reaction Information
+      </Card.Header>
       <Card.Body>
-        <h3>Upload Reaction Information</h3>
-        <p>Please upload a CSV file with the format described above.</p>
+        <p className="lead text-center mb-4">
+          Please upload a CSV file with the format described above.
+        </p>
         <Form>
           <Form.Group controlId="csvFile" className="mt-3">
             <div className="file-upload">

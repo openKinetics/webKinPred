@@ -18,10 +18,13 @@
   transform: scale(1.01);
   box-shadow: var(--box-shadow-1);
 }
-
 .card-header {
   color: var(--text-color);
   font-weight: 200;
   padding: 10px;
   border-bottom: 1px solid var(--neon-color);
+}
+.lead {
+  font-size: 1.1rem;
+  font-weight: 300;
 }

@@ -2,6 +2,7 @@
 import React from 'react';
 import { Navbar, Container, Nav } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
+import '../styles/components/navbar.css';
 
 function Header() {
   return (
@@ -13,7 +14,6 @@ function Header() {
           <Nav className="ml-auto">
           <Nav.Link as={Link} to="/track-job">Track Job</Nav.Link>
           <Nav.Link as={Link} to="/about">About</Nav.Link>
-          {/* <Nav.Link as={Link} to="/evaluation">Evaluation</Nav.Link> */}
           </Nav>
         </Navbar.Collapse>
       </Container>
