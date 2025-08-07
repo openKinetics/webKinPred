@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import './LiveLogOverlay.css';
+import '../../../styles/components/LiveLogOverlay.css';
 
 export default function LiveLogOverlay({
   show,
