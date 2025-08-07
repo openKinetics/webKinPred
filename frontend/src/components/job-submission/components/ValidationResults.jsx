@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { Card, Button, Alert, Table, Form } from 'react-bootstrap';
-import SequenceSimilaritySummary from '../../SequenceSimilaritySummary';
+import SequenceSimilarityHistogram from '../../SequenceSimilarityHistogram';
 import InvalidItems from './InvalidItems';
 
 export default function ValidationResults({
@@ -140,7 +140,7 @@ export default function ValidationResults({
               <>
                 <hr style={{ borderTop: '5px solid rgb(229, 228, 243)' }} />
                 <div className="mt-4">
-                  <SequenceSimilaritySummary similarityData={similarityData} />
+                  <SequenceSimilarityHistogram similarityData={similarityData} />
                 </div>
               </>
             )}
