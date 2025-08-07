@@ -159,3 +159,4 @@ CACHES = {
         "TIMEOUT": None, 
     }
 }
+LOGGING_REDIS_URL = "redis://localhost:6380/2"

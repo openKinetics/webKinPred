@@ -1,137 +1,79 @@
-# api/progress.py
-import queue
+# /home/saleh/webKinPred/api/progress.py (REVISED)
+import redis
 import time
-import signal
+from django.conf import settings
 
-# session_id -> {"q": Queue, "finished": bool, "last_seen": float, "finished_at": float|None,
-#                "procs": set[Popen], "cancelled": bool}
-_REGISTRY = {}
-_IDLE_TTL_SECS = 600  # 10 minutes
+redis_conn = redis.from_url(settings.LOGGING_REDIS_URL, decode_responses=True)
 
-def start_session(session_id: str):
-    cleanup_idle_sessions()
-    now = time.time()
-    if session_id not in _REGISTRY:
-        _REGISTRY[session_id] = {
-            "q": queue.Queue(maxsize=1000),
-            "finished": False,
-            "last_seen": now,
-            "finished_at": None,
-            "procs": set(),
-            "cancelled": False,
-        }
+def get_channel_name(session_id: str) -> str:
+    """Generates a consistent channel name for Redis Pub/Sub."""
+    return f"session_logs:{session_id}"
+
+def get_cancel_key(session_id: str) -> str:
+    """Generates the key used for the cancellation flag."""
+    return f"session_cancel:{session_id}"
 
 def push_line(session_id: str, line: str):
-    if session_id not in _REGISTRY:
-        return  # don't auto-create on stray pushes
-    _REGISTRY[session_id]["last_seen"] = time.time()
-    q = _REGISTRY[session_id]["q"]
+    """Publishes a log line to the session's Redis channel."""
+    if not session_id:
+        return
+    channel = get_channel_name(session_id)
     line = line.rstrip("\n")
-    try:
-        q.put_nowait(line)
-    except queue.Full:
-        try:
-            q.get_nowait()
-        except queue.Empty:
-            pass
-        q.put_nowait(line)
+    # The publish command sends the message to all subscribers
+    redis_conn.publish(channel, line)
 
 def finish_session(session_id: str):
-    if session_id in _REGISTRY:
-        now = time.time()
-        _REGISTRY[session_id]["finished"] = True
-        _REGISTRY[session_id]["finished_at"] = now
-        _REGISTRY[session_id]["last_seen"] = now
-    cleanup_idle_sessions()
-
-def is_finished(session_id: str) -> bool:
-    return session_id in _REGISTRY and _REGISTRY[session_id]["finished"]
-
-def is_cancelled(session_id: str) -> bool:
-    return session_id in _REGISTRY and _REGISTRY[session_id]["cancelled"]
-
-def get_queue(session_id: str) -> queue.Queue:
-    start_session(session_id)
-    return _REGISTRY[session_id]["q"]
-
-def register_proc(session_id: str, proc):
-    if session_id in _REGISTRY:
-        _REGISTRY[session_id]["procs"].add(proc)
-
-def unregister_proc(session_id: str, proc):
-    if session_id in _REGISTRY:
-        _REGISTRY[session_id]["procs"].discard(proc)
+    """Notifies listeners that the session is finished by sending a special message."""
+    channel = get_channel_name(session_id)
+    # This special message will be caught by the generator to close the connection
+    redis_conn.publish(channel, "__FINISHED__")
+    # Clean up the cancellation key if it exists
+    redis_conn.delete(get_cancel_key(session_id))
 
 def cancel_session(session_id: str):
     """
-    Best-effort: mark cancelled and terminate any running subprocesses.
+    Sets a cancellation flag in Redis and publishes a final message.
+    The running process is expected to check this flag.
     """
-    if session_id not in _REGISTRY:
-        return False
-    _REGISTRY[session_id]["cancelled"] = True
-    # try graceful terminate; then kill after short delay if still alive
-    procs = list(_REGISTRY[session_id]["procs"])
-    for p in procs:
-        try:
-            p.terminate()
-        except Exception:
-            pass
-    # small grace; don't block long
-    deadline = time.time() + 1.0
-    for p in procs:
-        try:
-            p.wait(timeout=max(0.0, deadline - time.time()))
-        except Exception:
-            try:
-                p.kill()
-            except Exception:
-                pass
-    push_line(session_id, "[CANCEL] Job cancelled by user")
+    # Set a simple key in Redis. The 'ex' sets an expiration time (e.g., 10 mins)
+    # so it gets cleaned up automatically if something goes wrong.
+    redis_conn.set(get_cancel_key(session_id), "1", ex=600)
+    
+    # Push messages to inform the user and to end the stream
+    push_line(session_id, "[CANCEL] Job cancelled by user.")
     finish_session(session_id)
     return True
 
-def sse_generator(session_id: str, keepalive_secs: int = 10):
-    q = get_queue(session_id)
-    last_emit = time.time()
+def is_cancelled(session_id: str) -> bool:
+    """Checks if the cancellation flag exists in Redis."""
+    return bool(redis_conn.exists(get_cancel_key(session_id)))
+
+def sse_generator(session_id: str, keepalive_secs: int = 15):
+    """Subscribes to a Redis channel and yields messages for an SSE stream."""
+    channel = get_channel_name(session_id)
+    pubsub = redis_conn.pubsub()
+    pubsub.subscribe(channel)
+
+    print(f"[sse_generator] Subscribed to Redis channel: {channel}")
     yield "data: --- Streaming logs ---\n\n"
+    
     while True:
-        try:
-            line = q.get(timeout=1.0)
-            last_emit = time.time()
-            if session_id in _REGISTRY:
-                _REGISTRY[session_id]["last_seen"] = last_emit
-            yield f"data: {line}\n\n"
-        except queue.Empty:
-            now = time.time()
-            if now - last_emit >= keepalive_secs:
-                last_emit = now
-                if session_id in _REGISTRY:
-                    _REGISTRY[session_id]["last_seen"] = last_emit
-                yield f": keep-alive {int(last_emit)}\n\n"
+        # The timeout allows the loop to run periodically to send keep-alives
+        message = pubsub.get_message(ignore_subscribe_messages=True, timeout=keepalive_secs)
+        
+        if message:
+            data = message['data']
+            if data == "__FINISHED__":
+                print(f"[sse_generator] Received __FINISHED__ on {channel}. Closing stream.")
+                break # Exit the loop to close the stream
+            
+            # SSE protocol requires special formatting for multi-line data
+            formatted_data = "\n".join([f"data: {line}" for line in data.split('\n')])
+            yield f"{formatted_data}\n\n"
+        else:
+            # No message received in 'timeout' seconds, send a comment as a keep-alive
+            yield f": keep-alive at {int(time.time())}\n\n"
 
-        # opportunistic clean-up
-        if int(time.time()) % 7 == 0:
-            cleanup_idle_sessions()
-
-        if is_finished(session_id) and q.empty():
-            yield "data: --- End of log ---\n\n"
-            break
-
-def cleanup_idle_sessions():
-    now = time.time()
-    doomed = []
-    for sid, v in list(_REGISTRY.items()):
-        finished = v.get("finished")
-        finished_at = v.get("finished_at")
-        last_seen = v.get("last_seen", 0)
-
-        if finished and finished_at is not None:
-            if now - finished_at > _IDLE_TTL_SECS:
-                doomed.append(sid)
-            continue
-
-        if now - last_seen > _IDLE_TTL_SECS:
-            doomed.append(sid)
-
-    for sid in doomed:
-        _REGISTRY.pop(sid, None)
+    print(f"[sse_generator] Unsubscribing from {channel}.")
+    pubsub.unsubscribe(channel)
+    pubsub.close()

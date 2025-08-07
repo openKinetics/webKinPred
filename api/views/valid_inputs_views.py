@@ -11,8 +11,7 @@ import os
 import shutil
 from webKinPred.config_local import CONDA_PATH,TARGET_DBS
 from api.progress import (
-    start_session, push_line, finish_session, sse_generator,
-    register_proc, unregister_proc, cancel_session, is_cancelled
+    push_line, finish_session, sse_generator,cancel_session, is_cancelled
 )
 from api.log_sanitiser import sanitise_log_line
 
@@ -25,18 +24,15 @@ def progress_stream(request):
     session_id = request.GET.get("session_id")
     if not session_id:
         return JsonResponse({"error": "session_id query param required"}, status=400)
-
-    start_session(session_id)  # ensure exists
-
+    # The start_session(session_id) call is REMOVED. It is no longer needed.
     response = StreamingHttpResponse(
         streaming_content=sse_generator(session_id),
         content_type="text/event-stream",
     )
     # Helpful SSE headers
     response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"  # for Nginx
+    response["X-Accel-Buffering"] = "no"  
     return response
-
 
 def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | None = None, fail_ok=False):
     echoed = "$ " + " ".join(cmd)
@@ -53,18 +49,18 @@ def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | No
         bufsize=1,
         universal_newlines=True,
     )
-    register_proc(session_id, proc)
-    try:
-        for raw in proc.stdout:
-            raw = raw.rstrip("\n")
-            safe = sanitise_log_line(raw, TARGET_DBS)
-            push_line(session_id, safe)
-        rc = proc.wait()
-    finally:
-        unregister_proc(session_id, proc)
+
+    for raw in proc.stdout:
+        raw = raw.rstrip("\n")
+        if is_cancelled(session_id):
+            proc.terminate() 
+            break
+        safe = sanitise_log_line(raw, TARGET_DBS)
+        push_line(session_id, safe)
+    rc = proc.wait()
 
     if is_cancelled(session_id):
-        push_line(session_id, "[CANCELLED] Step stopped")
+        push_line(session_id, "[CANCELLED] Step stopped.")
         return
 
     if rc != 0 and not fail_ok:
@@ -213,7 +209,6 @@ def sequence_similarity_summary(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests allowed'}, status=405)
     session_id = request.POST.get('validationSessionId') or "default"
-    start_session(session_id)
     try:
         if 'file' not in request.FILES:
             return JsonResponse({'error': 'CSV file not provided'}, status=400)
