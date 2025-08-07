@@ -1,7 +1,7 @@
 
 /* Header Styles */
 .custom-navbar {
-  background: var(--background-gradient);
+  background: linear-gradient(45deg, #070614, #181531, #12121f);
   border-bottom: 1px solid var(--neon-color);
   box-shadow: 0 4px 6px -1px rgba(0, 214, 252, 0.1);
   padding-top: 0px; /* Reduced padding */

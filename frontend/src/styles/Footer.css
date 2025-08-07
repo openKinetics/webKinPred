@@ -1,43 +1,41 @@
 /* src/components/Footer.css */
 
-/* Footer Styles */
 .custom-footer {
-  background: var(--background-gradient);
-  color: var(--text-color);
-  text-align: center;
-  padding: 10px;
+  /* This property can handle images, gradients, and colors */
+  background: linear-gradient(45deg, #070614, #181531, #12121f);
+  color: rgba(255, 255, 255, 0.7);
+  padding: 1.5rem 1rem;
   border-top: 1px solid var(--neon-color);
-  font-size: 14px;
-}
-  
-.footer-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  text-align: center;
-  padding: 0 20px;
 }
 
-.footer-text {
-  margin: 0;
+.footer-brand {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffffff;
 }
 
-.funding-statement {
-  margin: 10px 0 20px 0;
+.copyright-text {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.funding-text {
+  font-size: 0.85rem;
+  max-width: 350px; /* Prevents the text from becoming too long */
 }
 
 .footer-logos {
   display: flex;
-  justify-content: center;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 1rem; /* Creates space between the logos */
 }
 
 .footer-logo {
-  max-height: 50px;
-  margin: 0 15px;
-  transition: opacity 0.3s;
+  height: 45px; /* Ensures both logos are the same size */
+  opacity: 0.5;
+  transition: opacity 0.2s ease-in-out;
 }
 
 .footer-logo:hover {
-  opacity: 0.8;
+  opacity: 1; /* Full opacity on hover */
 }
