@@ -38,7 +38,7 @@ export default function ValidationResults({
             ) : (
               <>
                 <Alert variant="warning">
-                    ⚠️ Some entries are invalid. Predictions will not be generated for them (outputs remain empty). You do not need to remove them from the CSV.
+                    ⛔ Some entries are invalid. Predictions will not be generated for them (outputs remain empty). You do not need to remove them from the CSV.
                 </Alert>
                 {submissionResult?.invalid_substrates?.length > 0 && (
                 <InvalidItems
@@ -54,94 +54,88 @@ export default function ValidationResults({
                 )}
               </>
             )}
-
             {hasAnyLengthIssues && (
-              <div className="mt-3">
-                <h5 className="text-center mt-3 mb-3">⚠️ Protein Sequence Length Warnings</h5>
-                <Table striped bordered hover size="sm" className="bg-dark">
-                  <thead>
-                    <tr>
-                      <th className="text-white" colSpan="3" style={{ backgroundColor: '#4e4e4e' }}>
-                        <strong>Model Limits</strong>
-                      </th>
-                    </tr>
-                    <tr>
-                      <th className="text-white">Category</th>
-                      <th className="text-white">Limit</th>
-                      <th className="text-white">Violations</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-secondary">
-                    {[
-                      { key: 'EITLEM', label: 'EITLEM', limit: 1024 },
-                      { key: 'TurNup', label: 'TurNup', limit: 1024 },
-                      { key: 'UniKP', label: 'UniKP', limit: 1000 },
-                      { key: 'DLKcat', label: 'DLKcat', limit: '∞' },
-                    ].map(({ key, label, limit }) =>
-                      lengthViol[key] > 0 ? (
-                        <tr key={key}>
-                          <td className="text-white">{label}</td>
-                          <td className="text-white">{limit}</td>
-                          <td className="text-danger">{lengthViol[key]}</td>
-                        </tr>
-                      ) : null
-                    )}
+                <div className="mt-3">
+                    <hr style={{ borderTop: '5px solid rgb(229, 228, 243)' }} />
+                    <h5 className="text-center mt-3 mb-3">⚠️ Protein Sequence Length Warnings</h5>
+                    <Table striped bordered hover size="sm" className="bg-dark">
+                        <thead>
+                            <tr>
+                                <th className="text-white" colSpan="3" style={{ backgroundColor: '#4e4e4e' }}>
+                                    <strong>Model Limits</strong>
+                                </th>
+                            </tr>
+                            <tr>
+                                <th className="text-white">Category</th>
+                                <th className="text-white">Limit</th>
+                                <th className="text-white">Violations</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-secondary">
+                            {[
+                                { key: 'EITLEM', label: 'EITLEM', limit: 1024 },
+                                { key: 'TurNup', label: 'TurNup', limit: 1024 },
+                                { key: 'UniKP', label: 'UniKP', limit: 1000 },
+                                { key: 'DLKcat', label: 'DLKcat', limit: '∞' },
+                            ].map(({ key, label, limit }) =>
+                                lengthViol[key] > 0 ? (
+                                    <tr key={key}>
+                                        <td className="text-white">{label}</td>
+                                        <td className="text-white">{limit}</td>
+                                        <td className="text-danger">{lengthViol[key]}</td>
+                                    </tr>
+                                ) : null
+                            )}
+                        </tbody>
+                        <tfoot>
+                            {lengthViol.Server > 0 && (
+                                <tr>
+                                    <td className="text-white">
+                                        <strong>Overall Server Limit</strong>
+                                    </td>
+                                    <td className="text-white">1500</td>
+                                    <td className="text-danger">{lengthViol.Server}</td>
+                                </tr>
+                            )}
+                        </tfoot>
+                    </Table>
 
-                    {lengthViol.Server > 0 && (
-                      <>
-                        <tr>
-                          <th className="text-white" colSpan="3" style={{ backgroundColor: '#4e4e4e' }}>
-                            <strong>Server-Wide Limit</strong>
-                          </th>
-                        </tr>
-                        <tr>
-                          <td className="text-white">Server</td>
-                          <td className="text-white">1500</td>
-                          <td className="text-danger">{lengthViol.Server}</td>
-                        </tr>
-                      </>
-                    )}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan="3" className="text-warning">
-                        Some sequences exceed length limits. You may choose to truncate or skip them.
-                      </td>
-                    </tr>
-                  </tfoot>
-                </Table>
-
-                <Form.Group className="mt-3">
-                  <div>
-                    <Form.Check
-                      inline
-                      type="radio"
-                      id="truncate-option"
-                      label="Truncate (default)"
-                      name="longSeqHandling"
-                      value="truncate"
-                      checked={handleLongSeqs === 'truncate'}
-                      onChange={() => setHandleLongSeqs('truncate')}
-                    />
-                    <Form.Check
-                      inline
-                      type="radio"
-                      id="skip-option"
-                      label="Skip"
-                      name="longSeqHandling"
-                      value="skip"
-                      checked={handleLongSeqs === 'skip'}
-                      onChange={() => setHandleLongSeqs('skip')}
-                    />
-                  </div>
-                  <Form.Text className="text-white" style={{ fontSize: '1rem' }}>
-                    Truncation keeps the first and last halves (e.g. 1200 → 500+500 for a 1000-limit model). This does not significantly hurt accuracy. <br />
-                    Skipping means these entries will be excluded from predictions.
-                  </Form.Text>
-                </Form.Group>
-              </div>
+                    <div className="mt-4 p-3 bg-light bg-opacity-10 rounded">
+                        <p className="text-warning mb-3" style={{ fontSize: '1.05rem' }}>
+                            <strong>How to handle violating sequences?</strong>
+                        </p>
+                        
+                        <Form.Group>
+                            <Form.Check
+                            type="radio"
+                            id="truncate-option"
+                            name="longSeqHandling"
+                            value="truncate"
+                            label="Truncate sequences (default)"
+                            checked={handleLongSeqs === 'truncate'}
+                            onChange={() => setHandleLongSeqs('truncate')}
+                            />
+                            <Form.Text className="text-white-50 ms-4">
+                                Truncation preserves the first and last portions of a sequence (e.g., for a 1000-limit, a 1200-length sequence becomes first 500+ last 500). This method is generally effective in maintaining model performance.
+                            </Form.Text>
+                            <div className="mt-3">
+                                <Form.Check
+                                    type="radio"
+                                    id="skip-option"
+                                    name="longSeqHandling"
+                                    value="skip"
+                                    label="Skip sequences"
+                                    checked={handleLongSeqs === 'skip'}
+                                    onChange={() => setHandleLongSeqs('skip')}
+                                />
+                                <Form.Text className="text-white-50 ms-4">
+                                    Excludes any datapoint that contains a violating sequence.
+                                </Form.Text>
+                            </div>
+                        </Form.Group>
+                    </div>
+                </div>
             )}
-
             {similarityData && (
               <>
                 <hr style={{ borderTop: '5px solid rgb(229, 228, 243)' }} />
