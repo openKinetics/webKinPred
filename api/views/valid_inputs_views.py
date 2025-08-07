@@ -11,7 +11,9 @@ import os
 import shutil
 from webKinPred.config_local import CONDA_PATH,TARGET_DBS
 from api.progress import (
-    push_line, finish_session, sse_generator,cancel_session, is_cancelled
+    push_line, finish_session, sse_generator,
+    cancel_session, is_cancelled, get_pid_key,
+    redis_conn
 )
 from api.log_sanitiser import sanitise_log_line
 
@@ -39,30 +41,38 @@ def _run_and_stream(cmd, session_id: str, cwd: str | None = None, env: dict | No
     san_line = sanitise_log_line(echoed, TARGET_DBS)
     push_line(session_id, san_line)
 
-    proc = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
-    )
-
-    for raw in proc.stdout:
-        raw = raw.rstrip("\n")
-        if is_cancelled(session_id):
-            proc.terminate() 
-            break
-        safe = sanitise_log_line(raw, TARGET_DBS)
-        push_line(session_id, safe)
-    rc = proc.wait()
+    pid_key = get_pid_key(session_id)
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            preexec_fn=os.setsid  
+        )
+        # Store the PID in Redis with a 15-minute expiry as a safety net
+        redis_conn.set(pid_key, proc.pid, ex=900)
+        for raw in proc.stdout:
+            raw = raw.rstrip("\n")
+            # The is_cancelled check is now a secondary guard
+            if is_cancelled(session_id):
+                break
+            safe = sanitise_log_line(raw, TARGET_DBS)
+            push_line(session_id, safe)
+        rc = proc.wait()
+    finally:
+        if proc:
+            print(f"[cleanup] Deleting PID key for session {session_id}")
+            redis_conn.delete(pid_key)
 
     if is_cancelled(session_id):
-        push_line(session_id, "[CANCELLED] Step stopped.")
+        print(f"[run_and_stream] Step for session {session_id} was cancelled.")
         return
-
     if rc != 0 and not fail_ok:
         push_line(session_id, f"[ERROR] Command failed with exit code {rc}")
         raise subprocess.CalledProcessError(rc, cmd)
