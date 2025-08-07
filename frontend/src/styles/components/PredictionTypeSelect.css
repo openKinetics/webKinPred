@@ -1,0 +1,76 @@
+/* 1. The Wrapper: Styled to mimic the .kave-btn-upload */
+.kave-select-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  
+  /* Mimic the empty upload button state */
+  height: 48px;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* 2. The Selected State: Mimics the .has-file state */
+.kave-select-wrapper.is-selected {
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 3. Hover & Focus States */
+.kave-select-wrapper:hover,
+.kave-select-wrapper:focus-within {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+}
+
+/* Slightly different hover for the selected state */
+.kave-select-wrapper.is-selected:hover,
+.kave-select-wrapper.is-selected:focus-within {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 4. The Arrow Icon */
+.kave-select-wrapper::after {
+  content: '▼';
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  pointer-events: none; 
+}
+
+/* 5. The Actual <select> element, made invisible */
+.kave-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  width: 100%;
+  height: 100%;
+  padding: 0 2.5rem 0 14px; /* Room for text and arrow */
+
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+
+  /* Match typography */
+  color: var(--text-color);
+  letter-spacing: 0.8px;
+}
+
+/* For placeholder text when no value is selected */
+.kave-select:invalid {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 6. The dropdown menu itself */
+.kave-select option {
+  background: var(--primary-color); /* Dark background */
+  color: var(--text-color); /* Light text */
+}

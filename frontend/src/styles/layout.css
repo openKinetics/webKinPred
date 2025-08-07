@@ -2,7 +2,6 @@
 .container {
   padding-top: 10px;
 }
-
 /* Section Container Styles */
 .section-container {
   border: 1px solid var(--neon-color);
@@ -18,4 +17,11 @@
 .section-container:hover {
   transform: scale(1.01);
   box-shadow: var(--box-shadow-1);
+}
+
+.card-header {
+  color: var(--text-color);
+  font-weight: 200;
+  padding: 10px;
+  border-bottom: 1px solid var(--neon-color);
 }
