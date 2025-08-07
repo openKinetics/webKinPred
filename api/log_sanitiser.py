@@ -7,7 +7,10 @@ from typing import Dict
 RE_CONDA = re.compile(r"/home/[^/\s]+/anaconda3/bin/conda")
 RE_APP_ROOT = re.compile(r"/home/[^/\s]+/webKinPred")
 RE_HOME = re.compile(r"/home/[^/\s]+")
-RE_TMP_PATH = re.compile(r"/tmp/[^\s]+")
+RE_TMP_PATHS = [
+    re.compile(r"/tmp/[^\s]+"),
+    re.compile(r"/home/saleh/mmseqs_tmp[^\s]*"),
+]
 
 # Fallback: any other absolute path (be conservative)
 RE_ABS_FALLBACK = re.compile(r"(?<![\w.-])/(?:[^\s]+)")
@@ -48,18 +51,15 @@ def sanitise_log_line(line: str, target_dbs: Dict[str, str] | None = None) -> st
     """
     # 1) Normalise target DBs to friendly labels
     line = _normalise_target_db_refs(line, target_dbs)
-
-    # 2) Specific path redactions (keep the result readable)
+    # 2) Temporary paths: replace with [TMP] 
+    for tmp_re in RE_TMP_PATHS:
+        line = tmp_re.sub("[TMP]", line)
+    # 3) General path patterns
     line = RE_CONDA.sub("[CONDA]", line)          # conda binary path
     line = RE_APP_ROOT.sub("[APP_ROOT]", line)    # project root
     line = RE_HOME.sub("[HOME]", line)            # any /home/<user>
-
-    # 3) Temporary paths (hide full temp paths)
-    line = RE_TMP_PATH.sub("[TMP]", line)
-
     # 4) Any other absolute paths that slipped through
     line = RE_ABS_FALLBACK.sub("[PATH]", line)
-
     # 5) Common ephemeral artefact names -> friendly labels
     for regex, replacement in COMMON_LABELS:
         line = regex.sub(replacement, line)
