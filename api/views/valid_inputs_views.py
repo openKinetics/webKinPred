@@ -237,7 +237,6 @@ def sequence_similarity_summary(request):
     finally:
         finish_session(session_id)
     
-
 def calculate_sequence_similarity_by_histogram(
     input_sequences: list[str],
     session_id: str = "default"
@@ -264,10 +263,14 @@ def calculate_sequence_similarity_by_histogram(
         and the value is the percentage of input sequences that have that rounded identity value.
     """
     target_dbs = TARGET_DBS
+
+    unique_sequences = list(dict.fromkeys(input_sequences))
+    seq_to_unique_id = {seq: f"useq{idx}" for idx, seq in enumerate(unique_sequences)}
+    
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir="/home/saleh/mmseqs_tmp") as query_file:
         query_file_path = query_file.name
-        for idx, seq in enumerate(input_sequences, start=1):
-            query_file.write(f">seq{idx}\n{seq}\n")
+        for seq, unique_id in seq_to_unique_id.items():
+            query_file.write(f">{unique_id}\n{seq}\n")
 
     temp_query_dir = tempfile.mkdtemp(dir="/home/saleh/mmseqs_tmp")
     query_db = os.path.join(temp_query_dir, "queryDB")
@@ -292,7 +295,7 @@ def calculate_sequence_similarity_by_histogram(
                     "-e", "0.001", "-v", "0",
                 ],
                 session_id=session_id,
-                fail_ok=True  # allow no-hits gracefully
+                fail_ok=True
             )
 
             push_line(session_id, f"--> [{method_name}] Converting alignments")
@@ -305,8 +308,6 @@ def calculate_sequence_similarity_by_histogram(
                 session_id=session_id,
                 fail_ok=True
             )
-
-            max_identity = {}
             identity_lists = {}
             if os.path.exists(result_file):
                 with open(result_file, "r") as f:
@@ -319,57 +320,57 @@ def calculate_sequence_similarity_by_histogram(
                             pident = float(fields[2])
                         except ValueError:
                             continue
-                        if query_id not in max_identity or pident > max_identity[query_id]:
-                            max_identity[query_id] = pident
                         identity_lists.setdefault(query_id, []).append(pident)
 
-            # Assign 0.0 if no hit
             with open(query_file_path, "r") as f:
                 for line in f:
                     if line.startswith(">"):
                         qid = line[1:].strip()
-                        if qid not in max_identity:
-                            max_identity[qid] = 0.0
                         if qid not in identity_lists:
                             identity_lists[qid] = [0.0]
-
             mean_identity = {k: (sum(v) / len(v)) for k, v in identity_lists.items()}
+            max_identity = {k: max(v) for k, v in identity_lists.items()}
             push_line(session_id, f"--> [{method_name}] Aggregated {len(max_identity)} sequences")
             return max_identity, mean_identity
-
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     method_histograms = {}
     for method, target_db in target_dbs.items():
         push_line(session_id, f"==> Processing DB: {method}")
-        query_to_max, query_to_mean = run_mmseqs_search_with_precreated_query(query_db, target_db, query_file_path, method)
-        total_seqs = len(query_to_max)
+        unique_query_to_max, unique_query_to_mean = run_mmseqs_search_with_precreated_query(query_db, target_db, query_file_path, method)
 
+        query_to_max = {}
+        query_to_mean = {}
+        for original_idx, seq in enumerate(input_sequences):
+            original_seq_id = f"seq{original_idx + 1}"
+            unique_id = seq_to_unique_id[seq]
+            query_to_max[original_seq_id] = unique_query_to_max.get(unique_id, 0.0)
+            query_to_mean[original_seq_id] = unique_query_to_mean.get(unique_id, 0.0)
+        total_seqs = len(query_to_max)
         histogram_max = {str(i): 0 for i in range(101)}
         for identity in query_to_max.values():
-            ii = int(round(identity))
-            ii = max(0, min(100, ii))
-            histogram_max[str(ii)] += 1
+            rounded = int(round(identity))
+            rounded= max(0, min(100, rounded))
+            histogram_max[str(rounded)] += 1
+            
         histogram_max_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_max.items()}
-
         histogram_mean = {str(i): 0 for i in range(101)}
         for identity in query_to_mean.values():
-            ii = int(round(identity))
-            ii = max(0, min(100, ii))
-            histogram_mean[str(ii)] += 1
+            rounded = int(round(identity))
+            rounded = max(0, min(100, rounded))
+            histogram_mean[str(rounded)] += 1
         histogram_mean_perc = {k: (v / total_seqs * 100) if total_seqs else 0.0 for k, v in histogram_mean.items()}
 
         method_histograms[method] = {
             "histogram_max": histogram_max_perc,
             "histogram_mean": histogram_mean_perc,
-            "average_max_similarity": round(sum(query_to_max.values()) / total_seqs, 2),
-            "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs, 2),
+            "average_max_similarity": round(sum(query_to_max.values()) / total_seqs * 100, 2) if total_seqs else 0.0,
+            "average_mean_similarity": round(sum(query_to_mean.values()) / total_seqs * 100, 2) if total_seqs else 0.0,
             "count_max": histogram_max,
             "count_mean": histogram_mean
         }
 
-    # Clean up
     try:
         os.remove(query_file_path)
     except Exception:
