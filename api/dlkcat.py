@@ -35,11 +35,11 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     job.molecules_processed = 0
     job.invalid_molecules = 0
     job.predictions_made = 0
-    job.save()
+    job.save(update_fields=["molecules_processed", "invalid_molecules", "predictions_made"])
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
-    job.save()
+    job.save(update_fields=["total_molecules"])
 
     # Define paths
     python_path = PYTHON_PATHS['DLKcat']
@@ -73,11 +73,11 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
             job.invalid_molecules += 1
 
         # Save job progress after each molecule
-        job.save()
+        job.save(update_fields=["molecules_processed", "invalid_molecules"])
 
     # Update total predictions
     job.total_predictions = len(valid_indices)
-    job.save()
+    job.save(update_fields=["total_predictions"])
 
     # Prepare input file for valid entries
     if valid_indices:
@@ -117,7 +117,7 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
                             # Update the job object
                             job.predictions_made = predictions_made
                             job.total_predictions = total_predictions
-                            job.save()
+                            job.save(update_fields=["predictions_made", "total_predictions"])
                         except Exception as e:
                             print("Error parsing progress update:", e)
                 else:

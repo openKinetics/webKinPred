@@ -48,7 +48,7 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     job.molecules_processed = 0
     job.invalid_molecules = 0
     job.predictions_made = 0
-    job.save()
+    job.save(update_fields=["molecules_processed", "invalid_molecules", "predictions_made"])
 
     # Define paths
     python_path = PYTHON_PATHS['UniKP']
@@ -59,7 +59,7 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
-    job.save()
+    job.save(update_fields=["total_molecules"])
 
     valid_indices = []
     invalid_indices = []
@@ -82,11 +82,11 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
             job.invalid_molecules += 1
 
         # Save job progress after each molecule
-        job.save()
+        job.save(update_fields=["molecules_processed", "invalid_molecules"])
 
     # Update total predictions
     job.total_predictions = len(valid_indices)
-    job.save()
+    job.save(update_fields=["total_predictions"])
 
     # Prepare DataFrame for valid entries
     if valid_indices:

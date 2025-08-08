@@ -38,11 +38,11 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
     job.molecules_processed = 0
     job.invalid_molecules = 0
     job.predictions_made = 0
-    job.save()
+    job.save(update_fields=["molecules_processed", "invalid_molecules", "predictions_made"])
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
-    job.save()
+    job.save(update_fields=["total_molecules"])
 
     # Define paths
     python_path = PYTHON_PATHS['TurNup']
@@ -84,11 +84,11 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
             valid_indices.append(idx)
 
         # Save job progress after each molecule
-        job.save()
+        job.save(update_fields=["molecules_processed", "invalid_molecules"])
 
     # Update total predictions
     job.total_predictions = len(valid_indices)
-    job.save()
+    job.save(update_fields=["total_predictions"])
 
     # Prepare DataFrame for valid entries
     if valid_indices:
@@ -122,7 +122,7 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
                 idx = valid_indices[idx_in_valid_list]
                 predictions[idx] = pred
                 job.predictions_made += 1
-                job.save()
+                job.save(update_fields=["predictions_made"])
 
         except subprocess.CalledProcessError as e:
             print("An error occurred while running the TurNup subprocess:")

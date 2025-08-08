@@ -17,61 +17,6 @@ from api.unikp import unikp_predictions
 from api.utils.quotas import credit_back
 from api.utils.extra_info import build_extra_info, _source
 
-def run_prediction_subprocess(command, job):
-    """
-    Run a prediction subprocess and update job progress based on stdout.
-
-    Parameters:
-    - command: List of command-line arguments to run the subprocess.
-    - job: Job object to update progress.
-    """
-    try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-
-        # Read stdout line by line
-        for line in iter(process.stdout.readline, ''):
-            if not line:
-                break
-            # Process the line
-            print("Subprocess output:", line.strip())
-            # Check if it's a progress update
-            if line.startswith("Progress:"):
-                # Extract the number of predictions made
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    try:
-                        progress = parts[1]
-                        predictions_made, total_predictions = progress.split('/')
-                        predictions_made = int(predictions_made)
-                        total_predictions = int(total_predictions)
-                        # Update the job object
-                        job.predictions_made = predictions_made
-                        job.total_predictions = total_predictions
-                        job.save()
-                    except Exception as e:
-                        print("Error parsing progress update:", e)
-            else:
-                # Handle other output if needed
-                pass
-
-        # Wait for the subprocess to finish
-        process.wait()
-
-        if process.returncode != 0:
-            # An error occurred
-            raise subprocess.CalledProcessError(process.returncode, process.args)
-
-    except Exception as e:
-        print("An error occurred while running the subprocess:")
-        print(e)
-        raise e
-
 def run_model(
     *,
     job,
@@ -177,6 +122,8 @@ def run_model(
             f"Predictions could not be made for {len(invalid_global)} row(s): "
             + ", ".join(map(str, invalid_global))
         ) if invalid_global else ""
+
+        job.save(update_fields=["output_file", "error_message"])
         return csv_out
     except Exception as e:
         credit_back(job.ip_address, job.requested_rows)
@@ -185,7 +132,7 @@ def run_model(
 @shared_task
 def run_dlkcat_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
-    job.status = "Processing"; job.save()
+    job.status = "Processing"; job.save(update_fields=["status"])
     try:
         df = safe_read_csv(
             os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
@@ -204,16 +151,21 @@ def run_dlkcat_predictions(public_id, experimental_results=None):
             handle_long    = job.handle_long_sequences,
             experimental_results = experimental_results
         )
-        job.status = "Completed"
-        job.completion_time = timezone.now()
-        job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+        )
     except Exception as e:
-        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Failed",
+            error_message=str(e),
+            completion_time=timezone.now()
+        )
 # ------------------------------------------------------------ TurNup
 @shared_task
 def run_turnup_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
-    job.status = "Processing"; job.save()
+    job.status = "Processing"; job.save(update_fields=["status"])
     try:
         df = safe_read_csv(
             os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
@@ -232,16 +184,23 @@ def run_turnup_predictions(public_id, experimental_results=None):
             handle_long   = job.handle_long_sequences,
             experimental_results = experimental_results
         )
-        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+        )
 
     except Exception as e:
-        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Failed",
+            error_message=str(e),
+            completion_time=timezone.now()
+        )
 
 # ------------------------------------------------------------ EITLEM
 @shared_task
 def run_eitlem_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
-    job.status = "Processing"; job.save()
+    job.status = "Processing"; job.save(update_fields=["status"])
 
     try:
         df = safe_read_csv(
@@ -266,16 +225,22 @@ def run_eitlem_predictions(public_id, experimental_results=None):
             experimental_results = experimental_results
         )
 
-        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
-
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+        )
     except Exception as e:
-        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Failed",
+            error_message=str(e),
+            completion_time=timezone.now()
+        )
 
 # ------------------------------------------------------------ UniKP
 @shared_task
 def run_unikp_predictions(public_id, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
-    job.status = "Processing"; job.save()
+    job.status = "Processing"; job.save(update_fields=["status"])
 
     try:
         df = safe_read_csv(
@@ -302,10 +267,16 @@ def run_unikp_predictions(public_id, experimental_results=None):
             experimental_results = experimental_results
         )
 
-        job.status = "Completed"; job.completion_time = timezone.now(); job.save()
-
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+        )
     except Exception as e:
-        job.status = "Failed"; job.error_message = str(e); job.completion_time = timezone.now(); job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Failed",
+            error_message=str(e),
+            completion_time=timezone.now()
+        )
 
 # ------------------------------------------------------------ Run Both
 # ------------------------------------------------------------ Run Both
@@ -494,15 +465,16 @@ def run_both_predictions(public_id, experimental_results=None):
                         max(0, job.requested_rows - len(invalid_indices)))
         else:
             job.error_message = ""
-
-        job.status          = "Completed"
-        job.completion_time = timezone.now()
-        job.output_file.name = os.path.relpath(out_csv, settings.MEDIA_ROOT)
-        job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+            output_file=os.path.relpath(out_csv, settings.MEDIA_ROOT),
+        )
 
     except Exception as exc:
         credit_back(job.ip_address, job.requested_rows)
-        job.status          = "Failed"
-        job.error_message   = str(exc)
-        job.completion_time = timezone.now()
-        job.save()
+        Job.objects.filter(pk=job.pk).update(
+            status="Failed",
+            error_message=str(exc),
+            completion_time=timezone.now()
+        )

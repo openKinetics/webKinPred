@@ -25,7 +25,7 @@ class Job(models.Model):
         ('truncate', 'truncate'),
         ('skip', 'skip'),
     ])
-    # New fields for progress tracking
+
     total_molecules = models.IntegerField(default=0)
     molecules_processed = models.IntegerField(default=0)
     invalid_molecules = models.IntegerField(default=0)
