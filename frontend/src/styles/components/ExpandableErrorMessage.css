@@ -1,0 +1,74 @@
+/* Root card – aligns with .section-container look */
+.expmsg-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+/* Header */
+.expmsg-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+.expmsg-title {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.expmsg-meta {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Buttons */
+.expmsg-btn {
+  --bs-btn-border-color: rgba(255, 255, 255, 0.25);
+  --bs-btn-hover-bg: rgba(255, 255, 255, 0.12);
+  --bs-btn-hover-border-color: rgba(255, 255, 255, 0.35);
+  padding: 0.2rem 0.45rem;
+  line-height: 1;
+}
+.expmsg-toggle {
+  padding: 0.25rem 0.6rem;
+}
+
+/* Collapsible body */
+.expmsg-body {
+  max-height: 0;
+  transition: max-height 240ms ease, padding 240ms ease, background 240ms ease;
+  padding: 0 1rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+.expmsg-body.is-open {
+  padding: 0.75rem 1rem 1rem;
+  max-height: 420px;               /* keeps giant logs tidy; adjust if needed */
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.03);
+}
+.expmsg-body.is-closed {
+  overflow: hidden;
+}
+
+/* Code block */
+.expmsg-pre {
+  margin: 0;
+  white-space: pre-wrap;           /* wrap long lines nicely */
+  word-wrap: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text-color, #fff);
+}
+
+/* Scrollbar polish (WebKit) */
+.expmsg-body.is-open::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.expmsg-body.is-open::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+.expmsg-body.is-open::-webkit-scrollbar-track {
+  background: transparent;
+}
