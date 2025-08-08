@@ -4,7 +4,12 @@ import { Modal, Button } from 'react-bootstrap';
 
 export default function SubmissionResultModal({ show, onHide, message, publicId }) {
   return (
-    <Modal show={show} onHide={onHide}>
+    <Modal
+      show={show}
+      onHide={onHide}
+      backdrop="static" // Prevents closing on backdrop click
+      keyboard={false}   // Prevents closing with the Escape key
+    >
       <Modal.Header closeButton>
         <Modal.Title>Job Successfully Submitted</Modal.Title>
       </Modal.Header>
@@ -13,11 +18,11 @@ export default function SubmissionResultModal({ show, onHide, message, publicId 
         <p>Job ID: {publicId}</p>
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="secondary" onClick={onHide}>
+        <Button className='btn kave-btn-run-val' onClick={onHide}>
           Close
         </Button>
         <Button
-          variant="primary"
+          className='btn kave-btn-run-val'
           onClick={() => {
             onHide();
             window.location.href = `/track-job/${publicId}`;
