@@ -74,9 +74,9 @@ function JobStatus() {
   );
 
   const fetchJobStatus = useCallback(
-    async (id) => {
+    async (id, { manual = false } = {}) => {
       if (!id) return;
-      setIsRefreshing(true);
+      if (manual) setIsRefreshing(true); // only for manual
       try {
         const response = await apiClient.get(`/job-status/${id}/`);
         const data = response.data;
@@ -94,11 +94,10 @@ function JobStatus() {
           invalidMolecules: data.invalid_molecules,
         }));
 
-        // Decide next poll delay based on returned status
         const nextDelay =
           data.status === 'Processing' ? 1000 :
           data.status === 'Pending'    ? 3000 :
-          null; // Completed / Failed => stop polling
+          null;
 
         scheduleNextPoll(nextDelay);
       } catch (err) {
@@ -108,11 +107,12 @@ function JobStatus() {
           scheduleNextPoll(5000);
         }
       } finally {
-        if (isMounted.current) setIsRefreshing(false);
+        if (manual && isMounted.current) setIsRefreshing(false);
       }
     },
     [scheduleNextPoll]
   );
+
 
   // Mount / unmount
   useEffect(() => {
@@ -174,7 +174,7 @@ function JobStatus() {
   const handleManualRefresh = () => {
     if (publicId) {
       clearTimer();
-      fetchJobStatus(publicId);
+      fetchJobStatus(publicId, { manual: true });
     }
   };
 
