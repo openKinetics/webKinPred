@@ -48,7 +48,7 @@ function JobStatus() {
     invalidMolecules: 0,
   });
 
-  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
   // Polling control
   const timerRef = useRef(null);
@@ -78,7 +78,7 @@ function JobStatus() {
       if (!id) return;
       setIsRefreshing(true);
       try {
-        const response = await apiClient.get(`/api/job-status/${id}/`);
+        const response = await apiClient.get(`/job-status/${id}/`);
         const data = response.data;
 
         if (!isMounted.current) return;
@@ -374,7 +374,7 @@ function JobStatus() {
                       )}
 
                       <p className="note-muted mb-4">
-                        Real-time progress is only available for <strong>TurNup</strong>, <strong>DLKcat</strong>, and <strong>EITLEM-Kinetics</strong>.
+                        Real-time progress is only accurate for <strong>TurNup</strong>, <strong>DLKcat</strong>, and <strong>EITLEM-Kinetics</strong>.
                       </p>
 
                       <div className="mt-3 d-flex justify-content-center">

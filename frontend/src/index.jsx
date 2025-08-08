@@ -9,10 +9,12 @@ import './styles/components/button.css';
 import './styles/components/form.css';
 import './styles/components/invalid-list.css';
 import './styles/components/JobSubmissionForm.css';
-
-
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+
+import { ensureCsrfCookie } from './components/appClient';
+
+ensureCsrfCookie(); // fire and forget
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

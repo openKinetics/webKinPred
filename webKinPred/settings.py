@@ -36,7 +36,6 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware', 
-    'api.middleware.ApiKeyMiddleware',  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -45,9 +44,17 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'https://kineticxpredictor.humanmetabolism.org',
+    "http://localhost:5173",
+    "https://kineticxpredictor.humanmetabolism.org",
 ]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "https://kineticxpredictor.humanmetabolism.org",
+]
+
+CORS_ALLOW_CREDENTIALS = True  # you already have this
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -59,7 +66,6 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
-CORS_ALLOW_CREDENTIALS = True
 ALLOWED_HOSTS = ["kineticxpredictor.humanmetabolism.org", "127.0.0.1", "localhost"]
 ROOT_URLCONF = 'webKinPred.urls'
 
