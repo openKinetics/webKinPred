@@ -2,7 +2,7 @@
 import React from 'react';
 import euLogo from '../assets/eu_logo.png';
 import reconLogo from '../assets/recon4imd_logo.png';
-import '../styles/Footer.css';
+import '../styles/components/Footer.css';
 function Footer() {
   return (
     <footer className="custom-footer">
