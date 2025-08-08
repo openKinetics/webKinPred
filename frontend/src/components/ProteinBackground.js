@@ -4,7 +4,7 @@ import React, { useRef, useEffect } from 'react';
 // This object holds all the tweakable parameters for the evolved simulation.
 const CFG = {
     enzymeCount: 15,           // Fewer, larger enzymes for a cleaner look
-    moleculeCount: 200,        // Reduced molecule count to complement fewer enzymes
+    moleculeCount: 125,        // Reduced molecule count to complement fewer enzymes
     
     // --- Visuals & Colors ---
     enzymeColor: 'rgba(100, 120, 150, 0.7)',
@@ -37,8 +37,8 @@ const CFG = {
     
     // --- Spawning & Global Effects ---
     minEnzymeDistance: 150,     // The minimum distance between the centers of two enzymes
-    globalAlphaFactor: 0.23,
-    fadeScrollPx: 800,
+    globalAlphaFactor: 0.35,
+    fadeScrollPx: 650,
 };
 
 // Helper for linear interpolation (lerping)
