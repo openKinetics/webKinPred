@@ -1,0 +1,35 @@
+/* Custom Accordion Styling for Dark Theme */
+.custom-accordion {
+  --bs-accordion-color: #ffffff;
+  --bs-accordion-bg: transparent;
+  --bs-accordion-border-color: rgba(255, 255, 255, 0.15);
+  --bs-accordion-border-radius: 0.375rem;
+  --bs-accordion-inner-border-radius: 0.375rem;
+  --bs-accordion-btn-color: #ffffff;
+  --bs-accordion-btn-bg: rgba(255, 255, 255, 0.05);
+  --bs-accordion-btn-focus-border-color: var(--neon-color);
+  --bs-accordion-btn-focus-box-shadow: 0 0 8px rgba(233, 233, 233, 0.25);
+  --bs-accordion-active-color: #ffffff;
+  --bs-accordion-active-bg: rgba(var(--bs-primary-rgb), 0.2);
+}
+
+.custom-accordion .accordion-button {
+  font-weight: 500;
+}
+
+/* Make the default dark arrow icon white */
+.custom-accordion .accordion-button::after {
+  filter: brightness(0) invert(1);
+}
+
+.custom-accordion .accordion-body {
+  background-color: rgba(0,0,0,0.2);
+}
+
+/* Styling for the parameter list in the accordion */
+.parameter-list code {
+  color: #c7d2fe; /* A light indigo for code */
+  background-color: rgba(79, 70, 229, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}

@@ -163,3 +163,45 @@
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
     background: transparent;
 }
+
+/* A custom button with a subtle, semi-transparent fill */
+.btn-custom-subtle {
+  /* Default State */
+  background-color: rgba(var(--bs-primary-rgb), 0.2);
+  border: 1px solid var(--bs-primary);
+  color: #ffffff; /* White text for better contrast */
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Hover State */
+.btn-custom-subtle:hover,
+.btn-custom-subtle:focus {
+  background-color: rgba(var(--bs-primary-rgb), 0.3); /* Slightly more opaque on hover */
+  border-color: var(--bs-primary);
+  color: #ffffff;
+}
+
+.btn-kave-toggle {
+  /* Default (inactive) state - a subtle outline */
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+/* Hover state for inactive buttons */
+.btn-kave-toggle:hover {
+  background-color: rgba(var(--bs-primary-rgb), 0.2);
+  border-color: var(--bs-primary);
+  color: #ffffff;
+}
+
+/* Active state - filled with the subtle color */
+.btn-kave-toggle.active {
+  background-color: rgba(var(--bs-primary-rgb), 0.3);
+  border-color: var(--bs-primary);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(var(--bs-primary-rgb), 0.3);
+}

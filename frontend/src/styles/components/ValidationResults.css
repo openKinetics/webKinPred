@@ -1,0 +1,63 @@
+/* Styling for the new Tabs component */
+.validation-tabs .nav-link {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.validation-tabs .nav-link:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.validation-tabs .nav-link.active {
+  color: #ffffff;
+  background: none;
+  border-color: var(--neon-color);
+  font-weight: 600;
+}
+
+.tab-content-wrapper {
+  padding-top: 1rem;
+}
+
+.tab-section-header {
+  color: var(--text-color);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Updated styles from invalid-list.css to integrate here */
+.invalid-list .invalid-reason {
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.invalid-list .chips-scroll {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chip-row {
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-color);
+  background: transparent;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.chip-row:hover,
+.chip-row:focus {
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
