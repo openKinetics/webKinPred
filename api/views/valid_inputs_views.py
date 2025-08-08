@@ -135,14 +135,18 @@ def validate_input(request):
 
     # Validate Substrates
     if 'Substrate' in df.columns:
+        val_to_output = {}
         # Single-substrate schema
         for i, val in enumerate(df['Substrate']):
+            if val in val_to_output:
+                invalid_substrates.append(val_to_output[val])
             if convert_to_mol_safe(val) is None:
-                invalid_substrates.append({
+                val_to_output[val] = {
                     'row': i + 1,
                     'value': val,  # offending SMILES/InChI
                     'reason': 'Invalid SMILES/InChI'
-                })
+                }
+                invalid_substrates.append(val_to_output[val])
 
     elif ('Substrates' in df.columns and 'Products' in df.columns):
         # Multi-substrate schema
