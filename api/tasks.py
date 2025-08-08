@@ -463,6 +463,7 @@ def run_both_predictions(public_id, experimental_results=None):
             )
             credit_back(job.ip_address,
                         max(0, job.requested_rows - len(invalid_indices)))
+            job.save(update_fields=["error_message"])
         else:
             job.error_message = ""
         Job.objects.filter(pk=job.pk).update(
