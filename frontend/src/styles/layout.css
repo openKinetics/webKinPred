@@ -15,7 +15,6 @@
 }
 
 .section-container:hover {
-  transform: scale(1.002);
   box-shadow: var(--box-shadow-1);
 }
 .card-header {

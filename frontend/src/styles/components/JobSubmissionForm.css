@@ -1,32 +1,57 @@
+/* Optional: spinner size if used */
 .spinner-border {
   width: 1.5rem;
   height: 1.5rem;
   border-width: 0.2rem;
 }
-/* ─── experimental-data switch + info icon ───────────────────── */
-.exp-switch .form-check-input {
-  cursor: pointer;
-}
-.exp-switch-wrapper {
-  display: flex;
-  align-items: center;
-}
 
-/* thumb / track when OFF */
-.exp-switch .form-check-input {
-  background-color: #6c757d;      /* muted grey */
-  border-color:    #6c757d;
-}
-
-/* thumb / track when ON */
-.exp-switch .form-check-input:checked {
-  background-color: #198754;      /* Bootstrap “success” green */
-  border-color:    #198754;
-}
-
-/* optional: focus ring */
+/* Switch – tidy spacing and clear states */
+.exp-switch-group { margin: 0; }
+.exp-switch .form-check-input { cursor: pointer; }
 .exp-switch .form-check-input:focus {
-  box-shadow: 0 0 0 0.25rem rgba(25,135,84,.25);
+  box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25);
+}
+.exp-switch .form-check-input:not(:checked) {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.exp-switch .form-check-input:checked {
+  background-color: #198754; /* Bootstrap success */
+  border-color: #198754;
+}
+
+/* Accessible, minimal icon button */
+.exp-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--bs-primary-rgb), 0.15);
+  color: var(--bs-primary);
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+.exp-info-btn:hover,
+.exp-info-btn:focus-visible {
+  background: rgba(var(--bs-primary-rgb), 0.25);
+  outline: none;
+  box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
+}
+.exp-info-btn:active { transform: scale(0.96); }
+
+/* Tooltip – solid background, clear text (Bootstrap 5 vars) */
+.tooltip.exp-tooltip {
+  --bs-tooltip-bg: #111827;       /* solid, dark slate */
+  --bs-tooltip-color: #ffffff;    /* clear text */
+  --bs-tooltip-opacity: 1;
+  --bs-tooltip-padding-x: 0.6rem;
+  --bs-tooltip-padding-y: 0.45rem;
+  --bs-tooltip-border-radius: 0.5rem;
+  --bs-tooltip-font-size: 0.875rem;
 }
 
 .info-icon {
@@ -36,36 +61,18 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #0dcaf0;          /* Bootstrap info colour */
+  background: rgba(var(--bs-primary-rgb), 0.4);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 350;
   cursor: pointer;
   user-select: none;
   transition: background 0.2s ease;
 }
 .info-icon:hover,
 .info-icon:focus {
-  background: #31d2f2;          /* lighten on hover/focus */
+  background: rgba(var(--bs-primary-rgb), 0.2);
   outline: none;
-}
-/* colour the balloon */
-.exp-tip .tooltip-inner {
-  background-color: #0d6efd;   /* primary blue */
-  color: #fff;                 /* white text */
-  font-size: 0.85rem;
-}
-
-/* arrow (top/bottom/left/right) */
-.exp-tip.bs-tooltip-top   .tooltip-arrow::before,
-.exp-tip.bs-tooltip-auto[x-placement^="top"] .tooltip-arrow::before,
-.exp-tip.bs-tooltip-bottom .tooltip-arrow::before,
-.exp-tip.bs-tooltip-auto[x-placement^="bottom"] .tooltip-arrow::before,
-.exp-tip.bs-tooltip-start .tooltip-arrow::before,
-.exp-tip.bs-tooltip-auto[x-placement^="left"]  .tooltip-arrow::before,
-.exp-tip.bs-tooltip-end   .tooltip-arrow::before,
-.exp-tip.bs-tooltip-auto[x-placement^="right"] .tooltip-arrow::before {
-  background-color: #0d6efd;
 }
 /* ─── pill badge for column names ──────────────────────────── */
 .csv-col {

@@ -1,28 +1,35 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { Form, OverlayTrigger, Tooltip } from 'react-bootstrap';
+import { InfoCircleFill } from 'react-bootstrap-icons';
 
-const renderTip = (props) => (
-  <Tooltip id="exp-tip" className="exp-tip" {...props}>
-    If ticked, we look up any matching k<sub>cat</sub> or K<sub>M</sub> measurements in
-    BRENDA, SABIO-RK or UniProt and use them instead of model predictions.
+const ExpTooltip = (
+  <Tooltip id="exp-tooltip" className="exp-tooltip">
+    Prefer curated values from BRENDA, SABIO-RK and UniProt. When a reliable match is found,
+    that value is returned instead of a model prediction.
   </Tooltip>
 );
 
 export default function ExperimentalSwitch({ checked, onChange }) {
   return (
-    <Form.Group controlId="useExperimental" className="mt-3">
-      <div className="exp-switch-wrapper me-3">
+    <Form.Group controlId="useExperimental" className="exp-switch-group">
+      <div className="d-flex align-items-center gap-2">
         <Form.Check
-          id="useExperimental"
           type="switch"
           label="Prefer experimental data"
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
           className="exp-switch"
         />
-        <OverlayTrigger placement="right" overlay={renderTip}>
-          <span className="info-icon ms-1" role="button" tabIndex={0}>i</span>
+
+        <OverlayTrigger placement="right" overlay={ExpTooltip} delay={{ show: 150, hide: 0 }} trigger={['hover', 'focus']}>
+          <button
+            type="button"
+            className="exp-info-btn"
+            aria-label="What does ‘Prefer experimental data’ do?"
+          >
+            <InfoCircleFill size={16} aria-hidden="true" />
+          </button>
         </OverlayTrigger>
       </div>
     </Form.Group>
