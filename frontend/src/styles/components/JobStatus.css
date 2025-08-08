@@ -1,0 +1,112 @@
+/* Card container polish */
+.job-status-card {
+  overflow: hidden;
+}
+
+/* Muted inline label before job id */
+.label-muted {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Job ID chip */
+.jobid-chip {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
+/* Tiny chip action button (copy) */
+.chip-action {
+  --bs-btn-border-color: rgba(255, 255, 255, 0.25);
+  --bs-btn-hover-bg: rgba(255, 255, 255, 0.12);
+  --bs-btn-hover-border-color: rgba(255, 255, 255, 0.35);
+  padding: 0.15rem 0.35rem;
+  line-height: 1;
+}
+
+/* Status badge */
+.status-pill {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+}
+
+/* Icon spin for refresh while active */
+.spin {
+  display: inline-block;
+  animation: spin 0.65s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Stats grid */
+.stats-grid .stat-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  height: 100%;
+}
+.stat-label {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+}
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+}
+.stat-sub {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.65);
+  margin-left: 0.25rem;
+}
+
+/* Progress rows */
+.progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+.progress-title {
+  font-weight: 600;
+}
+.progress-count {
+  color: rgba(255, 255, 255, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slightly thicker progress bar */
+.kave-progress .progress-bar {
+  height: 0.9rem;
+  border-radius: 999px;
+}
+.kave-progress {
+  height: 0.9rem;
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+/* Notes / asides */
+.note-muted {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Optional: match inputs to your aesthetic */
+.kave-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  color: var(--text-color);
+}
+.kave-input:focus {
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+}

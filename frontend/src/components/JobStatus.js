@@ -1,172 +1,420 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Form, Container, Row, Col, Card, Alert, ProgressBar, Spinner } from 'react-bootstrap';
+import {
+  Form,
+  Container,
+  Row,
+  Col,
+  Card,
+  Alert,
+  ProgressBar,
+  Spinner,
+  Button,
+  Badge
+} from 'react-bootstrap';
+import {
+  HourglassSplit,
+  CheckCircle,
+  XCircle,
+  ExclamationTriangle,
+  Clipboard,
+  ClipboardCheck,
+  ArrowClockwise,
+  FileEarmarkArrowDown,
+  Stopwatch
+} from 'react-bootstrap-icons';
 import moment from 'moment';
 import ExpandableErrorMessage from './ExpandableErrorMessage';
 import apiClient from './appClient';
+import '../styles/components/JobStatus.css';
 
 function JobStatus() {
   const { public_id: routePublicId } = useParams();
   const [inputPublicId, setInputPublicId] = useState(routePublicId || '');
-  const [public_id, setPublicId] = useState(routePublicId || '');
+  const [publicId, setPublicId] = useState(routePublicId || '');
+
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState('');
+  const [isCopying, setIsCopying] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Persist progress so x/y never drops to 0/0 when the job completes
+  const [metrics, setMetrics] = useState({
+    moleculesProcessed: 0,
+    totalMolecules: 0,
+    predictionsMade: 0,
+    totalPredictions: 0,
+    invalidMolecules: 0,
+  });
+
   const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
-  const intervalDuration = 1000; 
-  const [pollingInterval, setPollingInterval] = useState(intervalDuration);
-  let intervalId = null; 
 
-  useEffect(() => {
-    if (public_id) {
-      const fetchJobStatus = () => {
-        apiClient.get(`/api/job-status/${public_id}/`)
-          .then(response => {
-            setJobStatus(response.data);
-            setError(null);
+  // Polling control
+  const timerRef = useRef(null);
+  const isMounted = useRef(false);
 
-            if (response.data.status === 'Completed' || response.data.status === 'Failed') {
-              clearInterval(intervalId); 
-            } else {
-              setPollingInterval(intervalDuration); 
-            }
-          })
-          .catch(error => {
-            console.error('Error fetching job status:', error);
-            setError('Failed to fetch job status');
-            setJobStatus(null);
-          });
-      };
-
-      fetchJobStatus();
-      intervalId = setInterval(fetchJobStatus, pollingInterval);
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
-    return () => {
-      clearInterval(intervalId); // Cleanup interval when component unmounts or public_id changes
-    };
-  }, [public_id, pollingInterval]); // Re-run effect when public_id or pollingInterval changes
+  };
 
-  useEffect(() => {
-    if (jobStatus && jobStatus.submission_time) {
-      const submissionTime = moment(jobStatus.submission_time);
-      let endTime = moment();
-
-      if (jobStatus.status === 'Completed' && jobStatus.completion_time) {
-        endTime = moment(jobStatus.completion_time); // Use completion time for completed jobs
+  const scheduleNextPoll = useCallback(
+    (delayMs) => {
+      clearTimer();
+      if (delayMs != null) {
+        timerRef.current = setTimeout(() => {
+          if (isMounted.current) fetchJobStatus(publicId);
+        }, delayMs);
       }
+    },
+    [publicId]
+  );
 
-      const duration = moment.duration(endTime.diff(submissionTime));
+  const fetchJobStatus = useCallback(
+    async (id) => {
+      if (!id) return;
+      setIsRefreshing(true);
+      try {
+        const response = await apiClient.get(`/api/job-status/${id}/`);
+        const data = response.data;
+
+        if (!isMounted.current) return;
+
+        setJobStatus(data);
+        setError(null);
+
+        setMetrics(() => ({
+          moleculesProcessed: data.molecules_processed,
+          totalMolecules: data.total_molecules,
+          predictionsMade: data.predictions_made,
+          totalPredictions: data.total_predictions,
+          invalidMolecules: data.invalid_molecules,
+        }));
+
+        // Decide next poll delay based on returned status
+        const nextDelay =
+          data.status === 'Processing' ? 1000 :
+          data.status === 'Pending'    ? 3000 :
+          null; // Completed / Failed => stop polling
+
+        scheduleNextPoll(nextDelay);
+      } catch (err) {
+        console.error('Error fetching job status:', err);
+        if (isMounted.current) {
+          setError('Unable to fetch job status. Retrying…');
+          scheduleNextPoll(5000);
+        }
+      } finally {
+        if (isMounted.current) setIsRefreshing(false);
+      }
+    },
+    [scheduleNextPoll]
+  );
+
+  // Mount / unmount
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      clearTimer();
+    };
+  }, []);
+
+  // Kick off or restart polling only when the job ID changes
+  useEffect(() => {
+    clearTimer();
+    setJobStatus(null);
+    setError(null);
+    // Reset sticky metrics for a new job
+    setMetrics({
+      moleculesProcessed: 0,
+      totalMolecules: 0,
+      predictionsMade: 0,
+      totalPredictions: 0,
+      invalidMolecules: 0,
+    });
+    if (publicId) fetchJobStatus(publicId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicId]);
+
+  // Elapsed time updater
+  useEffect(() => {
+    if (!(jobStatus && jobStatus.submission_time)) return;
+
+    const tick = () => {
+      const submissionTime = moment(jobStatus.submission_time);
+      const end =
+        jobStatus.status === 'Completed' && jobStatus.completion_time
+          ? moment(jobStatus.completion_time)
+          : moment();
+      const duration = moment.duration(end.diff(submissionTime));
       setTimeElapsed(formatDuration(duration));
-    }
+    };
+
+    // initial render
+    tick();
+    // Update every second whilst active
+    const active = jobStatus.status === 'Processing' || jobStatus.status === 'Pending';
+    const id = active ? setInterval(tick, 1000) : null;
+
+    return () => {
+      if (id) clearInterval(id);
+    };
   }, [jobStatus]);
 
   const handleCheckStatus = (e) => {
     e.preventDefault();
-    setPublicId(inputPublicId);
-    setJobStatus(null);
-    setError(null);
+    if (!inputPublicId.trim()) return;
+    setPublicId(inputPublicId.trim());
   };
 
-  // Format time elapsed
-  const formatDuration = (duration) => {
-    if (!duration) return '';
-    const hours = Math.floor(duration.asHours());
-    const minutes = duration.minutes();
-    const seconds = duration.seconds();
-    return `${hours}h ${minutes}m ${seconds}s`;
+  const handleManualRefresh = () => {
+    if (publicId) {
+      clearTimer();
+      fetchJobStatus(publicId);
+    }
   };
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setIsCopying(true);
+      setTimeout(() => setIsCopying(false), 1200);
+    } catch {
+      // ignore
+    }
+  };
+
+  const statusMeta = useMemo(() => {
+    const s = jobStatus?.status;
+    if (s === 'Completed') return { variant: 'success', icon: <CheckCircle className="me-1" />, label: 'Completed' };
+    if (s === 'Failed') return { variant: 'danger', icon: <XCircle className="me-1" />, label: 'Failed' };
+    if (s === 'Processing') return { variant: 'info', icon: <HourglassSplit className="me-1" />, label: 'Processing' };
+    if (s === 'Pending') return { variant: 'secondary', icon: <HourglassSplit className="me-1" />, label: 'Pending' };
+    return { variant: 'secondary', icon: <HourglassSplit className="me-1" />, label: '—' };
+  }, [jobStatus]);
+
+  // Percentages based on sticky metrics
+  const moleculesPct = useMemo(() => {
+    const done = metrics.moleculesProcessed || 0;
+    const total = metrics.totalMolecules || 0;
+    return total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  }, [metrics]);
+
+  const predsPct = useMemo(() => {
+    const made = metrics.predictionsMade || 0;
+    const total = metrics.totalPredictions || 0;
+    return total > 0 ? Math.min(100, Math.round((made / total) * 100)) : 0;
+  }, [metrics]);
+
+  // Build a nice expandable block for rows we couldn’t predict (if the API returns any flavour of this)
+  const skippedRowsMessage = useMemo(() => {
+    if (!jobStatus) return null;
+    const parts = [];
+
+    const collect = (value) => {
+      if (!value) return;
+      if (Array.isArray(value)) {
+        if (value.length === 0) return;
+        const lines = value.map((item) => {
+          if (item == null) return '';
+          if (typeof item === 'object') {
+            const row = item.row ?? item.index ?? item.line ?? item.id ?? '';
+            const reason = item.reason ?? item.error ?? item.message ?? '';
+            if (row !== '' && reason) return `Row ${row}: ${reason}`;
+            if (row !== '') return `Row ${row}`;
+            return String(reason || JSON.stringify(item));
+          }
+          // primitive
+          return isFinite(item) ? `Row ${item}` : String(item);
+        }).filter(Boolean);
+        if (lines.length) {
+          parts.push(`${lines.join('\n')}`);
+        }
+      } else if (typeof value === 'string') {
+        parts.push(`${value}`);
+      }
+    };
+
+    // Try a few common keys
+    collect(jobStatus.error_message);
+
+    if (parts.length === 0) return null;
+    return parts.join('\n\n');
+  }, [jobStatus]);
 
   return (
     <Container className="mt-5 pb-5">
       <Row className="justify-content-center">
-        <Col md={8}>
-          <Card className="section-container mb-4">
+        <Col md={10} lg={9}>
+          <Card className="section-container job-status-card mb-4">
+            <Card.Header as="h3" className="text-center">Track Job Status</Card.Header>
+
             <Card.Body>
-              <h3>Track Job Status</h3>
               {!routePublicId && (
-                <Form onSubmit={handleCheckStatus}>
+                <Form onSubmit={handleCheckStatus} className="mb-4">
                   <Form.Group controlId="jobIdInput">
-                    <Form.Label>Enter Job ID</Form.Label>
-                    <Form.Control
-                      type="text"
-                      value={inputPublicId}
-                      onChange={(e) => setInputPublicId(e.target.value)}
-                      required
-                    />
+                    <Form.Label className="mb-2">Enter Job ID</Form.Label>
+                    <div className="d-flex gap-2">
+                      <Form.Control
+                        type="text"
+                        value={inputPublicId}
+                        placeholder="e.g., 8f4e7a9b-1234-4acb-9d01-abcdef123456"
+                        onChange={(e) => setInputPublicId(e.target.value)}
+                        required
+                        className="kave-input"
+                      />
+                      <Button type="submit" className="kave-btn">
+                        <span className="kave-line"></span>
+                        Check Status
+                      </Button>
+                    </div>
                   </Form.Group>
-                  <div className="mt-4 d-flex justify-content-end">
-                    <button type="submit" className="kave-btn">
-                      <span className="kave-line"></span>
-                      Check Status
-                    </button>
-                  </div>
                 </Form>
               )}
+
               {error && (
-                <Alert variant="danger" className="mt-3">
-                  {error}
+                <Alert variant="warning" className="d-flex align-items-center">
+                  <ExclamationTriangle className="me-2" />
+                  <div>{error}</div>
                 </Alert>
               )}
-              {jobStatus && (
-                <div className="mt-4">
-                  <h4>Job Status</h4>
-                  <p><strong>Job ID:</strong> {jobStatus.public_id}</p>
-                  <p><strong>Status:</strong> {jobStatus.status}</p>
-                  {jobStatus.submission_time && (
-                    <p><strong>Time Elapsed:</strong> {timeElapsed}</p>
-                  )}
 
-                  {jobStatus.status === 'Processing' && (
+              {publicId && (
+                <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                  <div className="d-flex align-items-center gap-2">
+                    <span className="label-muted">Job ID:</span>
+                    <code className="jobid-chip">{publicId}</code>
+                    <Button
+                      variant="outline-light"
+                      size="sm"
+                      className="chip-action"
+                      onClick={() => copyToClipboard(publicId)}
+                    >
+                      {isCopying ? <ClipboardCheck size={16} /> : <Clipboard size={16} />}
+                    </Button>
+                  </div>
+
+                  <div className="d-flex align-items-center gap-2">
+                    <Badge bg={statusMeta.variant} className="status-pill">
+                      {statusMeta.icon}{statusMeta.label}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      className="btn btn-custom-subtle"
+                      onClick={handleManualRefresh}
+                      disabled={isRefreshing}
+                    >
+                      <ArrowClockwise className={`me-1 ${isRefreshing ? 'spin' : ''}`} />
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {jobStatus && (
+                <>
+                  {/* Stats always show sticky x/y, even after completion */}
+                  <Row className="mb-3 g-3 stats-grid">
+                    <Col sm={6} lg={3}>
+                      <div className="stat-card">
+                        <div className="stat-label"><Stopwatch className="me-2" />Time Elapsed</div>
+                        <div className="stat-value">{timeElapsed || '—'}</div>
+                      </div>
+                    </Col>
+                    <Col sm={6} lg={3}>
+                      <div className="stat-card">
+                        <div className="stat-label">Preprocessed</div>
+                        <div className="stat-value">
+                          {metrics.moleculesProcessed}
+                          <span className="stat-sub"> / {metrics.totalMolecules}</span>
+                        </div>
+                      </div>
+                    </Col>
+                    <Col sm={6} lg={3}>
+                      <div className="stat-card">
+                        <div className="stat-label">Predictions</div>
+                        <div className="stat-value">
+                          {metrics.predictionsMade}
+                          <span className="stat-sub"> / {metrics.totalPredictions}</span>
+                        </div>
+                      </div>
+                    </Col>
+                    <Col sm={6} lg={3}>
+                      <div className="stat-card">
+                        <div className="stat-label">Invalid Rows</div>
+                        <div className="stat-value">{metrics.invalidMolecules}</div>
+                      </div>
+                    </Col>
+                  </Row>
+
+                  {(jobStatus.status === 'Processing' || jobStatus.status === 'Pending') && (
                     <>
-                      {/* Molecule Processing Progress */}
-                      {jobStatus.total_molecules > 0 && (
+                      {metrics.totalMolecules && (
                         <div className="mb-3">
-                          <p>Reactions Processed: {jobStatus.molecules_processed} / {jobStatus.total_molecules}</p>
-                          <ProgressBar now={(jobStatus.molecules_processed / jobStatus.total_molecules) * 100} />
+                          <div className="progress-row">
+                            <div className="progress-title">Reactions Processed</div>
+                            <div className="progress-count">{moleculesPct}%</div>
+                          </div>
+                          <ProgressBar now={moleculesPct} className="kave-progress" />
                         </div>
                       )}
-                      {/* Invalid Molecules */}
-                      {jobStatus.invalid_molecules > 0 && (
-                        <div className="mb-3">
-                          <p>Invalid Substrates: {jobStatus.invalid_molecules}</p>
+
+                      {metrics.totalPredictions && (
+                        <div className="mb-2">
+                          <div className="progress-row">
+                            <div className="progress-title">Predictions Made</div>
+                            <div className="progress-count">{predsPct}%</div>
+                          </div>
+                          <ProgressBar now={predsPct} className="kave-progress" />
                         </div>
                       )}
-                      {/* Predictions Progress */}
-                      {jobStatus.total_predictions > 0 && (
-                        <div className="mb-3">
-                          <p>Predictions Made: {jobStatus.predictions_made} / {jobStatus.total_predictions}</p>
-                          <ProgressBar now={(jobStatus.predictions_made / jobStatus.total_predictions) * 100} />
-                          <p className="mb-2" style={{ color: '#808080' }}>
-                            (Note: Real-time progress updates are only accurate for TurNup, DLKcat, and EITLEM-kinetics.)
-                          </p>
-                        </div>
-                      )}
-                      {/* Spinner during processing */}
-                      <div className="mt-4 d-flex justify-content-center">
+
+                      <p className="note-muted mb-4">
+                        Real-time progress is only available for <strong>TurNup</strong>, <strong>DLKcat</strong>, and <strong>EITLEM-Kinetics</strong>.
+                      </p>
+
+                      <div className="mt-3 d-flex justify-content-center">
                         <Spinner animation="border" role="status" />
                       </div>
                     </>
                   )}
 
                   {jobStatus.status === 'Completed' && jobStatus.output_file_url && (
-                    <div>
-                      <p>Your job is completed. You can download the results below:</p>
-                      <a href={`${apiBaseUrl}${jobStatus.output_file_url}`} download>
+                    <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
+                      <div>Job completed. Download your results below.</div>
+                      <a
+                        className="btn btn-custom-subtle"
+                        href={`${apiBaseUrl}${jobStatus.output_file_url}`}
+                        download
+                      >
+                        <FileEarmarkArrowDown className="me-2" />
                         Download Results
                       </a>
                     </div>
                   )}
-                  {jobStatus.error_message && (
-                    <ExpandableErrorMessage errorMessage={jobStatus.error_message} />
-                  )}
 
-                  {jobStatus.status === 'Failed' && jobStatus.error_message && (
-                    <div>
-                      <p>Your job failed with the following error:</p>
-                      <pre style={{ whiteSpace: 'pre-wrap' }}>{jobStatus.error_message}</pre>
+                  {/* Beautiful, expandable details for skipped/unpredicted rows (if any) */}
+                  {skippedRowsMessage && (
+                    <div className="mt-3">
+                      <ExpandableErrorMessage errorMessage={skippedRowsMessage} />
                     </div>
                   )}
-                </div>
+                  {/* Keep main backend error (if any) in a separate block */}
+                  {jobStatus.status === 'Failed' && (
+                    <Alert variant="danger" className="mt-3">
+                      <div className="fw-semibold mb-2">Job failed</div>
+                      {jobStatus.error_message ? (
+                        <ExpandableErrorMessage errorMessage={jobStatus.error_message} />
+                      ) : (
+                        <div>No error message provided.</div>
+                      )}
+                    </Alert>
+                  )}
+                </>
               )}
             </Card.Body>
           </Card>
@@ -177,3 +425,19 @@ function JobStatus() {
 }
 
 export default JobStatus;
+
+// Helpers
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
+function formatDuration(duration) {
+  if (!duration) return '';
+  const hours = Math.floor(duration.asHours());
+  const minutes = duration.minutes();
+  const seconds = duration.seconds();
+  return `${hours}h ${pad(minutes)}m ${pad(seconds)}s`;
+}
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
