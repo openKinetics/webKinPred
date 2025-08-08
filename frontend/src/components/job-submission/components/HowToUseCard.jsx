@@ -16,7 +16,6 @@ export default function HowToUseCard() {
         <p className="lead text-center mb-4">
           Predict kinetic parameters (k<sub>cat</sub> and/or K<sub>M</sub>) for enzyme-catalysed reactions using various machine learning models.
         </p>
-
         <Alert variant="info" className="d-flex align-items-center">
           <Bullseye size={24} className="me-3" />
           <div>
@@ -90,13 +89,22 @@ export default function HowToUseCard() {
         <hr className="my-4" />
         <h4 className="text-center mb-3">Example Templates</h4>
         <div className="d-grid gap-2 d-md-flex justify-content-md-center">
-            <Button href="/templates/single_substrate_template.csv" download variant="outline-primary">
-                <BoxArrowInDown className="me-2" />
-                Single-Substrate Template
+            <Button
+            href="/templates/single_substrate_template.csv"
+            download
+            className="btn btn-custom-subtle"
+            >
+            <BoxArrowInDown className="me-2" />
+            Single-Substrate Template
             </Button>
-            <Button href="/templates/multi_substrate_template.csv" download variant="outline-primary">
-                <BoxArrowInDown className="me-2" />
-                Multi-Substrate Template
+
+            <Button
+            href="/templates/multi_substrate_template.csv"
+            download
+            className="btn btn-custom-subtle"
+            >
+            <BoxArrowInDown className="me-2" />
+            Multi-Substrate Template
             </Button>
         </div>
       </Card.Body>
