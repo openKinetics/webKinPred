@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { Button, Badge, Collapse, OverlayTrigger, Popover } from 'react-bootstrap';
+import { Button, Badge, OverlayTrigger, Popover } from 'react-bootstrap';
 
+// Helper function to group items by their 'reason' for being invalid.
 function groupByReason(items) {
   const map = new Map();
   for (const it of items || []) {
@@ -17,6 +18,7 @@ function groupByReason(items) {
     .sort((a, b) => a.reason.localeCompare(b.reason));
 }
 
+// Helper component to render the offending content inside the popover.
 function OffendingContent({ value }) {
   if (Array.isArray(value)) {
     return (
@@ -37,11 +39,10 @@ function OffendingContent({ value }) {
 }
 
 export default function InvalidItems({ title, items }) {
-  const [open, setOpen] = useState(true);
   const groups = useMemo(() => groupByReason(items), [items]);
   const total = items?.length || 0;
 
-  // Row -> full item lookup (so we can get both row and offending value)
+  // Create a lookup map to get the full item details from a row number.
   const rowToItem = useMemo(() => {
     const m = new Map();
     for (const it of items || []) {
@@ -52,71 +53,74 @@ export default function InvalidItems({ title, items }) {
 
   return (
     <div className="invalid-list mb-4">
-      <div className="d-flex justify-content-between align-items-center">
-        <h5 className="mb-2">
-          {title} <small className="text-secondary">({total})</small>
-        </h5>
-        <Button variant="outline-secondary" size="sm" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Hide' : 'Show'}
-        </Button>
-      </div>
+      {/* The title is now styled as a consistent tab section header */}
+      <h5 className="tab-section-header">
+        {title} <small className="text-secondary">({total} total)</small>
+      </h5>
 
-      <Collapse in={open}>
-        <div>
-          {groups.map(({ reason, items }) => {
-            const rows = items.map((it) => it.row);
-            return (
-              <div className="invalid-group mb-3" key={reason}>
-                <div className="d-flex justify-content-between align-items-center mb-1">
-                  <div className="invalid-reason">
-                    {reason} <span className="text-secondary">({rows.length})</span>
-                  </div>
-                  <Button
-                    variant="outline-secondary"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(rows.join(', '));
-                      } catch {}
-                    }}
-                  >
-                    Copy rows
-                  </Button>
+      {/* The main content is always visible since the Collapse wrapper was removed */}
+      <div>
+        {groups.map(({ reason, items }) => {
+          const rows = items.map((it) => it.row);
+          return (
+            <div className="invalid-group mb-3" key={reason}>
+              <div className="d-flex justify-content-between align-items-center mb-1">
+                <div className="invalid-reason">
+                  {reason} <span className="text-secondary">({rows.length})</span>
                 </div>
-
-                <div className="chips-scroll">
-                  {rows.map((r) => {
-                    const it = rowToItem.get(r);
-                    const value = it?.value;
-
-                    const pop = (
-                      <Popover id={`invalid-popover-${r}`} className="invalid-popover">
-                        <Popover.Body>
-                          <OffendingContent value={value} />
-                        </Popover.Body>
-                      </Popover>
-                    );
-
-                    return (
-                      <OverlayTrigger
-                        key={r}
-                        trigger="click"
-                        placement="top"
-                        overlay={pop}
-                        rootClose
-                      >
-                        <Badge bg="" className="chip-row me-2 mb-2" role="button" tabIndex={0}>
-                          Row {r}
-                        </Badge>
-                      </OverlayTrigger>
-                    );
-                  })}
-                </div>
+                <Button
+                  variant="outline-secondary"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      // Note: Using the older execCommand for wider iFrame compatibility.
+                      const textArea = document.createElement('textarea');
+                      textArea.value = rows.join(', ');
+                      document.body.appendChild(textArea);
+                      textArea.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(textArea);
+                    } catch (err) {
+                      console.error('Failed to copy rows:', err);
+                    }
+                  }}
+                >
+                  Copy rows
+                </Button>
               </div>
-            );
-          })}
-        </div>
-      </Collapse>
+
+              <div className="chips-scroll">
+                {rows.map((r) => {
+                  const it = rowToItem.get(r);
+                  const value = it?.value;
+
+                  const popover = (
+                    <Popover id={`invalid-popover-${r}`} className="invalid-popover">
+                      <Popover.Body>
+                        <OffendingContent value={value} />
+                      </Popover.Body>
+                    </Popover>
+                  );
+
+                  return (
+                    <OverlayTrigger
+                      key={r}
+                      trigger="click"
+                      placement="top"
+                      overlay={popover}
+                      rootClose
+                    >
+                      <Badge bg="" className="chip-row me-2 mb-2" role="button" tabIndex={0}>
+                        Row {r}
+                      </Badge>
+                    </OverlayTrigger>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -127,7 +131,7 @@ InvalidItems.propTypes = {
     PropTypes.shape({
       row: PropTypes.number.isRequired,
       reason: PropTypes.string,
-      value: PropTypes.oneOfType([PropTypes.string, PropTypes.array]), // string or array of strings
+      value: PropTypes.oneOfType([PropTypes.string, PropTypes.array]),
     })
   ),
 };
