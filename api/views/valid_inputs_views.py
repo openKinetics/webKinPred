@@ -139,8 +139,11 @@ def validate_input(request):
         # Single-substrate schema
         for i, val in enumerate(df['Substrate']):
             if val in val_to_output:
-                invalid_substrates.append(val_to_output[val])
-            if convert_to_mol_safe(val) is None:
+                temp = val_to_output[val].copy()
+                temp['row'] = i + 1
+                invalid_substrates.append(temp)
+
+            elif convert_to_mol_safe(val) is None:
                 val_to_output[val] = {
                     'row': i + 1,
                     'value': val,  # offending SMILES/InChI

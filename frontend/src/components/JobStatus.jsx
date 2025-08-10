@@ -374,7 +374,7 @@ function JobStatus() {
                       )}
 
                       <p className="note-muted mb-4">
-                        Real-time progress is only accurate for <strong>TurNup</strong>, <strong>DLKcat</strong>, and <strong>EITLEM-Kinetics</strong>.
+                        Real-time progress is only accurate for <strong>DLKcat</strong> and <strong>EITLEM-Kinetics</strong>.
                       </p>
 
                       <div className="mt-3 d-flex justify-content-center">
