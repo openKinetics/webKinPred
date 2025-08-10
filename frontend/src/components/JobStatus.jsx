@@ -388,7 +388,7 @@ function JobStatus() {
                       <div>Job completed. Download your results below.</div>
                       <a
                         className="btn btn-custom-subtle"
-                        href={`${apiBaseUrl}${jobStatus.output_file_url}`}
+                        href={jobStatus.output_file_url}
                         download
                       >
                         <FileEarmarkArrowDown className="me-2" />

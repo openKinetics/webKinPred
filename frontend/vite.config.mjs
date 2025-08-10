@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => {
         target: DEV_API_TARGET,
         changeOrigin: true,
       },
+      '/media': {
+        target: DEV_API_TARGET,
+        changeOrigin: true,
+      },
     }},
     preview: { port: 4173, strictPort: true },
     build: { outDir: 'build', sourcemap: true },
