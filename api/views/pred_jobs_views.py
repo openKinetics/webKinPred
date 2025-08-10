@@ -1,9 +1,13 @@
 import pandas as pd
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 import os
+from urllib.parse import urlparse
+
+from django.http import JsonResponse, FileResponse, Http404
+from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.utils.text import slugify
+
 from ..models import Job
 from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
 from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT
@@ -142,8 +146,6 @@ def job_status(request, public_id):
         'total_predictions': job.total_predictions,
         'predictions_made': job.predictions_made,
     }
-    if job.status == 'Completed' and job.output_file:
-        response_data['output_file_url'] = settings.MEDIA_URL + job.output_file.name
     return JsonResponse(response_data)
 
 @csrf_exempt
@@ -183,3 +185,37 @@ def detect_csv_format(request):
         valid_response['csv_type'] = 'single'
     return JsonResponse(valid_response, status=200)
 
+def _abs_path_from_media_url(media_url: str) -> str:
+    """
+    Convert a /media/... URL into a safe absolute filesystem path under MEDIA_ROOT.
+    """
+    path = urlparse(media_url).path  # strip any scheme/host if present
+    if not path.startswith(settings.MEDIA_URL):
+        raise Http404("Invalid media URL.")
+
+    rel = path[len(settings.MEDIA_URL):]
+    abs_path = os.path.normpath(os.path.join(settings.MEDIA_ROOT, rel))
+
+    # Prevent path traversal
+    media_root = os.path.abspath(settings.MEDIA_ROOT)
+    if not os.path.abspath(abs_path).startswith(media_root + os.sep):
+        raise Http404("Invalid path.")
+    return abs_path
+
+def download_job_output(request, public_id):
+    try:
+        job = Job.objects.get(public_id=public_id)
+    except Job.DoesNotExist:
+        raise Http404("Job not found.")
+
+    media_url = settings.MEDIA_ROOT + f'/{job.output_file.name}'
+
+    if not os.path.exists(media_url):
+        raise Http404("No output file for this job.")
+
+    slugified_id = slugify(str(public_id))
+    default_name = f"job-{slugified_id}.csv"
+
+    response = FileResponse(open(media_url, "rb"), as_attachment=True, filename=default_name)
+    response["Content-Type"] = "text/csv"
+    return response

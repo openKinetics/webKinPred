@@ -383,17 +383,16 @@ function JobStatus() {
                     </>
                   )}
 
-                  {jobStatus.status === 'Completed' && jobStatus.output_file_url && (
+                  {jobStatus.status === 'Completed' && (
                     <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
                       <div>Job completed. Download your results below.</div>
-                      <a
-                        className="btn btn-custom-subtle"
-                        href={jobStatus.output_file_url}
-                        download
-                      >
-                        <FileEarmarkArrowDown className="me-2" />
-                        Download Results
-                      </a>
+                        <a
+                          className="btn btn-custom-subtle"
+                          href={`${apiBaseUrl}/jobs/${publicId}/download/`}
+                        >
+                          <FileEarmarkArrowDown className="me-2" />
+                          Download Results
+                        </a>
                     </div>
                   )}
 
