@@ -18,19 +18,27 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes:
+    volumes: &backend_volumes
       - ./media:/app/media
       - ./db.sqlite3:/app/db.sqlite3
       - ./staticfiles:/app/staticfiles
-    environment:
+      - ./fastas:/app/fastas
+      - ./tools:/app/tools
+    environment: &backend_environment
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379/0
+      - MMSEQS_TMP_DIR=/app/mmseqs_tmp
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     command: >
       sh -c "python manage.py migrate &&
              python manage.py migrate --database=seqmap &&
@@ -44,50 +52,55 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   celery:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
-      - ./media:/app/media
-      - ./media/sequence_info/seqmap.sqlite3:/app/media/sequence_info/seqmap.sqlite3
-      - ./staticfiles:/app/staticfiles
-    environment:
-      - DEBUG=0
-      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+    volumes: *backend_volumes
+    environment: *backend_environment
     depends_on:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     command: celery -A webKinPred worker --loglevel=info
+    healthcheck:
+      test: ["CMD", "celery", "-A", "webKinPred", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   celery-beat:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
-      - ./media:/app/media
-      - ./media/sequence_info/seqmap.sqlite3:/app/media/sequence_info/seqmap.sqlite3
-      - ./staticfiles:/app/staticfiles
-    environment:
-      - DEBUG=0
-      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+    volumes: *backend_volumes
+    environment: *backend_environment
     depends_on:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     command: celery -A webKinPred beat --loglevel=info
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "celery.*beat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   redis_data:
