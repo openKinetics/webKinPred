@@ -13,10 +13,18 @@ import os
 import numpy as np
 import subprocess
 
-ESM_EMB_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1v"
-SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
-SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
-SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
+# Use environment variables if available, otherwise fall back to hardcoded paths
+ESM_EMB_DIR = os.environ.get('EITLEM_MEDIA_PATH', '/home/saleh/webKinPred/media') + "/sequence_info/esm1v"
+SEQMAP_CLI = os.environ.get('EITLEM_TOOLS_PATH', '/home/saleh/webKinPred/tools') + "/seqmap/main.py"
+SEQMAP_DB = os.environ.get('EITLEM_MEDIA_PATH', '/home/saleh/webKinPred/media') + "/sequence_info/seqmap.sqlite3"
+
+# For SEQMAP_PY, use the current Python interpreter if in Docker environment, otherwise use local env
+if os.environ.get('EITLEM_MEDIA_PATH'):
+    # We're in Docker - use current Python interpreter
+    SEQMAP_PY = sys.executable  
+else:
+    # Local environment
+    SEQMAP_PY = "/home/saleh/webKinPredEnv/bin/python"
 
 def resolve_seq_ids_via_cli(sequences):
     """Call the seqmap CLI once to resolve IDs for all sequences (increments uses_count)."""
@@ -38,8 +46,16 @@ batch_converter = None
 def load_esm_model_once():
     global esm_model, alphabet, batch_converter
     if esm_model is None:
+        # Determine model path based on environment variables
+        if os.environ.get('EITLEM_MEDIA_PATH'):
+            # Docker environment
+            model_location = "/app/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
+        else:
+            # Local environment
+            model_location = "/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
+        
         esm_model, alphabet = esm.pretrained.load_model_and_alphabet_local(
-            model_location="/home/saleh/webKinPred/api/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
+            model_location=model_location
         )
         batch_converter = alphabet.get_batch_converter()
         esm_model.eval()
@@ -61,10 +77,19 @@ def main():
     seq_ids = resolve_seq_ids_via_cli(sequences)
 
     # Define paths to model weights
-    modelPath = {
-        'KCAT':'/home/saleh/webKinPred/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
-        'KM': '/home/saleh/webKinPred/api/EITLEM/Weights/KM/iter8_trainR2_0.9303_devR2_0.7163_RMSE_0.6960_MAE_0.4802',
-    }
+    # Define paths to model weights based on environment variables
+    if os.environ.get('EITLEM_MEDIA_PATH'):
+        # Docker environment
+        modelPath = {
+            'KCAT':'/app/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
+            'KM': '/app/api/EITLEM/Weights/KM/iter8_trainR2_0.9303_devR2_0.7163_RMSE_0.6960_MAE_0.4802',
+        }
+    else:
+        # Local environment
+        modelPath = {
+            'KCAT':'/home/saleh/webKinPred/api/EITLEM/Weights/KCAT/iter8_trainR2_0.9408_devR2_0.7459_RMSE_0.7751_MAE_0.4787',
+            'KM': '/home/saleh/webKinPred/api/EITLEM/Weights/KM/iter8_trainR2_0.9303_devR2_0.7163_RMSE_0.6960_MAE_0.4802',
+        }
 
     if kinetics_type not in modelPath:
         print(f"Invalid kinetics type: {kinetics_type}")

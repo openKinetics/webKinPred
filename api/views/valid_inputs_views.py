@@ -7,15 +7,20 @@ from api.utils.convert_to_mol import convert_to_mol
 import csv
 import subprocess
 import tempfile
-import os
-import shutil
-from webKinPred.config_local import CONDA_PATH,TARGET_DBS
+import os, shutil  # ensure these are imported
+try:
+    from webKinPred.config_docker import CONDA_PATH, TARGET_DBS
+except ImportError:
+    from webKinPred.config_local import CONDA_PATH,TARGET_DBS
 from api.progress import (
     push_line, finish_session, sse_generator,
     cancel_session, is_cancelled, get_pid_key,
     redis_conn
 )
 from api.log_sanitiser import sanitise_log_line
+
+TMP_DIR = os.environ.get("MMSEQS_TMP_DIR", "/tmp")
+os.makedirs(TMP_DIR, exist_ok=True)
 
 @csrf_exempt
 def progress_stream(request):
@@ -223,6 +228,7 @@ def validate_input(request):
 
 @csrf_exempt
 def sequence_similarity_summary(request):
+    print("[INFO] sequence_similarity_summary called", flush=True)
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests allowed'}, status=405)
     session_id = request.POST.get('validationSessionId') or "default"
@@ -244,6 +250,7 @@ def sequence_similarity_summary(request):
         return JsonResponse(result, status=200)
 
     except Exception as e:
+        print(f"[ERROR] Exception in sequence_similarity_summary: {e}", flush=True)
         push_line(session_id, f"[EXCEPTION] {e}")
         return JsonResponse({'error': str(e)}, status=500)
     finally:
@@ -279,12 +286,12 @@ def calculate_sequence_similarity_by_histogram(
     unique_sequences = list(dict.fromkeys(input_sequences))
     seq_to_unique_id = {seq: f"useq{idx}" for idx, seq in enumerate(unique_sequences)}
     
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir="/home/saleh/mmseqs_tmp") as query_file:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta", dir=TMP_DIR) as query_file:
         query_file_path = query_file.name
         for seq, unique_id in seq_to_unique_id.items():
             query_file.write(f">{unique_id}\n{seq}\n")
 
-    temp_query_dir = tempfile.mkdtemp(dir="/home/saleh/mmseqs_tmp")
+    temp_query_dir = tempfile.mkdtemp(dir=TMP_DIR)
     query_db = os.path.join(temp_query_dir, "queryDB")
 
     _run_and_stream(
@@ -293,7 +300,7 @@ def calculate_sequence_similarity_by_histogram(
     )
 
     def run_mmseqs_search_with_precreated_query(query_db: str, target_db: str, query_file_path: str, method_name: str) -> tuple[dict, dict]:
-        tmp_dir = tempfile.mkdtemp(dir="/home/saleh/mmseqs_tmp")
+        tmp_dir = tempfile.mkdtemp(dir=TMP_DIR)
         result_db = os.path.join(tmp_dir, "resultDB")
         result_file = os.path.join(tmp_dir, "result.m8")
 

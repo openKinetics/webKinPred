@@ -21,6 +21,13 @@ frontend/.env.production.local
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+
+# Docker
+.env
+.env.local
+.env.production
+docker-compose.override.yml
+
 media
 media/jobs
 api/EITLEM/Weights

@@ -5,8 +5,15 @@ import subprocess
 from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job  # Import the Job model to update progress
-from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
 from webKinPred.settings import MEDIA_ROOT
+try:
+    from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
+except ImportError:
+    try:
+        from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+    except ImportError:
+        PYTHON_PATHS = {}
+        PREDICTION_SCRIPTS = {}
 
 def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     """
@@ -47,6 +54,16 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(public_id))
     input_temp_file = os.path.join(job_dir, f'input_{public_id}.tsv')
     output_temp_file = os.path.join(job_dir, f'output_{public_id}.tsv')
+
+    # Set environment variables for the subprocess to use Docker-compatible paths
+    env = os.environ.copy()
+    try:
+        from webKinPred.config_docker import DATA_PATHS
+        env['DLKCAT_DATA_PATH'] = DATA_PATHS['DLKcat']
+        env['DLKCAT_RESULTS_PATH'] = DATA_PATHS['DLKcat_Results']
+    except (ImportError, KeyError):
+        # If not using Docker config, don't set environment variables
+        pass
 
     valid_indices = []
     invalid_indices = []
@@ -95,6 +112,7 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=env,  # Pass environment variables
             )
 
             # Read stdout line by line

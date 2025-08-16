@@ -2,7 +2,10 @@ import os, json
 import pandas as pd
 from pathlib import Path
 from rdkit import Chem, rdBase
-from webKinPred.config_local import KM_CSV, KCAT_CSV
+try:
+    from webKinPred.config_docker import KM_CSV, KCAT_CSV
+except ImportError:
+    from webKinPred.config_local import KM_CSV, KCAT_CSV
 
 blocker = rdBase.BlockLogs()
 

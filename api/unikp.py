@@ -5,15 +5,23 @@ from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
 from webKinPred.settings import MEDIA_ROOT
-from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+try:
+    from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
+except ImportError:
+    try:
+        from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+    except ImportError:
+        PYTHON_PATHS = {}
+        PREDICTION_SCRIPTS = {}
 
-def run_prediction_subprocess(command, job):
+def run_prediction_subprocess(command, job, env=None):
     """
     Run a prediction subprocess and update job progress based on stdout.
 
     Parameters:
     - command: List of command-line arguments to run the subprocess.
     - job: Job object to update progress.
+    - env: Environment variables to pass to subprocess.
     """
     try:
         process = subprocess.Popen(
@@ -22,6 +30,7 @@ def run_prediction_subprocess(command, job):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,  # Pass environment variables
         )
         # Log all stdout lines
         for line in process.stdout:
@@ -56,6 +65,16 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(public_id))
     input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
+
+    # Set environment variables for the subprocess to use Docker-compatible paths
+    env = os.environ.copy()
+    try:
+        from webKinPred.config_docker import DATA_PATHS
+        env['UNIKP_MEDIA_PATH'] = DATA_PATHS['media']
+        env['UNIKP_TOOLS_PATH'] = DATA_PATHS['tools']
+    except (ImportError, KeyError):
+        # If not using Docker config, don't set environment variables
+        pass
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
@@ -103,7 +122,7 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     if not df_input.empty:
         try:
             command = [python_path, prediction_script, input_temp_file, output_temp_file, kinetics_type]
-            run_prediction_subprocess(command, job)
+            run_prediction_subprocess(command, job, env)
 
             # Read the output file
             df_output = pd.read_csv(output_temp_file)

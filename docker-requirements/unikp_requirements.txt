@@ -1,0 +1,10 @@
+# Requirements for unikp (Python 3.7.12)
+numpy
+pandas
+tqdm
+rdkit
+transformers==4.27.4
+sentencepiece==0.2.0
+scikit-learn
+openpyxl
+torch==1.13.1

@@ -5,8 +5,10 @@ import pandas as pd
 import os
 from django.utils import timezone
 import subprocess
-
-from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT
+try:
+    from webKinPred.config_docker import MODEL_LIMITS, SERVER_LIMIT
+except ImportError:
+    from webKinPred.config_local import MODEL_LIMITS, SERVER_LIMIT
 from api.models import Job
 from api.utils.handle_long import get_valid_indices, truncate_sequences
 from api.utils.safe_read import safe_read_csv

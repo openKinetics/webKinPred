@@ -13,7 +13,13 @@ warnings.filterwarnings("ignore")
 import os
 from os.path import join
 
-data_dir = '/home/saleh/webKinPred/api/TurNup/data'
+# Use environment variables to determine paths
+if os.environ.get('TURNUP_MEDIA_PATH'):
+    # Docker environment
+    data_dir = '/app/api/TurNup/data'
+else:
+    # Local environment
+    data_dir = '/home/saleh/webKinPred/api/TurNup/data'
 
 def kcat_predicton(substrates, products, enzymes):
     #creating input matrices for all substrates:

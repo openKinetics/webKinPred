@@ -12,9 +12,16 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
-from webKinPred.config_local import ALLOWED_FRONTEND_IPS, DEBUG
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Try to import local config, fallback to defaults
+try:
+    from webKinPred.config_local import ALLOWED_FRONTEND_IPS, DEBUG
+except ImportError:
+    ALLOWED_FRONTEND_IPS = ["127.0.0.1", "localhost"]
+    DEBUG = True
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-4bv*yd3s*pewklc+$$#m&ida!xc1+*+jthh&6r1l71&ubz&86-'
@@ -22,6 +29,7 @@ SECRET_KEY = 'django-insecure-4bv*yd3s*pewklc+$$#m&ida!xc1+*+jthh&6r1l71&ubz&86-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = DEBUG
 ALLOWED_FRONTEND_IPS = ALLOWED_FRONTEND_IPS
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -33,6 +41,7 @@ INSTALLED_APPS = [
     'api.apps.ApiConfig',
     'corsheaders',  
 ]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware', 
@@ -43,17 +52,21 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Docker-aware CORS settings
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://127.0.0.1:5173",
     "https://kineticxpredictor.humanmetabolism.org",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
+    "http://127.0.0.1:5173", 
     "https://kineticxpredictor.humanmetabolism.org",
 ]
 
-CORS_ALLOW_CREDENTIALS = True  # you already have this
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -66,7 +79,16 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
-ALLOWED_HOSTS = ["kineticxpredictor.humanmetabolism.org", "127.0.0.1", "localhost"]
+
+# Docker-aware allowed hosts
+ALLOWED_HOSTS = [
+    "kineticxpredictor.humanmetabolism.org", 
+    "127.0.0.1", 
+    "localhost",
+    "backend",  # Docker service name
+    "0.0.0.0"
+]
+
 ROOT_URLCONF = 'webKinPred.urls'
 
 TEMPLATES = [
@@ -87,10 +109,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'webKinPred.wsgi.application'
 
-
 # Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -101,13 +120,13 @@ DATABASES = {
         'NAME': BASE_DIR / 'media/sequence_info/seqmap.sqlite3',
     }
 }
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DATABASE_ROUTERS = ["api.dbrouters.SeqMapRouter"]
-# Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -123,46 +142,54 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
+# Static files
 STATIC_URL = '/django_static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Redis URL based on environment
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6380/0')
+
+# Extract Redis host and port for different configurations
+if 'redis://' in REDIS_URL:
+    redis_parts = REDIS_URL.replace('redis://', '').split('/')
+    redis_host_port = redis_parts[0]
+    if ':' in redis_host_port:
+        redis_host, redis_port = redis_host_port.split(':')
+    else:
+        redis_host = redis_host_port
+        redis_port = '6379'
+else:
+    redis_host = 'localhost'
+    redis_port = '6380'
+
 # Celery settings
-CELERY_BROKER_URL = 'redis://localhost:6380/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6380/0'
+CELERY_BROKER_URL = f'redis://{redis_host}:{redis_port}/0'
+CELERY_RESULT_BACKEND = f'redis://{redis_host}:{redis_port}/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TASK_SEND_SENT_EVENT = True
 CELERY_TASK_TRACK_STARTED = True
+
+# Cache settings
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://localhost:6380/1",
+        "LOCATION": f"redis://{redis_host}:{redis_port}/1",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
         "TIMEOUT": None, 
     }
 }
-LOGGING_REDIS_URL = "redis://localhost:6380/2"
+
+LOGGING_REDIS_URL = f"redis://{redis_host}:{redis_port}/2"

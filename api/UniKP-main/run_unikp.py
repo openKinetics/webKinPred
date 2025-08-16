@@ -13,12 +13,25 @@ from transformers.utils import logging
 import subprocess
 logging.set_verbosity_error()
 
-SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl_global"
-PROTT5XL_MODEL_PATH = '/home/saleh/protT5_xl/prot_t5_xl_uniref50'
-# seqmap CLI (SQLite resolver)
-SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
-SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
-SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
+# Use environment variables to determine paths
+if os.environ.get('UNIKP_MEDIA_PATH'):
+    # Docker environment
+    SEQ_VEC_DIR = os.environ.get('UNIKP_MEDIA_PATH') + "/sequence_info/protT5xl_global"
+    PROTT5XL_MODEL_PATH = '/app/protT5_xl/prot_t5_xl_uniref50'  # Adjust this path as needed for Docker
+    SEQMAP_PY = sys.executable  # Use current Python interpreter in Docker
+    SEQMAP_CLI = os.environ.get('UNIKP_TOOLS_PATH') + "/seqmap/main.py"
+    SEQMAP_DB = os.environ.get('UNIKP_MEDIA_PATH') + "/sequence_info/seqmap.sqlite3"
+    VOCAB_PATH = '/app/api/UniKP-main/vocab.pkl'
+    TRFM_PATH = '/app/api/UniKP-main/trfm_12_23000.pkl'
+else:
+    # Local environment
+    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl_global"
+    PROTT5XL_MODEL_PATH = '/home/saleh/protT5_xl/prot_t5_xl_uniref50'
+    SEQMAP_PY = "/home/saleh/webKinPredEnv/bin/python"
+    SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
+    SEQMAP_DB = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
+    VOCAB_PATH = '/home/saleh/webKinPred/api/UniKP-main/vocab.pkl'
+    TRFM_PATH = '/home/saleh/webKinPred/api/UniKP-main/trfm_12_23000.pkl'
 
 def smiles_to_vec(Smiles):
     pad_index = 0
@@ -26,9 +39,9 @@ def smiles_to_vec(Smiles):
     eos_index = 2
     sos_index = 3
     mask_index = 4
-    vocab = WordVocab.load_vocab('/home/saleh/webKinPred/api/UniKP-main/vocab.pkl')
+    vocab = WordVocab.load_vocab(VOCAB_PATH)
     trfm = TrfmSeq2seq(len(vocab), 256, len(vocab), 4)
-    trfm.load_state_dict(torch.load('/home/saleh/webKinPred/api/UniKP-main/trfm_12_23000.pkl', map_location=torch.device('cpu')))
+    trfm.load_state_dict(torch.load(TRFM_PATH, map_location=torch.device('cpu')))
     trfm.eval()
 
     def get_inputs(sm):
@@ -128,7 +141,12 @@ def main(input_path, output_path, task_type):
 
     # Load trained model
     print("Loading model...")
-    model_path = F'/home/saleh/webKinPred/api/UniKP-main/models/UniKP_{task_type}.pkl'
+    if os.environ.get('UNIKP_MEDIA_PATH'):
+        # Docker environment
+        model_path = F'/app/api/UniKP-main/models/UniKP_{task_type}.pkl'
+    else:
+        # Local environment
+        model_path = F'/home/saleh/webKinPred/api/UniKP-main/models/UniKP_{task_type}.pkl'
     with open(model_path, "rb") as f:
         model = pickle.load(f)
 

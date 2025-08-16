@@ -2,7 +2,13 @@
 from django.urls import path
 from .views import pred_jobs_views,valid_inputs_views
 from .csrf import get_csrf
+from django.http import JsonResponse
+
+def health_check(request):
+    return JsonResponse({"status": "healthy"})
+
 urlpatterns = [
+    path('health/', health_check, name='health_check'),
     path('submit-job/', pred_jobs_views.submit_job, name='submit_job'),
     path('job-status/<public_id>/', pred_jobs_views.job_status, name='job_status'),
     path('detect-csv-format/', pred_jobs_views.detect_csv_format, name='detect_csv_format'),

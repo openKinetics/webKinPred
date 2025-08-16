@@ -6,8 +6,15 @@ import pandas as pd
 from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job  # Import the Job model to update progress
-from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
 from webKinPred.settings import MEDIA_ROOT
+try:
+    from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
+except ImportError:
+    try:
+        from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+    except ImportError:
+        PYTHON_PATHS = {}
+        PREDICTION_SCRIPTS = {}
 
 def turnup_predictions(sequences, substrates, products, public_id, protein_ids=None):
     """
@@ -51,6 +58,16 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
 
     input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
+
+    # Set environment variables for the subprocess to use Docker-compatible paths
+    env = os.environ.copy()
+    try:
+        from webKinPred.config_docker import DATA_PATHS
+        env['TURNUP_MEDIA_PATH'] = DATA_PATHS['media']
+        env['TURNUP_TOOLS_PATH'] = DATA_PATHS['tools']
+    except (ImportError, KeyError):
+        # If not using Docker config, don't set environment variables
+        pass
 
     valid_indices = []
     invalid_indices = []
@@ -108,7 +125,8 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
                 [python_path, prediction_script, input_temp_file, output_temp_file],
                 check=True,
                 capture_output=True,
-                text=True
+                text=True,
+                env=env  # Pass environment variables
             )
             print("Output:\n", result.stdout)
             print("Errors:\n", result.stderr)

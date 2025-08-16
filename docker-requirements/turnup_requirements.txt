@@ -1,0 +1,8 @@
+# Requirements for turnup_env (Python 3.7)
+pandas==1.1.3
+torch==1.11.0
+numpy
+fair-esm==0.4.0
+jupyter
+rdkit
+# Note: py-xgboost=1.6.1 and rdkit=2020.09.1 will be installed via conda in Dockerfile

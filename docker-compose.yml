@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./media:/app/media
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./manage.py:/app/manage.py
+      - ./api:/app/api
+      - ./webKinPred:/app/webKinPred
+      - ./fastas:/app/fastas
+      - ./tools:/app/tools
+      - ./staticfiles:/app/staticfiles
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
+      - REDIS_URL=redis://redis:6379/0
+      - MMSEQS_TMP_DIR=/app/mmseqs_tmp
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api
+      - NODE_ENV=development
+      - DOCKER=true
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  celery:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./media:/app/media
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./manage.py:/app/manage.py
+      - ./api:/app/api
+      - ./webKinPred:/app/webKinPred
+      - ./fastas:/app/fastas
+      - ./tools:/app/tools
+      - ./staticfiles:/app/staticfiles
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: celery -A webKinPred worker --loglevel=info
+    healthcheck:
+      test: ["CMD", "celery", "-A", "webKinPred", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    security_opt:
+      - apparmor:unconfined
+
+  celery-beat:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./media:/app/media
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./manage.py:/app/manage.py
+      - ./api:/app/api
+      - ./webKinPred:/app/webKinPred
+      - ./fastas:/app/fastas
+      - ./tools:/app/tools
+      - ./staticfiles:/app/staticfiles
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: celery -A webKinPred beat --loglevel=info
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "celery.*beat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  frontend_node_modules:

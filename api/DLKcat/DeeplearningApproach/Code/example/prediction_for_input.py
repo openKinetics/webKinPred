@@ -14,8 +14,14 @@ import numpy as np
 from rdkit import Chem
 from collections import defaultdict
 
-data_path = '/home/saleh/webKinPred/api/DLKcat/DeeplearningApproach/Data'
-results_path ='/home/saleh/webKinPred/api/DLKcat/DeeplearningApproach/Results'
+# Use environment variables if available, otherwise fall back to hardcoded paths
+# This allows the script to work both in Docker and local environments
+data_path = os.environ.get('DLKCAT_DATA_PATH', '/home/saleh/webKinPred/api/DLKcat/DeeplearningApproach/Data')
+results_path = os.environ.get('DLKCAT_RESULTS_PATH', '/home/saleh/webKinPred/api/DLKcat/DeeplearningApproach/Results')
+
+# Print the paths being used for debugging
+print(f"Using data_path: {data_path}")
+print(f"Using results_path: {results_path}")
 fingerprint_dict = model.load_pickle(f'{data_path}/input/fingerprint_dict.pickle')
 atom_dict = model.load_pickle(f'{data_path}/input/atom_dict.pickle')
 bond_dict = model.load_pickle(f'{data_path}/input/bond_dict.pickle')

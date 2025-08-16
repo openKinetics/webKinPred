@@ -3,20 +3,30 @@ import pandas as pd
 import torch
 import esm
 import os
+import sys
 from os.path import join
 import subprocess
 
-data_dir = '/home/saleh/webKinPred/api/TurNup/data'
+# Use environment variables to determine paths
+data_dir = os.environ.get('TURNUP_MEDIA_PATH', '/home/saleh/webKinPred') + '/../api/TurNup/data'
+if os.environ.get('TURNUP_MEDIA_PATH'):
+    # Docker environment
+    data_dir = '/app/api/TurNup/data'
+    SEQ_VEC_DIR = os.environ.get('TURNUP_MEDIA_PATH') + "/sequence_info/esm1b_turnup"
+    SEQMAP_PY = sys.executable  # Use current Python interpreter in Docker
+    SEQMAP_CLI = os.environ.get('TURNUP_TOOLS_PATH') + "/seqmap/main.py"
+    SEQMAP_DB = os.environ.get('TURNUP_MEDIA_PATH') + "/sequence_info/seqmap.sqlite3"
+else:
+    # Local environment
+    data_dir = '/home/saleh/webKinPred/api/TurNup/data'
+    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1b_turnup"
+    SEQMAP_PY = "/home/saleh/webKinPredEnv/bin/python"
+    SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
+    SEQMAP_DB = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
 
 aa = set("abcdefghiklmnpqrstxvwyzv".upper())
 
-SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1b_turnup"
 os.makedirs(SEQ_VEC_DIR, exist_ok=True)
-
-# seqmap CLI (SQLite resolver)
-SEQMAP_PY  = "/home/saleh/webKinPredEnv/bin/python"
-SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
-SEQMAP_DB  = "/home/saleh/webKinPred/media/sequence_info/seqmap.sqlite3"
 
 def resolve_seq_ids_via_cli(sequences):
     """Resolve IDs for all sequences in order (increments uses_count per occurrence)."""
