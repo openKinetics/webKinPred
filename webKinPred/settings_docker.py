@@ -8,9 +8,11 @@ import os
 # Override settings for Docker environment
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
+
 # Docker-specific allowed hosts
 ALLOWED_HOSTS = [
     "kineticxpredictor.humanmetabolism.org", 
+    "www.kineticxpredictor.humanmetabolism.org",  # Add www subdomain
     "127.0.0.1", 
     "localhost",
     "backend",  # Docker service name
@@ -18,13 +20,14 @@ ALLOWED_HOSTS = [
     "webkinpred-backend-1",  # Docker compose service name
 ]
 
+# ...existing code...
 # Update CORS settings for Docker
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://kineticxpredictor.humanmetabolism.org",
+    "https://kineticxpredictor.humanmetabolism.org"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
