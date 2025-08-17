@@ -72,7 +72,7 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
-    command: celery -A webKinPred worker --loglevel=info
+    command: celery -A webKinPred worker --loglevel=info --queues=webkinpred
 
   celery-beat:
     build:

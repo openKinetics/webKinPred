@@ -20,7 +20,6 @@ ALLOWED_HOSTS = [
     "webkinpred-backend-1",  # Docker compose service name
 ]
 
-# ...existing code...
 # Update CORS settings for Docker
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -78,3 +77,13 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+# Celery task routing
+CELERY_TASK_ROUTES = {
+    'api.tasks.*': {'queue': 'webkinpred'},
+}
+
+# Ensure all tasks use the webkinpred queue
+CELERY_TASK_DEFAULT_QUEUE = 'webkinpred'
+CELERY_TASK_DEFAULT_EXCHANGE = 'webkinpred'
+CELERY_TASK_DEFAULT_ROUTING_KEY = 'webkinpred'
