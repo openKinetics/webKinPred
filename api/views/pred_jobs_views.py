@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils.text import slugify
+from django.utils import timezone
 
 from ..models import Job
 from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
@@ -140,6 +141,10 @@ def job_status(request, public_id):
         'status': job.status,
         'submission_time': job.submission_time,
         'completion_time': job.completion_time,
+        # Provide server time so clients can correct for clock skew
+        'server_time': timezone.now(),
+    # Server-side elapsed time in whole seconds. Uses completion_time when present.
+    'elapsed_seconds': int(max(0, (job.completion_time - job.submission_time).total_seconds())) if job.completion_time else int(max(0, (timezone.now() - job.submission_time).total_seconds())),
         'error_message': job.error_message,
         'total_molecules': job.total_molecules,
         'molecules_processed': job.molecules_processed,

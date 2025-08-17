@@ -36,6 +36,8 @@ function JobStatus() {
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState('');
+  // server-provided elapsed seconds (integer). We'll increment locally while active.
+  const [elapsedSeconds, setElapsedSeconds] = useState(null);
   const [isCopying, setIsCopying] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -80,6 +82,11 @@ function JobStatus() {
       try {
         const response = await apiClient.get(`/job-status/${id}/`);
         const data = response.data;
+
+        // accept server-calculated elapsed seconds if provided
+        if (data.elapsed_seconds != null) {
+          setElapsedSeconds(Number(data.elapsed_seconds));
+        }
 
         if (!isMounted.current) return;
 
@@ -144,30 +151,25 @@ function JobStatus() {
   useEffect(() => {
     if (!(jobStatus && jobStatus.submission_time)) return;
 
-    const tick = () => {
-      const submissionTime = moment.utc(jobStatus.submission_time).local();
-      let end;
-      
-      if ((jobStatus.status === 'Completed' || jobStatus.status === 'Failed') && jobStatus.completion_time) {
-        end = moment(jobStatus.completion_time);
-      } else {
-        end = moment();
-      }
-      
-      const duration = moment.duration(end.diff(submissionTime));
-      setTimeElapsed(formatDuration(duration));
-    };
+    // Use server-provided elapsedSeconds to render initial value. While job is active
+    // increment locally for smooth UI updates between polls.
+    if (elapsedSeconds == null) return;
 
-    // initial render
-    tick();
-    // Update every second only for active jobs (Processing or Pending)
-    const active = jobStatus.status === 'Processing' || jobStatus.status === 'Pending';
-    const id = active ? setInterval(tick, 1000) : null;
+    setTimeElapsed(formatDuration(moment.duration(elapsedSeconds * 1000)));
 
-    return () => {
-      if (id) clearInterval(id);
-    };
-  }, [jobStatus]);
+    const active = jobStatus && (jobStatus.status === 'Processing' || jobStatus.status === 'Pending');
+    if (!active) return;
+
+    const id = setInterval(() => {
+      setElapsedSeconds((s) => {
+        const next = (s || 0) + 1;
+        setTimeElapsed(formatDuration(moment.duration(next * 1000)));
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [elapsedSeconds, jobStatus]);
 
   const handleCheckStatus = (e) => {
     e.preventDefault();
