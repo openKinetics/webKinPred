@@ -59,11 +59,11 @@ LOGGING_REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/2"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': '/app/db.sqlite3',  # Use absolute path
     },
     'seqmap': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'media/sequence_info/seqmap.sqlite3',
+        'NAME': '/app/media/sequence_info/seqmap.sqlite3',  # Use absolute path
     }
 }
 
