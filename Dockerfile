@@ -22,14 +22,15 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
 # Add conda to PATH
 ENV PATH="/opt/conda/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+
 # Configure conda to use conda-forge and accept defaults
 RUN conda config --set always_yes yes && \
     conda config --add channels conda-forge && \
     conda config --set channel_priority strict
 RUN conda tos accept --channel https://repo.anaconda.com/pkgs/main && \
     conda tos accept --channel https://repo.anaconda.com/pkgs/r
-# Copy requirements first for better caching
 
+# Copy requirements first for better caching
 COPY requirements.txt .
 COPY docker-requirements/ ./docker-requirements/
 
@@ -39,22 +40,31 @@ RUN pip install --no-cache-dir -r requirements.txt
 # TurNup environment (Python 3.7) 
 RUN conda create -n turnup_env python=3.7 -c conda-forge && \
     conda install -n turnup_env -c conda-forge py-xgboost=1.6.1 && \
-    conda run -n turnup_env pip install -r docker-requirements/turnup_requirements.txt
+    conda run -n turnup_env pip install --no-cache-dir -r docker-requirements/turnup_requirements.txt && \
+    conda clean -a
+
 # DLKcat environment (Python 3.7.12)
 RUN conda create -n dlkcat_env python=3.7.12 -c conda-forge && \
     conda install -n dlkcat_env -c conda-forge --override-channels -y rdkit=2020.09.1 && \
-    conda run -n dlkcat_env pip install -r docker-requirements/dlkcat_requirements.txt
+    conda run -n dlkcat_env pip install --no-cache-dir -r docker-requirements/dlkcat_requirements.txt && \
+    conda clean -a
+
 # EITLEM environment (Python 3.10.15)
 RUN conda create -n eitlem_env python=3.10.15 -c conda-forge && \
-    conda run -n eitlem_env pip install -r docker-requirements/eitlem_requirements.txt
+    conda run -n eitlem_env pip install --no-cache-dir -r docker-requirements/eitlem_requirements.txt && \
+    conda clean -a
+
 # UniKP environment (Python 3.7.12)
 RUN conda create -n unikp python=3.7.12 -c conda-forge && \
-    conda run -n unikp pip install -r docker-requirements/unikp_requirements.txt
+    conda run -n unikp pip install --no-cache-dir -r docker-requirements/unikp_requirements.txt && \
+    conda clean -a
+
 # MMseqs2 environment
 RUN conda create -n mmseqs2_env python=3.10 -c conda-forge && \
-    conda install -n mmseqs2_env -c conda-forge -c bioconda mmseqs2
+    conda install -n mmseqs2_env -c conda-forge -c bioconda mmseqs2 && \
+    conda clean -a
 
-# Copy application code
+# Copy application code AFTER installing dependencies
 COPY . .
 
 # Create directory structure for volume mounts

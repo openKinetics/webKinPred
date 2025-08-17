@@ -55,6 +55,7 @@ Thumbs.db
 frontend/node_modules
 frontend/build
 frontend/.env*
+frontend/.next
 staticfiles/
 .env*
 

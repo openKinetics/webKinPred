@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes: &backend_volumes
+    volumes:
       - ./media:/app/media
       - ./db.sqlite3:/app/db.sqlite3
       - ./manage.py:/app/manage.py
@@ -25,7 +25,7 @@ services:
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
-    environment: &backend_environment
+    environment:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
       - REDIS_URL=redis://redis:6379/0
@@ -67,8 +67,19 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    volumes: *backend_volumes
-    environment: *backend_environment
+    volumes:
+      - ./media:/app/media
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./manage.py:/app/manage.py
+      - ./api:/app/api
+      - ./webKinPred:/app/webKinPred
+      - ./fastas:/app/fastas
+      - ./tools:/app/tools
+      - ./staticfiles:/app/staticfiles
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
@@ -88,7 +99,7 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    volumes: 
+    volumes:
       - ./media:/app/media
       - ./db.sqlite3:/app/db.sqlite3
       - ./manage.py:/app/manage.py
@@ -97,9 +108,12 @@ services:
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
-      # Special volume for protT5 model (development only)
       - /home/saleh/protT5_xl/prot_t5_xl_uniref50:/app/protT5_xl/prot_t5_xl_uniref50:ro
-    environment: *backend_environment
+      
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
