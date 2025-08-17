@@ -70,6 +70,7 @@ COPY . .
 # Create directory structure for volume mounts (these will be empty and mounted)
 RUN mkdir -p /app/api/EITLEM/Weights && \
     mkdir -p /app/api/TurNup/data/saved_models && \
+    mkdir -p /app/api/UniKP-main/models && \
     mkdir -p /app/media/sequence_info && \
     mkdir -p /app/staticfiles && \
     mkdir -p /app/mmseqs_tmp && chmod 777 /app/mmseqs_tmp
