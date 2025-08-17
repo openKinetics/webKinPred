@@ -25,6 +25,7 @@ services:
       # Mount large model directories
       - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
       - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
@@ -62,6 +63,7 @@ services:
       # Mount large model directories for celery workers
       - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
       - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
@@ -87,6 +89,7 @@ services:
       # Mount large model directories for celery beat
       - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
       - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
