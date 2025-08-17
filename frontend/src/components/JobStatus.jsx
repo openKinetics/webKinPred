@@ -146,17 +146,22 @@ function JobStatus() {
 
     const tick = () => {
       const submissionTime = moment(jobStatus.submission_time);
-      const end =
-        jobStatus.status === 'Completed' && jobStatus.completion_time
-          ? moment(jobStatus.completion_time)
-          : moment();
+      let end;
+      
+      // Use completion_time for both completed and failed jobs
+      if ((jobStatus.status === 'Completed' || jobStatus.status === 'Failed') && jobStatus.completion_time) {
+        end = moment(jobStatus.completion_time);
+      } else {
+        end = moment();
+      }
+      
       const duration = moment.duration(end.diff(submissionTime));
       setTimeElapsed(formatDuration(duration));
     };
 
     // initial render
     tick();
-    // Update every second whilst active
+    // Update every second only for active jobs (Processing or Pending)
     const active = jobStatus.status === 'Processing' || jobStatus.status === 'Pending';
     const id = active ? setInterval(tick, 1000) : null;
 
