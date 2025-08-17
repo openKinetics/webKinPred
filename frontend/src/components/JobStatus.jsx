@@ -145,10 +145,9 @@ function JobStatus() {
     if (!(jobStatus && jobStatus.submission_time)) return;
 
     const tick = () => {
-      const submissionTime = moment(jobStatus.submission_time);
+      const submissionTime = moment.utc(jobStatus.submission_time).local();
       let end;
       
-      // Use completion_time for both completed and failed jobs
       if ((jobStatus.status === 'Completed' || jobStatus.status === 'Failed') && jobStatus.completion_time) {
         end = moment(jobStatus.completion_time);
       } else {
