@@ -67,8 +67,10 @@ RUN conda create -n mmseqs2_env python=3.10 -c conda-forge && \
 # Copy application code AFTER installing dependencies
 COPY . .
 
-# Create directory structure for volume mounts
-RUN mkdir -p /app/media/sequence_info && \
+# Create directory structure for volume mounts (these will be empty and mounted)
+RUN mkdir -p /app/api/EITLEM/Weights && \
+    mkdir -p /app/api/TurNup/data/saved_models && \
+    mkdir -p /app/media/sequence_info && \
     mkdir -p /app/staticfiles && \
     mkdir -p /app/mmseqs_tmp && chmod 777 /app/mmseqs_tmp
 

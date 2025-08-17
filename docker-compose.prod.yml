@@ -22,6 +22,9 @@ services:
       - ./media:/app/media
       - ./db.sqlite3:/app/db.sqlite3
       - ./staticfiles:/app/staticfiles
+      # Mount large model directories
+      - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
+      - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
@@ -55,6 +58,9 @@ services:
       - ./media:/app/media
       - ./media/sequence_info/seqmap.sqlite3:/app/media/sequence_info/seqmap.sqlite3
       - ./staticfiles:/app/staticfiles
+      # Mount large model directories for celery workers
+      - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
+      - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
@@ -76,6 +82,9 @@ services:
       - ./media:/app/media
       - ./media/sequence_info/seqmap.sqlite3:/app/media/sequence_info/seqmap.sqlite3
       - ./staticfiles:/app/staticfiles
+      # Mount large model directories for celery beat
+      - ./api/EITLEM/Weights:/app/api/EITLEM/Weights:ro
+      - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker

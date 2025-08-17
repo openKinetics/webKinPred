@@ -61,3 +61,7 @@ staticfiles/
 
 # Media files - exclude entire directory (will be mounted as volume)
 media/
+
+# Large model directories - exclude from copy (will be mounted as volumes)
+api/EITLEM/Weights/
+api/TurNup/data/saved_models/
