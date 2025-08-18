@@ -35,6 +35,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local virtual environments
+webKinPredEnv/
+.venv/
+venv/
+env/
+
 # IDEs
 .vscode/
 .idea/
@@ -77,3 +83,20 @@ api/UniKP-main/models
 api/UniKP-main/models/
 api/UniKP-main/models/*
 api/UniKP-main/models/**
+
+# Entire TurNup data directory (we only mount saved_models at runtime)
+api/TurNup/data
+api/TurNup/data/
+api/TurNup/data/**
+
+# DLKcat large data/results (mounted or regenerated)
+api/DLKcat/DeeplearningApproach/Data
+api/DLKcat/DeeplearningApproach/Data/**
+api/DLKcat/DeeplearningApproach/Results
+api/DLKcat/DeeplearningApproach/Results/**
+api/DLKcat/BayesianApproach
+api/DLKcat/BayesianApproach/**
+
+# Jupyter checkpoints
+**/.ipynb_checkpoints/
+*.ipynb
