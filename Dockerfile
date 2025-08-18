@@ -59,9 +59,9 @@ RUN conda create -n unikp python=3.7.12 -c conda-forge && \
     conda run -n unikp pip install --no-cache-dir -r docker-requirements/unikp_requirements.txt && \
     conda clean -a
 
-# MMseqs2 environment
+# MMseqs2 environment with compatible version
 RUN conda create -n mmseqs2_env python=3.10 -c conda-forge && \
-    conda install -n mmseqs2_env -c conda-forge -c bioconda mmseqs2 && \
+    conda install -n mmseqs2_env -c bioconda mmseqs2=13.45111 && \
     conda clean -a
 
 # Copy application code AFTER installing dependencies
