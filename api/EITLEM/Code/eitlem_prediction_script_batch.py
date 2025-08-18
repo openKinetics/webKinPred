@@ -61,17 +61,26 @@ def load_esm_model():
     esm_model.eval()
     return esm_model, alphabet, batch_converter
 
-def get_sequence_embedding(sequence, seq_id, esm_model, batch_converter):
+def get_sequence_embedding(sequence, seq_id, esm_model, batch_converter, alphabet):
     """Get embedding for a single sequence."""
     vec_path = os.path.join(ESM_EMB_DIR, f"{seq_id}.npy")
     if os.path.exists(vec_path):
         return np.load(vec_path)
     
-    # Generate embedding
-    _, _, tokens = batch_converter([(seq_id, sequence)])
+    # Generate embedding - handle long sequences like the original script
+    sequence_for_embedding = sequence
+    if len(sequence_for_embedding) > 1023:
+        # take first 500 + last 500 residues
+        sequence_for_embedding = sequence_for_embedding[:500] + sequence_for_embedding[-500:]
+    
+    data = [("protein", sequence_for_embedding)]
+    _, _, batch_tokens = batch_converter(data)
+    batch_lens = (batch_tokens != alphabet.padding_idx).sum(1)
     with torch.no_grad():
-        results = esm_model(tokens, repr_layers=[33])
-    rep = results["representations"][33][0][1:-1].mean(dim=0).numpy()  # Remove start/end tokens and average
+        results = esm_model(batch_tokens, repr_layers=[33], return_contacts=False)
+    token_representations = results["representations"][33]
+    tokens_len = batch_lens[0]
+    rep = token_representations[0, 1:tokens_len - 1].cpu().numpy()  # Per-residue embeddings, NOT averaged
     
     # Save embedding
     np.save(vec_path, rep)
@@ -134,15 +143,13 @@ def main():
             # Convert substrate SMILES to molecule
             mol = Chem.MolFromSmiles(substrate)
             if mol is None:
-                print(f"Invalid SMILES at index {idx}: {substrate}")
-                predictions.append(None)
-                continue
+                raise ValueError(f"Invalid substrate SMILES: {substrate}")
 
             # Compute MACCS Keys
             mol_feature = MACCSkeys.GenMACCSKeys(mol).ToList()
 
             # Get sequence embedding
-            rep = get_sequence_embedding(sequence, seq_id, esm_model, batch_converter)
+            rep = get_sequence_embedding(sequence, seq_id, esm_model, batch_converter, alphabet)
 
             # Use mean of per-residue embedding
             sequence_rep = torch.FloatTensor(rep)
@@ -168,7 +175,7 @@ def main():
             predictions.append(None)  # Use None for failed predictions
 
     # Clean up ESM model
-    del esm_model, batch_converter
+    del esm_model, alphabet, batch_converter
     gc.collect()
 
     # Save predictions to output file
