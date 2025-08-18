@@ -63,6 +63,17 @@ staticfiles/
 media/
 
 # Large model directories - exclude from copy (will be mounted as volumes)
+api/EITLEM/Weights
 api/EITLEM/Weights/
+api/EITLEM/Weights/*
+api/EITLEM/Weights/**
+
+api/TurNup/data/saved_models
 api/TurNup/data/saved_models/
+api/TurNup/data/saved_models/*
+api/TurNup/data/saved_models/**
+
+api/UniKP-main/models
 api/UniKP-main/models/
+api/UniKP-main/models/*
+api/UniKP-main/models/**
