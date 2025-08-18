@@ -9,9 +9,9 @@ import subprocess
 import tempfile
 import os, shutil  # ensure these are imported
 try:
-    from webKinPred.config_docker import CONDA_PATH, TARGET_DBS
+    from webKinPred.config_docker import CONDA_PATH, TARGET_DBS, MODEL_LIMITS, SERVER_LIMIT
 except ImportError:
-    from webKinPred.config_local import CONDA_PATH,TARGET_DBS
+    from webKinPred.config_local import CONDA_PATH,TARGET_DBS, MODEL_LIMITS, SERVER_LIMIT
 from api.progress import (
     push_line, finish_session, sse_generator,
     cancel_session, is_cancelled, get_pid_key,
@@ -115,14 +115,10 @@ def validate_input(request):
     invalid_proteins = []
 
     # Define sequence length limits for models
-    model_limits = {
-        'EITLEM': 1024,
-        'TurNup': 1024,
-        'UniKP': 1000,
-        'DLKcat': float('inf'),  # no limit
-    }
-    server_limit = 1500  # server-wide max length
-    length_violations = {'EITLEM': 0, 'TurNup': 0, 'UniKP': 0, 'DLKcat': 0, 'Server': 0}
+    model_limits = MODEL_LIMITS
+    server_limit = SERVER_LIMIT
+    length_violations = {model: 0 for model in model_limits}
+    length_violations['Server'] = 0
 
     def convert_to_mol_safe(x):
         # Robust guard for NaN / non-str / empty strings
