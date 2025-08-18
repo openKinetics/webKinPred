@@ -80,9 +80,7 @@ def get_sequence_embedding(sequence, seq_id, esm_model, batch_converter, alphabe
         results = esm_model(batch_tokens, repr_layers=[33], return_contacts=False)
     token_representations = results["representations"][33]
     tokens_len = batch_lens[0]
-    rep = token_representations[0, 1:tokens_len - 1].cpu().numpy()  # Per-residue embeddings, NOT averaged
-    
-    # Save embedding
+    rep = token_representations[0, 1:tokens_len - 1].cpu().numpy()
     np.save(vec_path, rep)
     return rep
 

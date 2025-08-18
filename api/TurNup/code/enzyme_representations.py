@@ -46,7 +46,34 @@ def validate_enzyme(seq, alphabet=aa):
     leftover = set(seq.upper()) - alphabet
     return not leftover
 
-def calcualte_esm1b_ts_vectors(enzyme_list):
+def load_esm1b_model():
+    """Load ESM1b model once and return model and batch_converter"""
+    print("Loading ESM1b model...")
+    model_location = join(data_dir, "saved_models", "ESM1b", "esm1b_t33_650M_UR50S.pt")
+    model_data = torch.load(model_location, map_location='cpu')
+    regression_location = model_location[:-3] + "-contact-regression.pt"
+    regression_data = torch.load(regression_location, map_location='cpu')
+    model, alphabet = esm.pretrained.load_model_and_alphabet_core(model_data, regression_data)
+    model.eval()
+
+    batch_converter = alphabet.get_batch_converter()
+    PATH = join(data_dir, "saved_models", "ESM1b", 'model_ESM_binary_A100_epoch_1_new_split.pkl')
+    model_dict = torch.load(PATH, map_location='cpu')
+    model_dict_V2 = {k.split("model.")[-1]: v for k, v in model_dict.items()}
+    for key in ["module.fc1.weight", "module.fc1.bias", "module.fc2.weight", "module.fc2.bias", "module.fc3.weight", "module.fc3.bias"]:
+        if key in model_dict_V2:
+            del model_dict_V2[key]
+    model.load_state_dict(model_dict_V2)
+    print("ESM1b model loaded successfully!")
+    
+    return model, batch_converter
+
+def calcualte_esm1b_ts_vectors(enzyme_list, esm_model=None, batch_converter=None):
+    """
+    Calculate ESM1b vectors for enzyme list.
+    If esm_model and batch_converter are provided, use them (for efficiency).
+    Otherwise, load the model (for backward compatibility).
+    """
     df_enzyme = preprocess_enzymes(enzyme_list)
 
     needed_ids = []
@@ -70,28 +97,19 @@ def calcualte_esm1b_ts_vectors(enzyme_list):
             needed_ids.append(ind)
 
     if sequences_to_embed:
-        print(f"Embedding {len(sequences_to_embed)} new sequences...")
-        model_location = join(data_dir, "saved_models", "ESM1b", "esm1b_t33_650M_UR50S.pt")
-        model_data = torch.load(model_location, map_location='cpu')
-        regression_location = model_location[:-3] + "-contact-regression.pt"
-        regression_data = torch.load(regression_location, map_location='cpu')
-        model, alphabet = esm.pretrained.load_model_and_alphabet_core(model_data, regression_data)
-        model.eval()
-
-        batch_converter = alphabet.get_batch_converter()
-        PATH = join(data_dir, "saved_models", "ESM1b", 'model_ESM_binary_A100_epoch_1_new_split.pkl')
-        model_dict = torch.load(PATH, map_location='cpu')
-        model_dict_V2 = {k.split("model.")[-1]: v for k, v in model_dict.items()}
-        for key in ["module.fc1.weight", "module.fc1.bias", "module.fc2.weight", "module.fc2.bias", "module.fc3.weight", "module.fc3.bias"]:
-            del model_dict_V2[key]
-        model.load_state_dict(model_dict_V2)
+        # Load model if not provided (backward compatibility)
+        if esm_model is None or batch_converter is None:
+            print(f"Embedding {len(sequences_to_embed)} new sequences...")
+            esm_model, batch_converter = load_esm1b_model()
+        else:
+            print(f"Embedding {len(sequences_to_embed)} new sequences using pre-loaded model...")
 
         for i, (seq_id, seq) in enumerate(sequences_to_embed):
             if not validate_enzyme(seq):
                 continue
             _, _, tokens = batch_converter([(seq_id, seq)])
             with torch.no_grad():
-                results = model(tokens, repr_layers=[33])
+                results = esm_model(tokens, repr_layers=[33])
             rep = results["representations"][33][0][0].numpy()
             np.save(os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy"), rep)
             df_enzyme.at[needed_ids[i], "enzyme rep"] = rep

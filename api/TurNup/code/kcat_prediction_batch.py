@@ -7,33 +7,65 @@ from metabolite_preprocessing import *
 from enzyme_representations import *
 import sys
 import pandas as pd
+import os
+from os.path import join
 
 import warnings
 warnings.filterwarnings("ignore")
-
-import os
-from os.path import join
 
 # Use environment variables to determine paths
 if os.environ.get('TURNUP_MEDIA_PATH'):
     # Docker environment
     data_dir = '/app/api/TurNup/data'
+    SEQ_VEC_DIR = os.environ.get('TURNUP_MEDIA_PATH') + "/sequence_info/esm1b_turnup"
 else:
     # Local environment
     data_dir = '/home/saleh/webKinPred/api/TurNup/data'
+    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1b_turnup"
 
 def kcat_prediction_batch(substrates, products, enzymes):
     """
     Process predictions one by one to avoid RAM issues.
+    Load ESM1b model only if there are sequences that need embedding.
     """
-    print("Step 1/3: Loading model...")
+    print("Step 1/3: Loading XGBoost model...")
     # Load XGBoost model once
     bst = pickle.load(open(join(data_dir, "saved_models", "xgboost", "xgboost_train_and_test.pkl"), "rb"))
+    
+    # Check if we need to load ESM1b model by doing a quick pass
+    print("Step 2/3: Checking if ESM1b model is needed...")
+    esm_model = None
+    batch_converter = None
+    esm_needed = False
+    
+    # Quick check: see if any sequences need embedding
+    for enzyme in enzymes:
+        enzyme_upper = enzyme.upper()
+        df_enzyme_check = preprocess_enzymes([enzyme_upper])
+        seqs = df_enzyme_check["model_input"].tolist()
+        ids = resolve_seq_ids_via_cli(seqs)
+        
+        # Check if any sequences need embedding
+        for seq_id in ids:
+            vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
+            if not os.path.exists(vec_path):
+                esm_needed = True
+                break
+        
+        if esm_needed:
+            break
+    
+    # Load ESM1b model only if needed
+    if esm_needed:
+        print("ESM1b model needed - loading once for all predictions...")
+        esm_model, batch_converter = load_esm1b_model()
+    else:
+        print("All sequences already cached - ESM1b model not needed!")
     
     predictions = []
     total_predictions = len(substrates)
     
-    print("Step 2/3: Processing predictions one by one...")
+    print("Step 3/3: Processing predictions one by one...")
     for i, (substrate, product, enzyme) in enumerate(zip(substrates, products, enzymes)):
         try:
             print(f"Progress: {i+1}/{total_predictions} predictions made", flush=True)
@@ -44,9 +76,13 @@ def kcat_prediction_batch(substrates, products, enzymes):
                 product_list=[product]
             )
             
-            # Process single enzyme
+            # Process single enzyme using pre-loaded ESM model (if available)
             enzyme_upper = enzyme.upper()
-            df_enzyme = calcualte_esm1b_ts_vectors(enzyme_list=[enzyme_upper])
+            df_enzyme = calcualte_esm1b_ts_vectors(
+                enzyme_list=[enzyme_upper],
+                esm_model=esm_model,
+                batch_converter=batch_converter
+            )
             
             # Create single row DataFrame
             df_kcat = pd.DataFrame(data={
@@ -80,7 +116,6 @@ def kcat_prediction_batch(substrates, products, enzymes):
             print(f"Error processing sample {i}: {e}")
             predictions.append(None)
     
-    print("Step 3/3: Creating output DataFrame...")
     df_output = pd.DataFrame({
         "substrates": substrates,
         "products": products,
