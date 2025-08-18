@@ -63,8 +63,11 @@ def run_prediction_subprocess(command, job, env=None):
         process.wait()
 
         if process.returncode != 0:
-            # An error occurred
-            raise subprocess.CalledProcessError(process.returncode, process.args)
+            # An error occurred - check if it's memory-related
+            if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
+                raise subprocess.CalledProcessError(process.returncode, process.args, "Process killed by OOM killer")
+            else:
+                raise subprocess.CalledProcessError(process.returncode, process.args)
 
     except Exception as e:
         print("An error occurred while running the subprocess:")
@@ -89,7 +92,7 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(public_id))
     input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
-
+    print('prediction_script:', prediction_script)
     # Set environment variables for the subprocess to use Docker-compatible paths
     env = os.environ.copy()
     try:
@@ -114,7 +117,7 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
         job.molecules_processed += 1
-        seq_valid = all(c in alphabet for c in seq)
+        seq_valid = all(c in alphabet for c in seq) 
         if mol and seq_valid:
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)

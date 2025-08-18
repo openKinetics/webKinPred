@@ -5,6 +5,8 @@ import torch
 import numpy as np
 import re
 import pickle
+import gc
+import math
 from build_vocab import WordVocab
 from pretrain_trfm import TrfmSeq2seq
 from utils import split
@@ -83,96 +85,116 @@ def resolve_seq_ids_via_cli(sequences):
         raise RuntimeError(f"seqmap returned {len(ids)} ids for {len(sequences)} sequences")
     return ids
 
-def Seq_to_vec(sequences):
-    # Resolve IDs once for all sequences (duplicates included)
-    ids = resolve_seq_ids_via_cli(sequences)
-
-    vecs = []
-    seqs_to_embed = []
-    ids_to_embed = []
-
-    for seq, seq_id in zip(sequences, ids):
-        vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
-        if os.path.exists(vec_path):
-            vecs.append(np.load(vec_path))
-        else:
-            seqs_to_embed.append(seq)
-            ids_to_embed.append(seq_id)
-
-    if seqs_to_embed:
-        print(f"Generating embeddings for {len(seqs_to_embed)} sequences...")
-        import gc
+def Seq_to_vec_single(sequence, seq_id):
+    """Process a single sequence and return its vector representation."""
+    vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
+    if os.path.exists(vec_path):
+        return np.load(vec_path)
+    
+    # Generate embedding for this sequence
+    print(f"Generating embedding for sequence ID: {seq_id}")
+    
+    # Clean up memory before loading model
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
+    try:
+        tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
+        model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, low_cpu_mem_usage=True, torch_dtype=torch.float32)
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
+        model.eval()
+        
+        spaced = ' '.join(sequence)
+        spaced = re.sub(r"[UZOB]", "X", spaced)
+        
+        ids = tokenizer(spaced, add_special_tokens=True, padding="longest", return_tensors="pt")
+        input_ids = ids['input_ids'].to(device)
+        attention_mask = ids['attention_mask'].to(device)
+        
+        with torch.no_grad():
+            embedding = model(input_ids=input_ids, attention_mask=attention_mask)
+        
+        embedding = embedding.last_hidden_state
+        embedding = embedding.cpu().numpy()[0]
+        seq_len = (attention_mask[0] == 1).sum()
+        seq_vec = embedding[:seq_len - 1].mean(axis=0)
+        
+        # Save the embedding
+        np.save(vec_path, seq_vec)
+        
+        # Clean up
+        del model, tokenizer, embedding, input_ids, attention_mask
         gc.collect()
-        torch.cuda.empty_cache()
-        try:
-            tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
-            model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, low_cpu_mem_usage=True, torch_dtype=torch.float32)
-            device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-            model = model.eval()
-        except Exception as e:
-            raise RuntimeError(f"Failed to load T5 model: {e}")
-        print("Model loaded and moved to device.")
-        for seq, sid in zip(seqs_to_embed, ids_to_embed):
-            spaced = ' '.join(seq)
-            spaced = re.sub(r"[UZOB]", "X", spaced)
-            encoded = tokenizer.batch_encode_plus([spaced], add_special_tokens=True, padding=True)
-            input_ids = torch.tensor(encoded['input_ids']).to(device)
-            attention_mask = torch.tensor(encoded['attention_mask']).to(device)
-            with torch.no_grad():
-                embedding = model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
-            embedding = embedding.cpu().numpy()[0]
-            seq_len = (attention_mask[0] == 1).sum()
-            seq_vec = embedding[:seq_len - 1].mean(axis=0)
-            np.save(os.path.join(SEQ_VEC_DIR, f"{sid}.npy"), seq_vec)
-            vecs.append(seq_vec)
-
-    return np.stack(vecs)
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        return seq_vec
+    except Exception as e:
+        print(f"Error generating embedding for sequence {seq_id}: {e}")
+        # Clean up on error
+        gc.collect()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        raise e
 
 def main(input_path, output_path, task_type):
     df = pd.read_csv(input_path)
     sequences = df['Protein Sequence'].tolist()
     smiles = df['Substrate SMILES'].tolist()
 
-    # Feature extraction
-    print("Extracting SMILES features...")
-    smiles_vecs = smiles_to_vec(smiles)
-    print("Extracting sequence features...")
-    try:
-        sequence_vecs = Seq_to_vec(sequences)
-    except Exception as e:
-        print("Error occurred while extracting sequence features:")
-        print(e)
-        raise RuntimeError(f"Failed to extract sequence features: {e}")
-    # Concatenate
-    features = np.concatenate([smiles_vecs, sequence_vecs], axis=1)
-
+    # Resolve sequence IDs in batch
+    seq_ids = resolve_seq_ids_via_cli(sequences)
+    
+    predictions = []
+    total_predictions = len(sequences)
+    
     # Load trained model
     print("Loading model...")
     if os.environ.get('UNIKP_MEDIA_PATH'):
         # Docker environment
-        model_path = F'/app/api/UniKP-main/models/UniKP_{task_type}.pkl'
+        model_path = f'/app/api/UniKP-main/models/UniKP_{task_type}.pkl'
     else:
         # Local environment
-        model_path = F'/home/saleh/webKinPred/api/UniKP-main/models/UniKP_{task_type}.pkl'
+        model_path = f'/home/saleh/webKinPred/api/UniKP-main/models/UniKP_{task_type}.pkl'
+    
     with open(model_path, "rb") as f:
-        model = pickle.load(f)
+        prediction_model = pickle.load(f)
 
-    # Predict
-    preds = model.predict(features)
-    print(preds)
-    # convert from log10 to normal scale
-    preds = np.power(10, preds)
-    print(preds)
+    # Process predictions one by one
+    for i, (seq, smile, seq_id) in enumerate(zip(sequences, smiles, seq_ids)):
+        try:
+            print(f"Progress: {i+1}/{total_predictions} predictions made", flush=True)
+            
+            # Feature extraction for single sample
+            smiles_vec = smiles_to_vec([smile])
+            sequence_vec = Seq_to_vec_single(seq, seq_id)
+            
+            # Concatenate features
+            features = np.concatenate([smiles_vec, sequence_vec.reshape(1, -1)], axis=1)
+            
+            # Predict
+            pred = prediction_model.predict(features)[0]
+            # convert from log10 to normal scale
+            pred = np.power(10, pred)
+            predictions.append(pred)
+            
+            # Clean up memory after each prediction
+            del smiles_vec, sequence_vec, features
+            gc.collect()
+            
+        except Exception as e:
+            print(f"Error processing sample {i}: {e}")
+            predictions.append(None)  # Use None for failed predictions
+
     # Output
-    df_out = pd.DataFrame({'Predicted Value': preds})
+    df_out = pd.DataFrame({'Predicted Value': predictions})
     df_out.to_csv(output_path, index=False)
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Usage: python run_unikp.py <input_csv> <output_csv> <task_type>")
+        print("Usage: python run_unikp_batch.py <input_csv> <output_csv> <task_type>")
         sys.exit(1)
 
     input_csv = sys.argv[1]
     output_csv = sys.argv[2]
-    task = sys.argv[3].upper() #
+    task = sys.argv[3].upper()
     main(input_csv, output_csv, task)

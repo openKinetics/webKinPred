@@ -3,8 +3,9 @@ from celery import shared_task
 from django.conf import settings
 import pandas as pd
 import os
-from django.utils import timezone
+import signal
 import subprocess
+from django.utils import timezone
 try:
     from webKinPred.config_docker import MODEL_LIMITS, SERVER_LIMIT
 except ImportError:
@@ -18,6 +19,14 @@ from api.eitlem import eitlem_predictions
 from api.unikp import unikp_predictions
 from api.utils.quotas import credit_back
 from api.utils.extra_info import build_extra_info, _source
+
+def handle_ram_error(job, error_msg):
+    """Handle RAM/memory related errors"""
+    job.status = "Failed"
+    job.error_message = error_msg
+    job.completion_time = timezone.now()
+    job.save(update_fields=["status", "error_message", "completion_time"])
+    credit_back(job.ip_address, job.requested_rows)
 
 def run_model(
     *,
@@ -46,7 +55,6 @@ def run_model(
     handle_long     : 'skip'|'truncate'
     experimental_results : dict | None - If provided, will be used instead of predictions
     """
-
     try:
         extra_kwargs = extra_kwargs or {}
         # ------- 1. validate required columns ----------------------------------
@@ -157,12 +165,29 @@ def run_dlkcat_predictions(public_id, experimental_results=None):
             status="Completed",
             completion_time=timezone.now(),
         )
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(job, "DLKcat prediction terminated due to insufficient memory")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, "DLKcat prediction ran out of memory")
     except Exception as e:
-        Job.objects.filter(pk=job.pk).update(
-            status="Failed",
-            error_message=str(e),
-            completion_time=timezone.now()
-        )
+        # Check if error message contains memory-related keywords
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['memory', 'ram', 'oom', 'out of memory', 'killed', 'sigkill']):
+            handle_ram_error(job, f"DLKcat prediction failed due to memory issues: {str(e)}")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
 # ------------------------------------------------------------ TurNup
 @shared_task
 def run_turnup_predictions(public_id, experimental_results=None):
@@ -191,12 +216,29 @@ def run_turnup_predictions(public_id, experimental_results=None):
             completion_time=timezone.now(),
         )
 
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(job, "TurNup prediction terminated due to insufficient memory")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, "TurNup prediction ran out of memory")
     except Exception as e:
-        Job.objects.filter(pk=job.pk).update(
-            status="Failed",
-            error_message=str(e),
-            completion_time=timezone.now()
-        )
+        # Check if error message contains memory-related keywords
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['memory', 'ram', 'oom', 'out of memory', 'killed', 'sigkill']):
+            handle_ram_error(job, f"TurNup prediction failed due to memory issues: {str(e)}")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
 
 # ------------------------------------------------------------ EITLEM
 @shared_task
@@ -231,12 +273,29 @@ def run_eitlem_predictions(public_id, experimental_results=None):
             status="Completed",
             completion_time=timezone.now(),
         )
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(job, "EITLEM prediction terminated due to insufficient memory")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, "EITLEM prediction ran out of memory")
     except Exception as e:
-        Job.objects.filter(pk=job.pk).update(
-            status="Failed",
-            error_message=str(e),
-            completion_time=timezone.now()
-        )
+        # Check if error message contains memory-related keywords
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['memory', 'ram', 'oom', 'out of memory', 'killed', 'sigkill']):
+            handle_ram_error(job, f"EITLEM prediction failed due to memory issues: {str(e)}")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
 
 # ------------------------------------------------------------ UniKP
 @shared_task
@@ -273,12 +332,29 @@ def run_unikp_predictions(public_id, experimental_results=None):
             status="Completed",
             completion_time=timezone.now(),
         )
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(job, "UniKP prediction terminated due to insufficient memory")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, "UniKP prediction ran out of memory")
     except Exception as e:
-        Job.objects.filter(pk=job.pk).update(
-            status="Failed",
-            error_message=str(e),
-            completion_time=timezone.now()
-        )
+        # Check if error message contains memory-related keywords
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['memory', 'ram', 'oom', 'out of memory', 'killed', 'sigkill']):
+            handle_ram_error(job, f"UniKP prediction failed due to memory issues: {str(e)}")
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
 
 # ------------------------------------------------------------ Run Both
 # ------------------------------------------------------------ Run Both
@@ -474,10 +550,28 @@ def run_both_predictions(public_id, experimental_results=None):
             output_file=os.path.relpath(out_csv, settings.MEDIA_ROOT),
         )
 
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(job, "Run Both prediction terminated due to insufficient memory")
+        else:
+            credit_back(job.ip_address, job.requested_rows)
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(e),
+                completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, "Run Both prediction ran out of memory")
     except Exception as exc:
-        credit_back(job.ip_address, job.requested_rows)
-        Job.objects.filter(pk=job.pk).update(
-            status="Failed",
-            error_message=str(exc),
-            completion_time=timezone.now()
-        )
+        # Check if error message contains memory-related keywords
+        error_str = str(exc).lower()
+        if any(keyword in error_str for keyword in ['memory', 'ram', 'oom', 'out of memory', 'killed', 'sigkill']):
+            handle_ram_error(job, f"Run Both prediction failed due to memory issues: {str(exc)}")
+        else:
+            credit_back(job.ip_address, job.requested_rows)
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed",
+                error_message=str(exc),
+                completion_time=timezone.now()
+            )

@@ -25,10 +25,10 @@ DATA_PATHS = {
 
 # Prediction scripts paths (adapted for Docker container)
 PREDICTION_SCRIPTS = {
-    'DLKcat': '/app/api/DLKcat/DeeplearningApproach/Code/example/prediction_for_input.py',
-    'EITLEM': '/app/api/EITLEM/Code/eitlem_prediction_script.py',
-    'TurNup': '/app/api/TurNup/code/kcat_prediction.py',
-    'UniKP': '/app/api/UniKP-main/run_unikp.py',
+    'DLKcat': '/app/api/DLKcat/DeeplearningApproach/Code/example/prediction_for_input_batch.py',
+    'EITLEM': '/app/api/EITLEM/Code/eitlem_prediction_script_batch.py',
+    'TurNup': '/app/api/TurNup/code/kcat_prediction_batch.py',
+    'UniKP': '/app/api/UniKP-main/run_unikp_batch.py',
 }
 
 # Target databases (adapted for Docker container)

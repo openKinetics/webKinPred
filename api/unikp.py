@@ -32,15 +32,42 @@ def run_prediction_subprocess(command, job, env=None):
             bufsize=1,
             env=env,  # Pass environment variables
         )
-        # Log all stdout lines
-        for line in process.stdout:
+
+        # Read stdout line by line
+        for line in iter(process.stdout.readline, ''):
+            if not line:
+                break
+            # Process the line
             print("[UniKP subprocess]", line.strip())
+            # Check if it's a progress update
+            if line.startswith("Progress:"):
+                # Extract the number of predictions made
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        progress = parts[1]
+                        predictions_made, total_predictions = progress.split('/')
+                        predictions_made = int(predictions_made)
+                        total_predictions = int(total_predictions)
+                        # Update the job object
+                        job.predictions_made = predictions_made
+                        job.total_predictions = total_predictions
+                        job.save(update_fields=["predictions_made", "total_predictions"])
+                    except Exception as e:
+                        print("Error parsing progress update:", e)
+            else:
+                # Handle other output if needed
+                pass
+
         # Wait for the subprocess to finish
         process.wait()
 
         if process.returncode != 0:
-            # An error occurred
-            raise subprocess.CalledProcessError(process.returncode, process.args)
+            # An error occurred - check if it's memory-related
+            if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
+                raise subprocess.CalledProcessError(process.returncode, process.args, "Process killed by OOM killer")
+            else:
+                raise subprocess.CalledProcessError(process.returncode, process.args)
 
     except Exception as e:
         print("An error occurred while running the subprocess:")

@@ -146,8 +146,11 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
             process.wait()
 
             if process.returncode != 0:
-                # An error occurred
-                raise subprocess.CalledProcessError(process.returncode, process.args)
+                # An error occurred - check if it's memory-related
+                if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
+                    raise subprocess.CalledProcessError(process.returncode, process.args, "Process killed by OOM killer")
+                else:
+                    raise subprocess.CalledProcessError(process.returncode, process.args)
 
             # Read the output file
             predicted_values = []

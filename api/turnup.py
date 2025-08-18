@@ -121,15 +121,52 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
     # Run the prediction script if we have valid data
     if not df_input.empty:
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [python_path, prediction_script, input_temp_file, output_temp_file],
-                check=True,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
+                bufsize=1,
                 env=env  # Pass environment variables
             )
-            print("Output:\n", result.stdout)
-            print("Errors:\n", result.stderr)
+
+            # Read stdout line by line
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                # Process the line
+                print("[TurNup subprocess]", line.strip())
+                # Check if it's a progress update
+                if line.startswith("Progress:"):
+                    # Extract the number of predictions made
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            progress = parts[1]
+                            predictions_made, total_predictions = progress.split('/')
+                            predictions_made = int(predictions_made)
+                            total_predictions = int(total_predictions)
+                            # Update the job object
+                            job.predictions_made = predictions_made
+                            job.total_predictions = total_predictions
+                            job.save(update_fields=["predictions_made", "total_predictions"])
+                        except Exception as e:
+                            print("Error parsing progress update:", e)
+
+            # Wait for the subprocess to finish
+            process.wait()
+            
+            # Check for errors
+            if process.returncode != 0:
+                # Check if it's a memory-related error
+                if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
+                    print("TurNup subprocess was killed by OOM killer")
+                    raise subprocess.CalledProcessError(process.returncode, [python_path, prediction_script, input_temp_file, output_temp_file], "Process killed by OOM killer")
+                else:
+                    stderr_output = process.stderr.read() if process.stderr else "No stderr output"
+                    print("An error occurred while running the TurNup subprocess:")
+                    print("Stderr:\n", stderr_output)
+                    raise subprocess.CalledProcessError(process.returncode, [python_path, prediction_script, input_temp_file, output_temp_file])
 
             # Read the output file
             df_output = pd.read_csv(output_temp_file)
@@ -139,13 +176,21 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
             for idx_in_valid_list, pred in enumerate(predicted_values):
                 idx = valid_indices[idx_in_valid_list]
                 predictions[idx] = pred
-                job.predictions_made += 1
-                job.save(update_fields=["predictions_made"])
 
         except subprocess.CalledProcessError as e:
             print("An error occurred while running the TurNup subprocess:")
-            print("Output:\n", e.stdout)
-            print("Errors:\n", e.stderr)
+            print("Return code:", e.returncode)
+            if hasattr(e, 'output') and e.output:
+                print("Output:", e.output)
+            # Clean up temporary files
+            if os.path.exists(input_temp_file):
+                os.remove(input_temp_file)
+            if os.path.exists(output_temp_file):
+                os.remove(output_temp_file)
+            raise e
+        except Exception as e:
+            print("An error occurred while running the TurNup subprocess:")
+            print(e)
             # Clean up temporary files
             if os.path.exists(input_temp_file):
                 os.remove(input_temp_file)
