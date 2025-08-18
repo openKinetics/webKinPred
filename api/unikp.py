@@ -4,6 +4,7 @@ import pandas as pd
 from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
+import numpy as np
 from webKinPred.settings import MEDIA_ROOT
 try:
     from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
@@ -32,7 +33,7 @@ def run_prediction_subprocess(command, job, env=None):
             bufsize=1,
             env=env,  # Pass environment variables
         )
-
+        
         # Read stdout line by line
         for line in iter(process.stdout.readline, ''):
             if not line:
@@ -58,7 +59,7 @@ def run_prediction_subprocess(command, job, env=None):
             else:
                 # Handle other output if needed
                 pass
-
+        
         # Wait for the subprocess to finish
         process.wait()
 
@@ -158,7 +159,10 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
             # Merge predictions back into the original order
             for idx_in_valid_list, pred in enumerate(predicted_values):
                 idx = valid_indices[idx_in_valid_list]
-                predictions[idx] = pred
+                if pred in ['None', '', np.nan, 'nan']:
+                    predictions[idx] = None
+                else:
+                    predictions[idx] = pred
 
         except Exception as e:
             print("An error occurred while running the Unikp subprocess:")

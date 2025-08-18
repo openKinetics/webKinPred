@@ -65,10 +65,14 @@ def run_model(
         # ------- 2. gather core inputs ----------------------------------------
         sequences = df["Protein Sequence"].tolist()
         limit = min(SERVER_LIMIT, MODEL_LIMITS[model_key])
-
+        print('handle_long:', handle_long)
         # ------- 3. length handling -------------------------------------------
         if handle_long == "truncate":
+            lens_before = [len(seq) for seq in sequences]
             sequences_proc, valid_idx = truncate_sequences(sequences, limit)
+            lens_after = [len(seq) for seq in sequences_proc]
+            print("Lengths before truncation:", lens_before)
+            print("Lengths after truncation:", lens_after)
         else:   # skip
             valid_idx = get_valid_indices(sequences, limit, mode="skip")
             sequences_proc = [sequences[i] for i in valid_idx]
@@ -401,97 +405,151 @@ def run_both_predictions(public_id, experimental_results=None):
         results_df      = df.copy()        # will receive new columns
         protein_ids     = None             # placeholder for future use
 
-        # ─────────────────── 1.  default meta-columns ────────────────────
+        # ─────────────────── 1. Handle long sequences ────────────────────
+        # Get limits for both methods
+        kcat_limit = min(SERVER_LIMIT, MODEL_LIMITS[kcat_method])
+        km_limit = min(SERVER_LIMIT, MODEL_LIMITS[km_method])
+        # Use the more restrictive limit for both predictions
+        limit = min(kcat_limit, km_limit)
+        
+        print(f'handle_long_sequences: {job.handle_long_sequences}')
+        print(f'Using limit: {limit} (kcat_limit: {kcat_limit}, km_limit: {km_limit})')
+        
+        # Apply sequence handling
+        if job.handle_long_sequences == "truncate":
+            lens_before = [len(seq) for seq in sequences]
+            sequences_proc, valid_indices = truncate_sequences(sequences, limit)
+            lens_after = [len(seq) for seq in sequences_proc]
+            print("Lengths before truncation:", lens_before)
+            print("Lengths after truncation:", lens_after)
+        else:  # skip
+            valid_indices = get_valid_indices(sequences, limit, mode="skip")
+            sequences_proc = [sequences[i] for i in valid_indices]
+        
+        print(f"Processing {len(sequences_proc)} sequences out of {len(sequences)} total")
+        
+        # Add skipped sequences to invalid_indices if we're in skip mode
+        if job.handle_long_sequences == "skip":
+            all_indices = set(range(len(sequences)))
+            valid_indices_set = set(valid_indices)
+            skipped_indices = all_indices - valid_indices_set
+            invalid_indices.update(skipped_indices)
+
+        # ─────────────────── 2.  default meta-columns ────────────────────
         n_rows          = len(df)
         kcat_src        = [f"Prediction from {kcat_method}"] * n_rows
         km_src          = [f"Prediction from {km_method}"]   * n_rows
         kcat_extra      = [""] * n_rows
         km_extra        = [""] * n_rows
 
-        # ─────────────────── 2.  kcat predictions  ───────────────────────
-        if kcat_method == "DLKcat":
-            subs = df["Substrate"].tolist()
-            kcat_pred, bad = dlkcat_predictions(
-                sequences=sequences, substrates=subs,
-                public_id=job.public_id, protein_ids=protein_ids
-            )
-        elif kcat_method == "EITLEM":
-            subs = df["Substrate"].tolist()
-            kcat_pred, bad = eitlem_predictions(
-                sequences=sequences, substrates=subs,
-                public_id=job.public_id, protein_ids=protein_ids,
-                kinetics_type="KCAT"
-            )
-        elif kcat_method == "UniKP":
-            subs = df["Substrate"].tolist()
-            kcat_pred, bad = unikp_predictions(
-                sequences=sequences, substrates=subs,
-                public_id=job.public_id, protein_ids=protein_ids,
-                kinetics_type="KCAT"
-            )
-        elif kcat_method == "TurNup":
-            multisub      = True
-            subs, prods   = df["Substrates"].tolist(), df["Products"].tolist()
-            kcat_pred, bad = turnup_predictions(
-                sequences=sequences, substrates=subs, products=prods,
-                public_id=job.public_id, protein_ids=protein_ids
-            )
-        else:
-            raise ValueError("Invalid kcat method")
+        # ─────────────────── 3.  kcat predictions  ───────────────────────
+        # Initialize with empty predictions for all rows
+        kcat_pred = [""] * n_rows
+        
+        if valid_indices:  # Only predict if we have valid sequences
+            if kcat_method == "DLKcat":
+                subs = [df["Substrate"].iloc[i] for i in valid_indices]
+                kcat_subset, bad_subset = dlkcat_predictions(
+                    sequences=sequences_proc, substrates=subs,
+                    public_id=job.public_id, protein_ids=protein_ids
+                )
+            elif kcat_method == "EITLEM":
+                subs = [df["Substrate"].iloc[i] for i in valid_indices]
+                kcat_subset, bad_subset = eitlem_predictions(
+                    sequences=sequences_proc, substrates=subs,
+                    public_id=job.public_id, protein_ids=protein_ids,
+                    kinetics_type="KCAT"
+                )
+            elif kcat_method == "UniKP":
+                subs = [df["Substrate"].iloc[i] for i in valid_indices]
+                kcat_subset, bad_subset = unikp_predictions(
+                    sequences=sequences_proc, substrates=subs,
+                    public_id=job.public_id, protein_ids=protein_ids,
+                    kinetics_type="KCAT"
+                )
+            elif kcat_method == "TurNup":
+                multisub      = True
+                subs = [df["Substrates"].iloc[i] for i in valid_indices]
+                prods = [df["Products"].iloc[i] for i in valid_indices]
+                kcat_subset, bad_subset = turnup_predictions(
+                    sequences=sequences_proc, substrates=subs, products=prods,
+                    public_id=job.public_id, protein_ids=protein_ids
+                )
+            else:
+                raise ValueError("Invalid kcat method")
+            
+            # Map predictions back to original indices
+            for i, pred in zip(valid_indices, kcat_subset):
+                kcat_pred[i] = pred
+            # Track invalid indices from predictions
+            invalid_indices.update(valid_indices[j] for j in bad_subset)
 
         results_df["kcat (1/s)"] = kcat_pred
-        invalid_indices.update(bad)
 
-        # ─────────────────── 3.  KM predictions  ─────────────────────────
-        if multisub:
-            # explode Substrates to one-row-per-substrate
-            aug_rows = []
-            for idx, row in df.iterrows():
-                for smi in [s.strip() for s in str(row["Substrates"]).split(";") if s.strip()]:
-                    aug_rows.append({"original_idx": idx,
-                                     "sequence": row["Protein Sequence"],
-                                     "substrate": smi})
-            aug_df       = pd.DataFrame(aug_rows)
-            seq_km       = aug_df["sequence"].tolist()
-            subs_km      = aug_df["substrate"].tolist()
-        else:
-            seq_km       = sequences
-            subs_km      = df["Substrate"].tolist()
+        # ─────────────────── 4.  KM predictions  ─────────────────────────
+        # Initialize with empty predictions for all rows
+        km_pred_full = [""] * n_rows
+        
+        if valid_indices:  # Only predict if we have valid sequences
+            if multisub:
+                # explode Substrates to one-row-per-substrate for valid indices only
+                aug_rows = []
+                for idx in valid_indices:
+                    row = df.iloc[idx]
+                    for smi in [s.strip() for s in str(row["Substrates"]).split(";") if s.strip()]:
+                        aug_rows.append({"original_idx": idx,
+                                         "sequence": sequences_proc[valid_indices.index(idx)],  # Use processed sequence
+                                         "substrate": smi})
+                aug_df       = pd.DataFrame(aug_rows)
+                seq_km       = aug_df["sequence"].tolist()
+                subs_km      = aug_df["substrate"].tolist()
+            else:
+                seq_km       = sequences_proc
+                subs_km      = [df["Substrate"].iloc[i] for i in valid_indices]
 
-        if km_method == "EITLEM":
-            km_pred, bad = eitlem_predictions(
-                sequences=seq_km, substrates=subs_km,
-                public_id=job.public_id, protein_ids=protein_ids,
-                kinetics_type="KM"
-            )
-        elif km_method == "UniKP":
-            km_pred, bad = unikp_predictions(
-                sequences=seq_km, substrates=subs_km,
-                public_id=job.public_id, protein_ids=protein_ids,
-                kinetics_type="KM"
-            )
-        else:
-            raise ValueError("Invalid KM method")
+            if km_method == "EITLEM":
+                km_pred, bad_km = eitlem_predictions(
+                    sequences=seq_km, substrates=subs_km,
+                    public_id=job.public_id, protein_ids=protein_ids,
+                    kinetics_type="KM"
+                )
+            elif km_method == "UniKP":
+                km_pred, bad_km = unikp_predictions(
+                    sequences=seq_km, substrates=subs_km,
+                    public_id=job.public_id, protein_ids=protein_ids,
+                    kinetics_type="KM"
+                )
+            else:
+                raise ValueError("Invalid KM method")
 
-        invalid_indices.update(bad)
+            # Track invalid indices from KM predictions
+            invalid_indices.update(valid_indices[j] for j in bad_km)
 
-        if multisub:
-            # regroup semicolon-separated predictions
-            from collections import defaultdict
-            km_map = defaultdict(list)
-            for r, pred in zip(aug_df["original_idx"], km_pred):
-                km_map[r].append(str(pred))
-            results_df["KM (mM)"] = [";".join(km_map[i]) for i in range(n_rows)]
-        else:
-            results_df["KM (mM)"] = km_pred
+            if multisub:
+                # regroup semicolon-separated predictions for valid indices
+                from collections import defaultdict
+                km_map = defaultdict(list)
+                for r, pred in zip(aug_df["original_idx"], km_pred):
+                    km_map[r].append(str(pred))
+                # Fill in predictions for valid indices only
+                for idx in valid_indices:
+                    if idx in km_map:
+                        km_pred_full[idx] = ";".join(km_map[idx])
+            else:
+                # Map predictions back to original indices
+                for i, pred in zip(valid_indices, km_pred):
+                    km_pred_full[i] = pred
 
-        # ─────────────────── 4.  experimental overwrites ─────────────────
+        results_df["KM (mM)"] = km_pred_full
+
+        # ─────────────────── 5.  experimental overwrites ─────────────────
         if experimental_results:
             for exp in experimental_results:
                 if not exp.get("found"):
                     continue
                 idx   = exp["idx"]
                 p_seq = exp["protein_sequence"]
+                # Check against original sequences (not processed ones)
                 if p_seq != sequences[idx]:
                     print(
                         f"Protein sequence mismatch at index {idx}: "
@@ -514,7 +572,7 @@ def run_both_predictions(public_id, experimental_results=None):
                         exp, "Km", prev_val, km_method
                     )
 
-        # ─────────────────── 5.  attach meta-columns  ────────────────────
+        # ─────────────────── 6.  attach meta-columns  ────────────────────
         results_df.insert(0, "Extra Info KM",   km_extra)
         results_df.insert(0, "Source KM",       km_src)
         results_df.insert(0, "Extra Info kcat", kcat_extra)
@@ -529,9 +587,22 @@ def run_both_predictions(public_id, experimental_results=None):
             preferred_order + [c for c in results_df.columns if c not in preferred_order]
         ]
 
-        # ─────────────────── 6.  save & update job  ──────────────────────
+        # ─────────────────── 7.  save & update job  ──────────────────────
         out_csv = os.path.join(job_dir, "output.csv")
         results_df.to_csv(out_csv, index=False)
+
+        # Calculate processed rows (rows with non-empty predictions for both kcat and KM)
+        try:
+            kcat_processed = int((results_df["kcat (1/s)"] != "").sum())
+            km_processed = int((results_df["KM (mM)"] != "").sum())
+            processed_rows = min(kcat_processed, km_processed)  # Conservative estimate
+        except Exception:
+            processed_rows = len(valid_indices) if valid_indices else 0
+
+        # Credit back unused reactions
+        to_refund = max(0, int(job.requested_rows) - processed_rows)
+        if to_refund > 0:
+            credit_back(job.ip_address, to_refund)
 
         if invalid_indices:
             invalid_indices = sorted(invalid_indices)
@@ -539,11 +610,9 @@ def run_both_predictions(public_id, experimental_results=None):
                 f"Predictions could not be made for {len(invalid_indices)} row(s): "
                 f"{', '.join(map(str, invalid_indices))}"
             )
-            credit_back(job.ip_address,
-                        max(0, job.requested_rows - len(invalid_indices)))
-            job.save(update_fields=["error_message"])
         else:
             job.error_message = ""
+            
         Job.objects.filter(pk=job.pk).update(
             status="Completed",
             completion_time=timezone.now(),

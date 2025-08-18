@@ -5,6 +5,7 @@ from rdkit import Chem
 from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
 from webKinPred.settings import MEDIA_ROOT
+import numpy as np
 try:
     from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
 except ImportError:
@@ -92,7 +93,6 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
     job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(public_id))
     input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
     output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
-    print('prediction_script:', prediction_script)
     # Set environment variables for the subprocess to use Docker-compatible paths
     env = os.environ.copy()
     try:
@@ -117,7 +117,7 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
         job.molecules_processed += 1
-        seq_valid = all(c in alphabet for c in seq) 
+        seq_valid = all(c in alphabet for c in seq)
         if mol and seq_valid:
             smiles = Chem.MolToSmiles(mol)
             smiles_list.append(smiles)
@@ -157,7 +157,10 @@ def eitlem_predictions(sequences, substrates, public_id, protein_ids=None, kinet
             # Merge predictions back into the original order
             for idx_in_valid_list, pred in enumerate(predicted_values):
                 idx = valid_indices[idx_in_valid_list]
-                predictions[idx] = pred
+                if pred in ['None', '', np.nan, 'nan']:
+                    predictions[idx] = None
+                else:
+                    predictions[idx] = pred
 
         except Exception as e:
             print("An error occurred while running the EITLEM subprocess:")
