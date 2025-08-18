@@ -128,7 +128,7 @@ export default function ValidationResults({
                           <td className="text-white">
                             <strong>Overall Server Limit</strong>
                           </td>
-                          <td className="text-white">1500</td>
+                          <td className="text-white">10,000</td>
                           <td className="text-danger">{lengthViol.Server}</td>
                         </tr>
                       )}

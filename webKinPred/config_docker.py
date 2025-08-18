@@ -41,7 +41,7 @@ TARGET_DBS = {
 # Other config variables
 CONDA_PATH = "/opt/conda/bin/conda"
 MODEL_LIMITS = {"EITLEM": 1024, "TurNup": 1024, "UniKP": 1000, "DLKcat": float("inf")}
-SERVER_LIMIT = 1500
+SERVER_LIMIT = 10000
 DEBUG = True
 ALLOWED_FRONTEND_IPS = ["127.0.0.1", "localhost", "frontend", "backend"]
 
