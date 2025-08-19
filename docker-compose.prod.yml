@@ -77,6 +77,12 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "webKinPred", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     command: celery -A webKinPred worker --loglevel=info --queues=webkinpred
 
   celery-beat:
@@ -104,6 +110,12 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "celery.*beat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     command: celery -A webKinPred beat --loglevel=info
 
 volumes:
