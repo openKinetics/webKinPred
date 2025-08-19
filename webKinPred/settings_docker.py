@@ -8,6 +8,9 @@ import os
 # Override settings for Docker environment
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
+# Static files configuration - this is the key fix
+STATIC_URL = '/django_static/'
+STATIC_ROOT = '/app/staticfiles'
 
 # Docker-specific allowed hosts
 ALLOWED_HOSTS = [
