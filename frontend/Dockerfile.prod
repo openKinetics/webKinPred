@@ -22,7 +22,7 @@ COPY --from=build /app/build /usr/share/nginx/html
 
 # Create nginx configuration with reverse proxy for Django
 RUN echo 'upstream django_backend { \
-    server django:8000; \
+    server backend:8000; \
 } \
 \
 server { \
