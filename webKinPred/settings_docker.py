@@ -8,14 +8,9 @@ import os
 # Override settings for Docker environment
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-# WhiteNoise: serve collected static from Gunicorn in production
-# Insert after SecurityMiddleware
-MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-
+# Static files configuration - this is the key fix
 STATIC_URL = '/django_static/'
 STATIC_ROOT = '/app/staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-WHITENOISE_MAX_AGE = 31536000
 
 # Docker-specific allowed hosts
 ALLOWED_HOSTS = [
