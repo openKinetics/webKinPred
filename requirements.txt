@@ -8,3 +8,4 @@ redis
 django-redis
 gunicorn
 psycopg2-binary
+whitenoise>=6.7.0
