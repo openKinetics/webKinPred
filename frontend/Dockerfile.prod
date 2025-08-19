@@ -20,12 +20,41 @@ FROM nginx:alpine
 # Copy built files - Changed from /app/dist to /app/build
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Create nginx configuration for React Router
-RUN echo 'server { \
+# Create nginx configuration with reverse proxy for Django
+RUN echo 'upstream django_backend { \
+    server django:8000; \
+} \
+\
+server { \
     listen 80; \
     server_name localhost; \
     root /usr/share/nginx/html; \
     index index.html; \
+    \
+    # Proxy Django admin and API requests \
+    location /admin/ { \
+        proxy_pass http://django_backend; \
+        proxy_set_header Host $host; \
+        proxy_set_header X-Real-IP $remote_addr; \
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
+        proxy_set_header X-Forwarded-Proto $scheme; \
+    } \
+    \
+    location /django_static/ { \
+        proxy_pass http://django_backend; \
+        proxy_set_header Host $host; \
+        proxy_set_header X-Real-IP $remote_addr; \
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
+        proxy_set_header X-Forwarded-Proto $scheme; \
+    } \
+    \
+    location /api/ { \
+        proxy_pass http://django_backend; \
+        proxy_set_header Host $host; \
+        proxy_set_header X-Real-IP $remote_addr; \
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
+        proxy_set_header X-Forwarded-Proto $scheme; \
+    } \
     \
     # Handle static assets with caching \
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ { \
