@@ -125,11 +125,11 @@ class ApiUserAdmin(admin.ModelAdmin):
 class JobAdmin(admin.ModelAdmin):
     list_display = [
         'public_id', 'user_ip', 'prediction_type', 'status', 
-        'submission_time', 'requested_rows'
+        'submission_time', 'requested_rows', 'download_link'
     ]
     list_filter = ['status', 'prediction_type', 'submission_time']
     search_fields = ['public_id', 'ip_address', 'user__ip_address']
-    readonly_fields = ['public_id', 'submission_time']
+    readonly_fields = ['public_id', 'submission_time', 'download_link']
     
     def user_ip(self, obj):
         if obj.user:
@@ -137,6 +137,13 @@ class JobAdmin(admin.ModelAdmin):
             return format_html('<a href="{}">{}</a>', user_url, obj.user.ip_address)
         return obj.ip_address
     user_ip.short_description = 'User IP'
+    
+    def download_link(self, obj):
+        if obj.status == 'Completed' and obj.output_file:
+            download_url = reverse('download_job_output', args=[obj.public_id])
+            return format_html('<a href="{}" class="button">Download Results</a>', download_url)
+        return "No output available"
+    download_link.short_description = 'Download'
 
 @admin.register(Sequence)
 class SequenceAdmin(admin.ModelAdmin):
