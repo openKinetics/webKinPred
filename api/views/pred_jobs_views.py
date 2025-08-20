@@ -11,11 +11,12 @@ from django.utils import timezone
 
 from ..models import Job
 from ..tasks import run_dlkcat_predictions, run_turnup_predictions, run_eitlem_predictions, run_unikp_predictions, run_both_predictions
-from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT
+from api.utils.quotas import reserve_or_reject, get_client_ip, DAILY_LIMIT, get_or_create_user
 from api.utils.get_experimental import lookup_experimental
 
 @csrf_exempt
 def submit_job(request):
+    print("Received job submission request")
     if request.method == 'POST' and 'file' in request.FILES:
         file = request.FILES['file']
         use_experimental = request.POST.get('useExperimental') == 'true'
@@ -58,6 +59,10 @@ def submit_job(request):
             return JsonResponse({'error': f'Missing required columns: {", ".join(missing_columns)}'}, status=400)
         
         ip_address = get_client_ip(request)
+        try:
+            user = get_or_create_user(ip_address)  # Create/update user record
+        except Exception as e: 
+            print(f"Error creating/updating user: {e}")
         requested_rows = int(len(df))  # 1 row = 1 reaction
         allowed, remaining, ttl = reserve_or_reject(ip_address, requested_rows)
         # Optional: helpful headers for the client
@@ -93,6 +98,7 @@ def submit_job(request):
             handle_long_sequences=handleLongSeq,
             ip_address=ip_address,
             requested_rows=requested_rows,
+            user=user,  # Link job to user
         )
         job.save()
         print("Saved Job:", job.public_id)

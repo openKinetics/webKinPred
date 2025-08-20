@@ -21,11 +21,13 @@ services:
       - ./db.sqlite3:/app/db.sqlite3
       - ./manage.py:/app/manage.py
       - ./api:/app/api
+      - ./db_models:/app/db_models
       - ./webKinPred:/app/webKinPred
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
     environment:
+      - PYTHONPATH=/app
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
       - REDIS_URL=redis://redis:6379/0
@@ -72,11 +74,13 @@ services:
       - ./db.sqlite3:/app/db.sqlite3
       - ./manage.py:/app/manage.py
       - ./api:/app/api
+      - ./db_models:/app/db_models
       - ./webKinPred:/app/webKinPred
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
     environment:
+      - PYTHONPATH=/app
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
       - REDIS_URL=redis://redis:6379/0
@@ -104,6 +108,7 @@ services:
       - ./db.sqlite3:/app/db.sqlite3
       - ./manage.py:/app/manage.py
       - ./api:/app/api
+      - ./db_models:/app/db_models
       - ./webKinPred:/app/webKinPred
       - ./fastas:/app/fastas
       - ./tools:/app/tools
@@ -111,6 +116,7 @@ services:
       - /home/saleh/protT5_xl/prot_t5_xl_uniref50:/app/protT5_xl/prot_t5_xl_uniref50:ro
       
     environment:
+      - PYTHONPATH=/app
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
       - REDIS_URL=redis://redis:6379/0

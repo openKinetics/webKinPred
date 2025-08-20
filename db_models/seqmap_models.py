@@ -14,6 +14,7 @@ class Sequence(models.Model):
         managed  = False
         db_table = "sequences"
         verbose_name_plural = "Sequences"
+        app_label = 'seqmap'
 
     # flag for the router (outside Meta)
     seqmap_db = True

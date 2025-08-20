@@ -202,7 +202,7 @@ export default function useJobSubmission() {
       }));
       setShowModal(true);
     } catch (error) {
-      const msg = error?.response?.data?.error || 'Failed to submit job';
+      const msg = error?.response?.data?.error || '';
       alert('Failed to submit job\n' + msg);
     } finally {
       setIsSubmitting(false);

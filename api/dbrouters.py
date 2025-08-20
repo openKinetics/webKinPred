@@ -7,4 +7,12 @@ class SeqMapRouter:
         return None          # read-only
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        return False         # no migrations on any DB
+        """
+        Prevent migrations for the 'seqmap' app and prevent any app
+        from migrating to the 'seqmap' database.
+        """
+        if app_label == 'seqmap':
+            return False
+        if db == 'seqmap':
+            return False
+        return None
