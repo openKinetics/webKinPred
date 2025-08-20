@@ -148,12 +148,14 @@ export default function useJobSubmission() {
         kcatMethod,
         kmMethod,
         });
+        const invalid_substrates = validation.invalid_substrates;
+        const invalid_proteins = validation.invalid_proteins;
+        const length_violations = validation.length_violations; 
         const simPromise = fetchSequenceSimilaritySummary({ file: csvFile, useExperimental, validationSessionId: sid });
         const sim = await simPromise;
         if (userCancelledRef.current) return
         // Handle the results after both promises resolve
         setSimilarityData(sim);
-        const { invalid_substrates, invalid_proteins, length_violations } = validation;
         setSubmissionResult({ invalid_substrates, invalid_proteins, length_violations });
         setShowValidationResults(true);
     } catch (err) {

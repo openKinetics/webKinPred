@@ -98,6 +98,7 @@ def cancel_validation(request):
 
 @csrf_exempt
 def validate_input(request):
+
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST method is allowed.'}, status=405)
 
@@ -132,6 +133,8 @@ def validate_input(request):
         s = x.strip()
         if not s:
             return None
+        if x in ['None', 'NaN', 'nan']:
+            return None
         return convert_to_mol(s)
 
     # Validate Substrates
@@ -140,6 +143,8 @@ def validate_input(request):
         # Single-substrate schema
         for i, val in enumerate(df['Substrate']):
             if val in val_to_output:
+                if val_to_output[val] == 'OK':
+                    continue
                 temp = val_to_output[val].copy()
                 temp['row'] = i + 1
                 invalid_substrates.append(temp)
@@ -151,6 +156,8 @@ def validate_input(request):
                     'reason': 'Invalid SMILES/InChI'
                 }
                 invalid_substrates.append(val_to_output[val])
+            else:
+                val_to_output[val] = 'OK'
 
     elif ('Substrates' in df.columns and 'Products' in df.columns):
         # Multi-substrate schema
@@ -214,12 +221,19 @@ def validate_input(request):
                 })
     else:
         return JsonResponse({'error': 'CSV must contain a "Protein Sequence" column'}, status=400)
-
+    def clean_for_json(data):
+        if isinstance(data, list):
+            return [clean_for_json(item) for item in data]
+        elif isinstance(data, dict):
+            return {k: clean_for_json(v) for k, v in data.items()}
+        elif pd.isna(data):
+            return 'NaN'
+        else:
+            return data
     return JsonResponse({
-        'invalid_substrates': invalid_substrates,
-        'invalid_proteins': invalid_proteins,
-        'protein_similarity': [],  # placeholder
-        'length_violations': length_violations,
+        'invalid_substrates': clean_for_json(invalid_substrates),
+        'invalid_proteins': clean_for_json(invalid_proteins),
+        'length_violations': clean_for_json(length_violations),
     }, status=200)
 
 @csrf_exempt
