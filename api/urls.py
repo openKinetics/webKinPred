@@ -18,4 +18,5 @@ urlpatterns = [
     path('cancel-validation/', valid_inputs_views.cancel_validation, name='cancel-validation'),
     path("csrf/", get_csrf, name="get-csrf"),
     path("jobs/<slug:public_id>/download/", pred_jobs_views.download_job_output, name="download_job_output"),
+    path("jobs/<slug:public_id>/input/", pred_jobs_views.download_job_input, name="download_job_input"),
 ]

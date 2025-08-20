@@ -210,7 +210,24 @@ def download_job_output(request, public_id):
         raise Http404("No output file for this job.")
 
     slugified_id = slugify(str(public_id))
-    default_name = f"job-{slugified_id}.csv"
+    default_name = f"job-{slugified_id}-output.csv"
+
+    response = FileResponse(open(media_url, "rb"), as_attachment=True, filename=default_name)
+    response["Content-Type"] = "text/csv"
+    return response
+
+def download_job_input(request, public_id):
+    try:
+        job = Job.objects.get(public_id=public_id)
+    except Job.DoesNotExist:
+        raise Http404("Job not found.")
+
+    media_url = f"{settings.MEDIA_ROOT}/jobs/{job.public_id}/input.csv"
+    if not os.path.exists(media_url):
+        raise Http404("No input file for this job.")
+
+    slugified_id = slugify(str(public_id))
+    default_name = f"job-{slugified_id}-input.csv"
 
     response = FileResponse(open(media_url, "rb"), as_attachment=True, filename=default_name)
     response["Content-Type"] = "text/csv"

@@ -120,16 +120,16 @@ class ApiUserAdmin(admin.ModelAdmin):
         self.message_user(request, f'Reset quotas for {count} users.')
     reset_quotas.short_description = 'Reset today\'s quota for selected users'
 
-# Update existing JobAdmin to show user info
+# Update existing JobAdmin to use existing download URLs for both input and output
 @admin.register(Job)
 class JobAdmin(admin.ModelAdmin):
     list_display = [
         'public_id', 'user_ip', 'prediction_type', 'status', 
-        'submission_time', 'requested_rows', 'download_link'
+        'submission_time', 'requested_rows', 'download_links'
     ]
     list_filter = ['status', 'prediction_type', 'submission_time']
     search_fields = ['public_id', 'ip_address', 'user__ip_address']
-    readonly_fields = ['public_id', 'submission_time', 'download_link']
+    readonly_fields = ['public_id', 'submission_time', 'download_links']
     
     def user_ip(self, obj):
         if obj.user:
@@ -138,12 +138,24 @@ class JobAdmin(admin.ModelAdmin):
         return obj.ip_address
     user_ip.short_description = 'User IP'
     
-    def download_link(self, obj):
+    def download_links(self, obj):
+        links = []
+        
+        # Always show input download link
+        input_url = reverse('download_job_input', args=[obj.public_id])
+        links.append(f'<a href="{input_url}" class="button">Download Input</a>')
+        
+        # Show output download link if job is completed and has output
         if obj.status == 'Completed' and obj.output_file:
-            download_url = reverse('download_job_output', args=[obj.public_id])
-            return format_html('<a href="{}" class="button">Download Results</a>', download_url)
-        return "No output available"
-    download_link.short_description = 'Download'
+            output_url = reverse('download_job_output', args=[obj.public_id])
+            links.append(f'<a href="{output_url}" class="button">Download Results</a>')
+        elif obj.status == 'Completed':
+            links.append('<span style="color: #666;">No output file</span>')
+        else:
+            links.append('<span style="color: #666;">Job not completed</span>')
+        
+        return format_html(' | '.join(links))
+    download_links.short_description = 'Downloads'
 
 @admin.register(Sequence)
 class SequenceAdmin(admin.ModelAdmin):
