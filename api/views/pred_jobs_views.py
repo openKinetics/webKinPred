@@ -32,6 +32,7 @@ def submit_job(request):
         try:
             # Read the uploaded CSV file directly from the file object
             df = pd.read_csv(file)
+            df = df.dropna(how='all')  
         except Exception as e:
             return JsonResponse({'error': f'Error reading file: {str(e)}'}, status=400)
         
