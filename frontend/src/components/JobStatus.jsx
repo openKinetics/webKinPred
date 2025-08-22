@@ -357,9 +357,9 @@ function JobStatus() {
                     </Col>
                   </Row>
 
-                  {(jobStatus.status === 'Processing' || jobStatus.status === 'Pending') && (
+                  {(jobStatus.status === 'Processing') && (
                     <>
-                      {metrics.totalMolecules && (
+                      {metrics.totalMolecules > 0 && (
                         <div className="mb-3">
                           <div className="progress-row">
                             <div className="progress-title">Reactions Processed</div>
@@ -369,7 +369,7 @@ function JobStatus() {
                         </div>
                       )}
 
-                      {metrics.totalPredictions && (
+                      {metrics.totalPredictions > 0 && (
                         <div className="mb-2">
                           <div className="progress-row">
                             <div className="progress-title">Predictions Made</div>
@@ -382,6 +382,13 @@ function JobStatus() {
                         <Spinner animation="border" role="status" />
                       </div>
                     </>
+                  )}
+
+                  {jobStatus.status === 'Pending' && (
+                    <div className="mt-3 d-flex flex-column align-items-center">
+                      <div className="stat-label mb-2">Job is queued and waiting to start...</div>
+                      <Spinner animation="border" role="status" />
+                    </div>
                   )}
 
                   {jobStatus.status === 'Completed' && (
