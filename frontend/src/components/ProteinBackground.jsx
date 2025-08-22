@@ -1,50 +1,71 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 
 // Enhanced configuration with scientifically-inspired parameters
-const CONFIG = {
-  // Entity counts - fewer for cleaner visuals
-  enzymeCount: 8,
-  substratesPerEnzyme: 3,
+const CONFIG = (() => {
+  // === ANIMATION SPEED CONTROL ===
+  // Master speed multiplier - change this to adjust overall animation speed
+  // 1.0 = normal speed, 0.5 = half speed, 2.0 = double speed
+  const globalSpeedMultiplier = 0.3;
   
-  // Visual parameters
-  enzymeRadius: 35,
-  activeSiteDepth: 0.3, // Ratio of radius for notch depth
-  captureRadius: 120,
-  bindingDistance: 8,
+  // Individual speed components (will be multiplied by globalSpeedMultiplier)
+  const baseSpeedSettings = {
+    brownianSpeed: 0.8,        // Molecule wandering speed
+    enzymeRotation: 0.01,      // Enzyme rotation speed
+    enzymeDrift: 0.2,          // Enzyme drift movement
+    orientationRate: 0.06,     // Substrate alignment speed
+    releaseImpulse: 2.5,       // Product release velocity
+    catalysisDuration: 300,    // Reaction time (frames) - higher = slower reaction
+    inducedFitTime: 50,        // Enzyme shape change time (frames)
+  };
   
-  // Physics
-  brownianSpeed: 0.8,
-  orientationRate: 0.06,
-  releaseImpulse: 2.5,
-  dampingFactor: 0.9,
-  maxAngularVelocity: 0.15,
+  return {
+    globalSpeedMultiplier,
+    baseSpeedSettings,
+    
+    // Entity counts - fewer for cleaner visuals
+    enzymeCount: 8,
+    substratesPerEnzyme: 3,
+    
+    // Visual parameters
+    enzymeRadius: 35,
+    activeSiteDepth: 0.3, // Ratio of radius for notch depth
+    captureRadius: 120,
+    bindingDistance: 8,
+    
+    // Physics
+    brownianSpeed: baseSpeedSettings.brownianSpeed * globalSpeedMultiplier,
+    orientationRate: baseSpeedSettings.orientationRate * globalSpeedMultiplier,
+    releaseImpulse: baseSpeedSettings.releaseImpulse * globalSpeedMultiplier,
+    dampingFactor: 0.9,
+    maxAngularVelocity: 0.15 * globalSpeedMultiplier,
+    
+    // Timing (in frames at 60fps)
+    catalysisDuration: Math.floor(baseSpeedSettings.catalysisDuration / globalSpeedMultiplier),
+    inducedFitTime: Math.floor(baseSpeedSettings.inducedFitTime / globalSpeedMultiplier),
   
-  // Timing (in frames at 60fps)
-  catalysisDuration: 180, // 3 seconds
-  inducedFitTime: 30,     // 0.5 seconds
-  
-  // Colors
-  colors: {
-    background: 'rgba(26, 35, 50, 1)',
-    enzyme: 'rgba(100, 120, 150, 0.7)',
-    enzymeGlow: 'rgba(100, 120, 150, 0.1)',
-    substrate: '#3498db',
-    substrateGlow: 'rgba(52, 152, 219, 0.15)',
-    product: '#e74c3c',
-    productGlow: 'rgba(231, 76, 60, 0.2)',
-    catalysisPulse: 'rgba(255, 255, 255, 0.5)',
-    environmentParticle: 'rgba(236, 240, 241, 0.1)'
-  },
-  
-  // Visual effects
-  globalAlpha: 0.25,
-  glowIntensity: 0.2,
-  fadeScrollDistance: 600,
-  
-  // Performance
-  targetFrameTime: 16.67, // 60 FPS
-  maxFrameTime: 33.33     // 30 FPS fallback
-};
+    // Colors - Updated to match the purple-blue gradient aesthetic
+    colors: {
+      background: 'rgba(44, 47, 82, 1)',
+      enzyme: 'rgba(95, 99, 150, 0.8)',
+      enzymeGlow: 'rgba(95, 99, 150, 0.15)',
+      substrate: 'rgba(116, 185, 255, 0.9)',
+      substrateGlow: 'rgba(116, 185, 255, 0.2)',
+      product: 'rgba(255, 179, 116, 0.9)',
+      productGlow: 'rgba(255, 179, 116, 0.25)',
+      catalysisPulse: 'rgba(255, 255, 255, 0.4)',
+      environmentParticle: 'rgba(150, 155, 200, 0.08)'
+    },
+    
+    // Visual effects
+    globalAlpha: 0.25,
+    glowIntensity: 0.2,
+    fadeScrollDistance: 600,
+    
+    // Performance
+    targetFrameTime: 16.67, // 60 FPS
+    maxFrameTime: 33.33     // 30 FPS fallback
+  };
+})();
 
 // Utility functions
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -63,13 +84,13 @@ const createEnzyme = (x, y, radius = CONFIG.enzymeRadius) => ({
   type: 'enzyme',
   x, y, radius,
   rotation: random(0, Math.PI * 2),
-  rotationSpeed: random(-0.01, 0.01),
+  rotationSpeed: random(-CONFIG.baseSpeedSettings.enzymeRotation, CONFIG.baseSpeedSettings.enzymeRotation) * CONFIG.globalSpeedMultiplier,
   activeSiteAngle: random(0, Math.PI * 2),
   inducedFit: 0,
   targetInducedFit: 0,
   boundSubstrate: null,
-  vx: random(-0.2, 0.2),
-  vy: random(-0.2, 0.2),
+  vx: random(-CONFIG.baseSpeedSettings.enzymeDrift, CONFIG.baseSpeedSettings.enzymeDrift) * CONFIG.globalSpeedMultiplier,
+  vy: random(-CONFIG.baseSpeedSettings.enzymeDrift, CONFIG.baseSpeedSettings.enzymeDrift) * CONFIG.globalSpeedMultiplier,
   recoilVx: 0,
   recoilVy: 0
 });
@@ -104,8 +125,9 @@ const updateOrientation = (molecule, targetAngle) => {
 const updatePosition = (entity, width, height, dt) => {
   // Apply Brownian motion for wandering molecules
   if (entity.type === 'substrate' && entity.state === 'wandering') {
-    entity.vx += random(-0.1, 0.1) * dt;
-    entity.vy += random(-0.1, 0.1) * dt;
+    const brownianIntensity = 0.1 * CONFIG.globalSpeedMultiplier;
+    entity.vx += random(-brownianIntensity, brownianIntensity) * dt;
+    entity.vy += random(-brownianIntensity, brownianIntensity) * dt;
   }
   
   // Clamp velocities to prevent tunneling
@@ -134,7 +156,7 @@ const updatePosition = (entity, width, height, dt) => {
 };
 
 const updateInducedFit = (enzyme) => {
-  const fitRate = 0.08;
+  const fitRate = 0.08 * CONFIG.globalSpeedMultiplier;
   enzyme.inducedFit = lerp(enzyme.inducedFit, enzyme.targetInducedFit, fitRate);
   
   // Prevent oscillation
@@ -157,7 +179,7 @@ const drawEnzyme = (ctx, enzyme) => {
   // Soft glow effect
   const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, enzyme.radius * 1.6);
   gradient.addColorStop(0, CONFIG.colors.enzymeGlow);
-  gradient.addColorStop(1, 'rgba(100, 120, 150, 0)');
+  gradient.addColorStop(1, 'rgba(95, 99, 150, 0)');
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(0, 0, enzyme.radius * 1.6, 0, Math.PI * 2);
@@ -204,7 +226,7 @@ const drawEnzyme = (ctx, enzyme) => {
   
   ctx.fillStyle = CONFIG.colors.enzyme;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(100, 120, 150, 0.9)';
+  ctx.strokeStyle = 'rgba(95, 99, 150, 0.9)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
   
@@ -411,10 +433,10 @@ function EnhancedProteinBackground() {
           
           // Color transition during catalysis
           const progress = 1 - (molecule.catalysisTimer / CONFIG.catalysisDuration);
-          // Transition from substrate blue (#3498db) to product red (#e74c3c)
-          const r = Math.floor(lerp(52, 231, progress));   // 52 is blue R, 231 is red R
-          const g = Math.floor(lerp(152, 76, progress));   // 152 is blue G, 76 is red G  
-          const b = Math.floor(lerp(219, 60, progress));   // 219 is blue B, 60 is red B
+          // Transition from substrate blue (116, 185, 255) to product orange (255, 179, 116)
+          const r = Math.floor(lerp(116, 255, progress));
+          const g = Math.floor(lerp(185, 179, progress));
+          const b = Math.floor(lerp(255, 116, progress));
           molecule.color = `rgb(${r}, ${g}, ${b})`;
           
           if (molecule.catalysisTimer <= 0) {
@@ -490,11 +512,12 @@ function EnhancedProteinBackground() {
     
     const { enzymes, molecules } = entitiesRef.current;
     
-    // Draw background particles for ambiance
+    // Draw background particles for ambiance (speed controlled)
     ctx.fillStyle = CONFIG.colors.environmentParticle;
     for (let i = 0; i < 15; i++) {
-      const x = (currentTime * 0.01 + i * 50) % width;
-      const y = (currentTime * 0.005 + i * 80) % height;
+      const particleSpeed = CONFIG.globalSpeedMultiplier * 0.01;
+      const x = (currentTime * particleSpeed + i * 50) % width;
+      const y = (currentTime * particleSpeed * 0.5 + i * 80) % height;
       ctx.beginPath();
       ctx.arc(x, y, 1, 0, Math.PI * 2);
       ctx.fill();
