@@ -77,20 +77,24 @@ def dlkcat_predictions(sequences, substrates, public_id, protein_ids=None):
     # Process substrates and update progress
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         job.molecules_processed += 1
-        mol = convert_to_mol(substrate)
+        
+        # Check sequence validity
         seq_valid = all(c in alphabet for c in seq)
+        mol = convert_to_mol(substrate) if seq_valid else None
+        # Validate molecule and generate SMILES
         if mol and seq_valid:
             mol = Chem.AddHs(mol)
             smiles = Chem.MolToSmiles(mol)
-            smiles_list.append(smiles)
-            valid_sequences.append(seq)
-            valid_indices.append(idx)
-        else:
-            print(f"Invalid substrate at row {idx + 1}: {substrate}")
-            invalid_indices.append(idx)  # Rows are 1-indexed
-            job.invalid_molecules += 1
-
-        # Save job progress after each molecule
+            if '.' not in smiles:
+                smiles_list.append(smiles)
+                valid_sequences.append(seq)
+                valid_indices.append(idx)
+                job.save(update_fields=["molecules_processed", "invalid_molecules"])
+                continue
+        # Handle invalid cases
+        print(f"Invalid {'sequence' if not seq_valid else 'substrate'} at row {idx + 1}: {substrate if seq_valid else seq}")
+        invalid_indices.append(idx)
+        job.invalid_molecules += 1
         job.save(update_fields=["molecules_processed", "invalid_molecules"])
 
     # Update total predictions

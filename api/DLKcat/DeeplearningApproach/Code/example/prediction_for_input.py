@@ -264,6 +264,7 @@ def main() :
 
                     outfile.write('\t'.join(line_item)+'\n')
                 else :
+                    print(f"invalid SMILES: {smiles}")
                     Kcat_value = 'None'
                     smiles = 'None'
                     print('Warning: No SMILES found for', name)
