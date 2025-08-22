@@ -124,11 +124,16 @@ def run_model(
         df.to_csv(csv_out, index=False)
         # ------- 7. process results and credit back --------------------------
         try:
-            processed_rows = int((df[output_col] != "").sum())   # non-empty predictions
+            empty_rows = int((df[output_col] == "").sum())   # non-empty predictions
+            na_rows = int(df[output_col].isna().sum())
         except Exception:
-            processed_rows = 0 
+            empty_rows = int(job.requested_rows)
+            na_rows = 0
         # Credit back unused reactions
-        to_refund = max(0, int(job.requested_rows) - processed_rows)
+
+        to_refund = empty_rows + na_rows
+        to_refund = min(to_refund, int(job.requested_rows))
+        to_refund = max(0, to_refund)
         credit_back(job.ip_address, to_refund)
         # ------- 7. update job -------------------------------------------------
         job.output_file.name = os.path.relpath(csv_out, settings.MEDIA_ROOT)
