@@ -83,7 +83,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    command: celery -A webKinPred worker --loglevel=info --queues=webkinpred
+    command: celery -A webKinPred worker --loglevel=info --queues=webkinpred --concurrency=1
 
   celery-beat:
     build:

@@ -89,7 +89,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-    command: celery -A webKinPred worker --loglevel=info
+    command: celery -A webKinPred worker --loglevel=info --queues=webkinpred --concurrency=1
     healthcheck:
       test: ["CMD", "celery", "-A", "webKinPred", "inspect", "ping"]
       interval: 30s
