@@ -182,7 +182,6 @@ function SequenceSimilarityHistogram({ similarityData }) {
             <div className="col-md-auto mb-3 mb-md-0">
               <label className="form-label d-block mb-2 small text-white-50">Dataset</label>
               <div className="col-md-auto mb-3 mb-md-0">
-                            <label className="form-label d-block mb-2 small text-white-50">Dataset</label>
                             <div>
                               {models.map(model => (
                                 <button 
