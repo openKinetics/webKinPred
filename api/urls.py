@@ -1,8 +1,7 @@
 # api/urls.py
 from django.urls import path
-from .views import job_views, file_views, health_views, valid_inputs_views
-from .csrf import get_csrf
-
+from .views import job_views, file_views, health_views, progress_views, similarity_views, validation_views
+from .views.csrf_views import get_csrf
 
 urlpatterns = [
     path("health/", health_views.health_check, name="health_check"),
@@ -13,19 +12,19 @@ urlpatterns = [
         file_views.detect_csv_format,
         name="detect_csv_format",
     ),
-    path("validate-input/", valid_inputs_views.validate_input, name="validate-input"),
+    path("validate-input/", validation_views.validate_input, name="validate-input"),
+    path(
+        "cancel-validation/",
+        validation_views.cancel_validation,
+        name="cancel-validation",
+    ),
     path(
         "sequence-similarity-summary/",
-        valid_inputs_views.sequence_similarity_summary,
+        similarity_views.sequence_similarity_summary,
         name="sequence_similarity_summary",
     ),
     path(
-        "progress-stream/", valid_inputs_views.progress_stream, name="progress-stream"
-    ),
-    path(
-        "cancel-validation/",
-        valid_inputs_views.cancel_validation,
-        name="cancel-validation",
+        "progress-stream/", progress_views.progress_stream, name="progress-stream"
     ),
     path("csrf/", get_csrf, name="get-csrf"),
     path(

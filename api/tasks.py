@@ -14,10 +14,10 @@ except ImportError:
 from api.models import Job
 from api.utils.handle_long import get_valid_indices, truncate_sequences
 from api.utils.safe_read import safe_read_csv
-from api.dlkcat import dlkcat_predictions
-from api.turnup import turnup_predictions
-from api.eitlem import eitlem_predictions
-from api.unikp import unikp_predictions
+from api.prediction_engines.dlkcat import dlkcat_predictions
+from api.prediction_engines.turnup import turnup_predictions
+from api.prediction_engines.eitlem import eitlem_predictions
+from api.prediction_engines.unikp import unikp_predictions
 from api.utils.quotas import credit_back
 from api.utils.extra_info import build_extra_info, _source
 
@@ -450,10 +450,10 @@ def run_both_predictions(public_id, experimental_results=None):
     import os, pandas as pd
     from django.conf import settings
     from django.utils import timezone
-    from api.dlkcat import dlkcat_predictions
-    from api.turnup import turnup_predictions
-    from api.eitlem import eitlem_predictions
-    from api.unikp import unikp_predictions
+    from api.prediction_engines.dlkcat import dlkcat_predictions
+    from api.prediction_engines.turnup import turnup_predictions
+    from api.prediction_engines.eitlem import eitlem_predictions
+    from api.prediction_engines.unikp import unikp_predictions
     from api.utils.extra_info import build_extra_info, _source
     from api.utils.quotas import credit_back
 
