@@ -1,8 +1,10 @@
 import sys
+
 # sys.path.append("../../KCAT/DLKcat/Code/model/")
 # import model
 import torch
 import numpy as np
+
 # 加载数据集
 from Bio import SeqIO
 from rdkit.Chem import AllChem
@@ -15,45 +17,47 @@ from DLkcat_model import KcatPrediction
 
 
 def load_pickle(file_name):
-    with open(file_name, 'rb') as f:
+    with open(file_name, "rb") as f:
         return pickle.load(f)
 
-fingerprint_dict = load_pickle('../Data/DLkcat/fingerprint_dict.pickle')
-atom_dict = load_pickle('../Data/DLkcat/atom_dict.pickle')
-bond_dict = load_pickle('../Data/DLkcat/bond_dict.pickle')
-edge_dict = load_pickle('../Data/DLkcat/edge_dict.pickle')
-word_dict = load_pickle('../Data/DLkcat/sequence_dict.pickle')
+
+fingerprint_dict = load_pickle("../Data/DLkcat/fingerprint_dict.pickle")
+atom_dict = load_pickle("../Data/DLkcat/atom_dict.pickle")
+bond_dict = load_pickle("../Data/DLkcat/bond_dict.pickle")
+edge_dict = load_pickle("../Data/DLkcat/edge_dict.pickle")
+word_dict = load_pickle("../Data/DLkcat/sequence_dict.pickle")
 
 n_fingerprint = len(fingerprint_dict)
 n_word = len(word_dict)
 n_edge = len(edge_dict)
 
-radius=2
-ngram=3
-dim=10
-layer_gnn=3
-side=5
-window=11
-layer_cnn=3
-layer_output=3
-lr=1e-3
-lr_decay=0.5
-decay_interval=10
-weight_decay=1e-6
-device = torch.device('cuda:0')
+radius = 2
+ngram = 3
+dim = 10
+layer_gnn = 3
+side = 5
+window = 11
+layer_cnn = 3
+layer_output = 3
+lr = 1e-3
+lr_decay = 0.5
+decay_interval = 10
+weight_decay = 1e-6
+device = torch.device("cuda:0")
 
 
 def split_sequence(sequence, ngram):
-    sequence = '-' + sequence + '='
+    sequence = "-" + sequence + "="
     words = list()
-    for i in range(len(sequence)-ngram+1) :
-        try :
-            words.append(word_dict[sequence[i:i+ngram]])
-        except :
-            word_dict[sequence[i:i+ngram]] = 0
-            words.append(word_dict[sequence[i:i+ngram]])
+    for i in range(len(sequence) - ngram + 1):
+        try:
+            words.append(word_dict[sequence[i : i + ngram]])
+        except:
+            word_dict[sequence[i : i + ngram]] = 0
+            words.append(word_dict[sequence[i : i + ngram]])
 
     return np.array(words)
+
 
 def create_atoms(mol):
     """Create a list of atom (e.g., hydrogen and oxygen) IDs
@@ -63,10 +67,11 @@ def create_atoms(mol):
     # print(atoms)
     for a in mol.GetAromaticAtoms():
         i = a.GetIdx()
-        atoms[i] = (atoms[i], 'aromatic')
+        atoms[i] = (atoms[i], "aromatic")
     atoms = [atom_dict[a] for a in atoms]
 
     return np.array(atoms)
+
 
 def create_ijbonddict(mol):
     """Create a dictionary, which each key is a node ID
@@ -80,6 +85,7 @@ def create_ijbonddict(mol):
         i_jbond_dict[i].append((j, bond))
         i_jbond_dict[j].append((i, bond))
     return i_jbond_dict
+
 
 def extract_fingerprints(atoms, i_jbond_dict, radius):
     """Extract the r-radius subgraphs (i.e., fingerprints)
@@ -105,9 +111,9 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
                 fingerprint = (nodes[i], tuple(sorted(neighbors)))
                 # fingerprints.append(fingerprint_dict[fingerprint])
                 # fingerprints.append(fingerprint_dict.get(fingerprint))
-                try :
+                try:
                     fingerprints.append(fingerprint_dict[fingerprint])
-                except :
+                except:
                     fingerprint_dict[fingerprint] = 0
                     fingerprints.append(fingerprint_dict[fingerprint])
 
@@ -121,9 +127,9 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
                     both_side = tuple(sorted((nodes[i], nodes[j])))
                     # edge = edge_dict[(both_side, edge)]
                     # edge = edge_dict.get((both_side, edge))
-                    try :
+                    try:
                         edge = edge_dict[(both_side, edge)]
-                    except :
+                    except:
                         edge_dict[(both_side, edge)] = 0
                         edge = edge_dict[(both_side, edge)]
 
@@ -132,16 +138,20 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
 
     return np.array(fingerprints)
 
+
 def create_adjacency(mol):
     adjacency = Chem.GetAdjacencyMatrix(mol)
     return np.array(adjacency)
 
+
 def dump_dictionary(dictionary, filename):
-    with open(filename, 'wb') as file:
+    with open(filename, "wb") as file:
         pickle.dump(dict(dictionary), file)
 
+
 def load_tensor(file_name, dtype):
-    return [dtype(d).to(device) for d in np.load(file_name + '.npy', allow_pickle=True)]
+    return [dtype(d).to(device) for d in np.load(file_name + ".npy", allow_pickle=True)]
+
 
 class Predictor(object):
     def __init__(self, model):
@@ -151,13 +161,17 @@ class Predictor(object):
         with torch.no_grad():
             predicted_value = self.model.forward(data)
         return predicted_value
-    
+
+
 def getDlkcatPredictor(model_path):
-    Kcat_model = KcatPrediction(device, n_fingerprint, n_word, dim, layer_gnn, window, layer_cnn, layer_output).to(device)
+    Kcat_model = KcatPrediction(
+        device, n_fingerprint, n_word, dim, layer_gnn, window, layer_cnn, layer_output
+    ).to(device)
     Kcat_model.load_state_dict(torch.load(model_path, map_location=device))
     Kcat_model.eval()
     predictor = Predictor(Kcat_model)
     return predictor
+
 
 def dlkcatPredict(pairInfo, model_path):
     preValue = []
@@ -167,21 +181,21 @@ def dlkcatPredict(pairInfo, model_path):
     predictor = getDlkcatPredictor(model_path)
     for pair in tqdm(pairInfo):
         smiles = smilesIndex[pair[1]]
-        if '.' not in smiles:
+        if "." not in smiles:
             mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-            try :
+            try:
                 atoms = create_atoms(mol)
                 i_jbond_dict = create_ijbonddict(mol)
                 fingerprints = extract_fingerprints(atoms, i_jbond_dict, radius)
                 adjacency = create_adjacency(mol)
-                words = split_sequence(seqIndex[pair[0]],ngram)
+                words = split_sequence(seqIndex[pair[0]], ngram)
                 fingerprints = torch.LongTensor(fingerprints).to(device)
                 adjacency = torch.FloatTensor(adjacency).to(device)
                 words = torch.LongTensor(words).to(device)
                 inputs = [fingerprints, adjacency, words]
                 prediction = predictor.predict(inputs)
                 Kcat_log_value = prediction.item()
-                Kcat_value = math.pow(2,Kcat_log_value)
+                Kcat_value = math.pow(2, Kcat_log_value)
                 preValue.append(Kcat_value)
                 tarValue.append(pair[2])
             except:

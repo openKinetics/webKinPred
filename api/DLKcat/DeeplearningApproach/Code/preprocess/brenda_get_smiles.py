@@ -13,7 +13,7 @@ from multiprocessing.dummy import Pool
 from pubchempy import Compound, get_compounds
 
 
-# Small example: 
+# Small example:
 # results = get_compounds('aspirin', 'name')
 # for compound in results :
 #     print(compound.canonical_smiles)
@@ -37,12 +37,16 @@ from pubchempy import Compound, get_compounds
 
 name_smiles = dict()
 
+
 # One method to obtain SMILES by PubChem API using the website
 def get_smiles(name):
     # smiles = redis_cli.get(name)
     # if smiles is None:
-    try :
-        url = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/%s/property/CanonicalSMILES/TXT' % name
+    try:
+        url = (
+            "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/%s/property/CanonicalSMILES/TXT"
+            % name
+        )
         req = requests.get(url)
         if req.status_code != 200:
             smiles = None
@@ -52,13 +56,13 @@ def get_smiles(name):
         # redis_cli.set(name, smiles, ex=None)
 
         # print smiles
-    except :
+    except:
         smiles = None
 
     name_smiles[name] = smiles
 
 
-# Another method to retrieve SMILES by Pubchempy 
+# Another method to retrieve SMILES by Pubchempy
 # def get_smiles(name):
 #     time.sleep(0.5)
 #     results = get_compounds(name, 'name')
@@ -104,27 +108,29 @@ def get_smiles(name):
 
 # To test how many entries having SMILES for Sabio-RK database
 def main():
-    with open('../../Data/database/Kcat_brenda_smiles.json', 'r') as infile:
+    with open("../../Data/database/Kcat_brenda_smiles.json", "r") as infile:
         name_smiles = json.load(infile)
 
-    with open("../../Data/database/Kcat_brenda_clean.tsv", "r", encoding='utf-8') as file :
+    with open(
+        "../../Data/database/Kcat_brenda_clean.tsv", "r", encoding="utf-8"
+    ) as file:
         lines = file.readlines()[1:]
 
-    substrates = [line.strip().split('\t')[2] for line in lines]
+    substrates = [line.strip().split("\t")[2] for line in lines]
 
-    print(len(substrates)) # 52390
+    print(len(substrates))  # 52390
 
     substrate_smiles = list()
-    for substrate in substrates :
+    for substrate in substrates:
         # print(substrate)
         smiles = name_smiles[substrate]
         # print(smiles)
-        if smiles is not None :
+        if smiles is not None:
             # print(smiles)
             substrate_smiles.append(smiles)
 
     print(len(substrate_smiles))  # 34857 have SMILES
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

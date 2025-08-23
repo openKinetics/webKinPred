@@ -13,7 +13,7 @@ from multiprocessing.dummy import Pool
 from pubchempy import Compound, get_compounds
 
 
-# Small example: 
+# Small example:
 # results = get_compounds('aspirin', 'name')
 # for compound in results :
 #     print(compound.canonical_smiles)
@@ -37,12 +37,16 @@ from pubchempy import Compound, get_compounds
 
 name_smiles = dict()
 
+
 # One method to obtain SMILES by PubChem API using the website
 def get_smiles(name):
     # smiles = redis_cli.get(name)
     # if smiles is None:
-    try :
-        url = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/%s/property/CanonicalSMILES/TXT' % name
+    try:
+        url = (
+            "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/%s/property/CanonicalSMILES/TXT"
+            % name
+        )
         req = requests.get(url)
         if req.status_code != 200:
             smiles = None
@@ -52,13 +56,13 @@ def get_smiles(name):
         # redis_cli.set(name, smiles, ex=None)
 
         # print smiles
-    except :
+    except:
         smiles = None
 
     name_smiles[name] = smiles
 
 
-# Another method to retrieve SMILES by Pubchempy 
+# Another method to retrieve SMILES by Pubchempy
 # def get_smiles(name):
 #     time.sleep(0.5)
 #     results = get_compounds(name, 'name')
@@ -81,12 +85,14 @@ def main():
     #     names = json.load(f)
     #     print(len(names))
 
-    with open("../../Data/database/Kcat_sabio_clean_unisubstrate.tsv", "r", encoding='utf-8') as file :
+    with open(
+        "../../Data/database/Kcat_sabio_clean_unisubstrate.tsv", "r", encoding="utf-8"
+    ) as file:
         lines = file.readlines()[1:]
 
-    substrates = [line.strip().split('\t')[2] for line in lines]
+    substrates = [line.strip().split("\t")[2] for line in lines]
 
-    print(len(substrates)) # 18243
+    print(len(substrates))  # 18243
 
     names = list(set(substrates))
     print(len(names))  # 3100
@@ -98,7 +104,7 @@ def main():
     thread_pool = Pool(4)
     thread_pool.map(get_smiles, names)
 
-    with open('../../Data/database/Kcat_sabio_smiles.json', 'w') as outfile:
+    with open("../../Data/database/Kcat_sabio_smiles.json", "w") as outfile:
         json.dump(name_smiles, outfile, indent=2)
 
 
@@ -126,5 +132,5 @@ def main():
 #     print(len(substrate_smiles))  # 15218 have SMILES
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

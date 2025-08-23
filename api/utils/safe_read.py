@@ -1,6 +1,7 @@
 from api.utils.quotas import reserve_or_reject, credit_back
 import pandas as pd
 
+
 def safe_read_csv(file_path, ip_address, requested_rows):
     """
     read a csv file, if failes refund rows

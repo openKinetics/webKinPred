@@ -25,28 +25,31 @@ def smiles_to_vec(Smiles):
     eos_index = 2
     sos_index = 3
     mask_index = 4
-    vocab = WordVocab.load_vocab('vocab.pkl')
+    vocab = WordVocab.load_vocab("vocab.pkl")
+
     def get_inputs(sm):
         seq_len = 220
         sm = sm.split()
-        if len(sm)>218:
+        if len(sm) > 218:
             # print('SMILES is too long ({:d})'.format(len(sm)))
-            sm = sm[:109]+sm[-109:]
+            sm = sm[:109] + sm[-109:]
         ids = [vocab.stoi.get(token, unk_index) for token in sm]
         ids = [sos_index] + ids + [eos_index]
-        seg = [1]*len(ids)
-        padding = [pad_index]*(seq_len - len(ids))
+        seg = [1] * len(ids)
+        padding = [pad_index] * (seq_len - len(ids))
         ids.extend(padding), seg.extend(padding)
         return ids, seg
+
     def get_array(smiles):
         x_id, x_seg = [], []
         for sm in smiles:
-            a,b = get_inputs(sm)
+            a, b = get_inputs(sm)
             x_id.append(a)
             x_seg.append(b)
         return torch.tensor(x_id), torch.tensor(x_seg)
+
     trfm = TrfmSeq2seq(len(vocab), 256, len(vocab), 4)
-    trfm.load_state_dict(torch.load('trfm_12_23000.pkl'))
+    trfm.load_state_dict(torch.load("trfm_12_23000.pkl"))
     trfm.eval()
     x_split = [split(sm) for sm in Smiles]
     xid, xseg = get_array(x_split)
@@ -60,9 +63,9 @@ def Seq_to_vec(Sequence):
             Sequence[i] = Sequence[i][:500] + Sequence[i][-500:]
     sequences_Example = []
     for i in range(len(Sequence)):
-        zj = ''
+        zj = ""
         for j in range(len(Sequence[i]) - 1):
-            zj += Sequence[i][j] + ' '
+            zj += Sequence[i][j] + " "
         zj += Sequence[i][-1]
         sequences_Example.append(zj)
     tokenizer = T5Tokenizer.from_pretrained("prot_t5_xl_uniref50", do_lower_case=False)
@@ -70,23 +73,25 @@ def Seq_to_vec(Sequence):
     gc.collect()
     print(torch.cuda.is_available())
     # 'cuda:0' if torch.cuda.is_available() else
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model = model.eval()
     features = []
     for i in range(len(sequences_Example)):
-        print('For sequence ', str(i+1))
+        print("For sequence ", str(i + 1))
         sequences_Example_i = sequences_Example[i]
         sequences_Example_i = [re.sub(r"[UZOB]", "X", sequences_Example_i)]
-        ids = tokenizer.batch_encode_plus(sequences_Example_i, add_special_tokens=True, padding=True)
-        input_ids = torch.tensor(ids['input_ids']).to(device)
-        attention_mask = torch.tensor(ids['attention_mask']).to(device)
+        ids = tokenizer.batch_encode_plus(
+            sequences_Example_i, add_special_tokens=True, padding=True
+        )
+        input_ids = torch.tensor(ids["input_ids"]).to(device)
+        attention_mask = torch.tensor(ids["attention_mask"]).to(device)
         with torch.no_grad():
             embedding = model(input_ids=input_ids, attention_mask=attention_mask)
         embedding = embedding.last_hidden_state.cpu().numpy()
         for seq_num in range(len(embedding)):
             seq_len = (attention_mask[seq_num] == 1).sum()
-            seq_emd = embedding[seq_num][:seq_len - 1]
+            seq_emd = embedding[seq_num][: seq_len - 1]
             features.append(seq_emd)
     features_normalize = np.zeros([len(features), len(features[0][0])], dtype=float)
     for i in range(len(features)):
@@ -97,11 +102,20 @@ def Seq_to_vec(Sequence):
     return features_normalize
 
 
-def Kcat_predict(Ifeature, Label, sequence_new, Smiles_new, ECNumber_new, Organism_new, Substrate_new, Type_new):
+def Kcat_predict(
+    Ifeature,
+    Label,
+    sequence_new,
+    Smiles_new,
+    ECNumber_new,
+    Organism_new,
+    Substrate_new,
+    Type_new,
+):
     for i in range(10):
         # Generate training or test set index
         ALL_index = [j for j in range(len(Ifeature))]
-        train_index = np.array(random.sample(ALL_index, int(len(ALL_index)*0.9)))
+        train_index = np.array(random.sample(ALL_index, int(len(ALL_index) * 0.9)))
         Training_or_test = []
         for j in range(len(ALL_index)):
             if ALL_index[j] in train_index:
@@ -113,24 +127,34 @@ def Kcat_predict(Ifeature, Label, sequence_new, Smiles_new, ECNumber_new, Organi
         model = ExtraTreesRegressor()
         model.fit(Train_data, Train_label)
         Pre_all_label = model.predict(Ifeature)
-        res = pd.DataFrame({'sequence': sequence_new, 'smiles': Smiles_new, 'ECNumber': ECNumber_new,
-                            'Organism': Organism_new, 'Substrate': Substrate_new, 'Type': Type_new,
-                            'Label': Label, 'Predict_Label': Pre_all_label, 'Training or test': Training_or_test})
-        res.to_excel('PreKcat_new/'+str(i+1)+'_all_samples_metrics.xlsx')
+        res = pd.DataFrame(
+            {
+                "sequence": sequence_new,
+                "smiles": Smiles_new,
+                "ECNumber": ECNumber_new,
+                "Organism": Organism_new,
+                "Substrate": Substrate_new,
+                "Type": Type_new,
+                "Label": Label,
+                "Predict_Label": Pre_all_label,
+                "Training or test": Training_or_test,
+            }
+        )
+        res.to_excel("PreKcat_new/" + str(i + 1) + "_all_samples_metrics.xlsx")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Dataset Load
-    with open('Kcat_combination_0918_wildtype_mutant.json', 'r') as file:
+    with open("Kcat_combination_0918_wildtype_mutant.json", "r") as file:
         datasets = json.load(file)
     # print(len(datasets))
-    sequence = [data['Sequence'] for data in datasets]
-    Smiles = [data['Smiles'] for data in datasets]
-    Label = [float(data['Value']) for data in datasets]
-    ECNumber = [data['ECNumber'] for data in datasets]
-    Organism = [data['Organism'] for data in datasets]
-    Substrate = [data['Substrate'] for data in datasets]
-    Type = [data['Type'] for data in datasets]
+    sequence = [data["Sequence"] for data in datasets]
+    Smiles = [data["Smiles"] for data in datasets]
+    Label = [float(data["Value"]) for data in datasets]
+    ECNumber = [data["ECNumber"] for data in datasets]
+    Organism = [data["Organism"] for data in datasets]
+    Substrate = [data["Substrate"] for data in datasets]
+    Type = [data["Type"] for data in datasets]
     for i in range(len(Label)):
         if Label[i] == 0:
             Label[i] = -10000000000
@@ -154,7 +178,7 @@ if __name__ == '__main__':
     Substrate_new = []
     Type_new = []
     for i in range(len(Label)):
-        if -10000000000 < Label[i] and '.' not in Smiles[i]:
+        if -10000000000 < Label[i] and "." not in Smiles[i]:
             feature_new.append(feature[i])
             Label_new.append(Label[i])
             sequence_new.append(sequence[i])
@@ -167,6 +191,13 @@ if __name__ == '__main__':
     Label_new = np.array(Label_new)
     feature_new = np.array(feature_new)
     # Modelling
-    Kcat_predict(feature_new, Label_new, sequence_new, Smiles_new, ECNumber_new,
-                Organism_new, Substrate_new, Type_new)
-
+    Kcat_predict(
+        feature_new,
+        Label_new,
+        sequence_new,
+        Smiles_new,
+        ECNumber_new,
+        Organism_new,
+        Substrate_new,
+        Type_new,
+    )

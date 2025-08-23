@@ -15,11 +15,14 @@ edge_dict = defaultdict(lambda: len(edge_dict))
 
 
 def split_sequence(sequence, ngram):
-    sequence = '-' + sequence + '='
+    sequence = "-" + sequence + "="
     # print(sequence)
-    words = [word_dict[sequence[i:i+ngram]] for i in range(len(sequence)-ngram+1)]
+    words = [
+        word_dict[sequence[i : i + ngram]] for i in range(len(sequence) - ngram + 1)
+    ]
     return np.array(words)
     # return word_dict
+
 
 def create_atoms(mol):
     """Create a list of atom (e.g., hydrogen and oxygen) IDs
@@ -29,9 +32,10 @@ def create_atoms(mol):
     # print(atoms)
     for a in mol.GetAromaticAtoms():
         i = a.GetIdx()
-        atoms[i] = (atoms[i], 'aromatic')
+        atoms[i] = (atoms[i], "aromatic")
     atoms = [atom_dict[a] for a in atoms]
     return np.array(atoms)
+
 
 def create_ijbonddict(mol):
     """Create a dictionary, which each key is a node ID
@@ -45,6 +49,7 @@ def create_ijbonddict(mol):
         i_jbond_dict[i].append((j, bond))
         i_jbond_dict[j].append((i, bond))
     return i_jbond_dict
+
 
 def extract_fingerprints(atoms, i_jbond_dict, radius):
     """Extract the r-radius subgraphs (i.e., fingerprints)
@@ -83,20 +88,23 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
 
     return np.array(fingerprints)
 
+
 def create_adjacency(mol):
     adjacency = Chem.GetAdjacencyMatrix(mol)
     return np.array(adjacency)
 
+
 def dump_dictionary(dictionary, filename):
-    with open(filename, 'wb') as file:
+    with open(filename, "wb") as file:
         pickle.dump(dict(dictionary), file)
+
 
 def main():
     train_info = torch.load("../Data/KCAT/KCATTrainPairInfo")
     test_info = torch.load("../Data/KCAT/KCATTestPairInfo")
     index_seq = torch.load("../Data/Feature/index_seq")
     index_smiles = torch.load("../Data/Feature/index_smiles")
-    
+
     radius = 2
     ngram = 3
 
@@ -105,12 +113,12 @@ def main():
         proteins = list()
         compounds = list()
         adjacencies = list()
-        regression =list()
-        for info in dataset_info :
+        regression = list()
+        for info in dataset_info:
             smiles = index_smiles[info[1]]
             sequence = index_seq[info[0]]
             Kcat = info[2]
-            if '.' not in smiles and Kcat > 0:
+            if "." not in smiles and Kcat > 0:
                 mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
                 atoms = create_atoms(mol)
                 i_jbond_dict = create_ijbonddict(mol)
@@ -121,17 +129,17 @@ def main():
                 words = split_sequence(sequence, ngram)
                 proteins.append(words)
                 regression.append(np.array([math.log2(float(Kcat))]))
-        torch.save(compounds, '../Data/DLkcat/'+f'compounds-{idx}')
-        torch.save(adjacencies, '../Data/DLkcat/'+f'adjacencies-{idx}')
-        torch.save(regression, '../Data/DLkcat/'+f'regression-{idx}')
-        torch.save(proteins, '../Data/DLkcat/'+f'proteins-{idx}')
+        torch.save(compounds, "../Data/DLkcat/" + f"compounds-{idx}")
+        torch.save(adjacencies, "../Data/DLkcat/" + f"adjacencies-{idx}")
+        torch.save(regression, "../Data/DLkcat/" + f"regression-{idx}")
+        torch.save(proteins, "../Data/DLkcat/" + f"proteins-{idx}")
 
-    dump_dictionary(fingerprint_dict, '../Data/DLkcat/fingerprint_dict.pickle')
-    dump_dictionary(atom_dict, '../Data/DLkcat/atom_dict.pickle')
-    dump_dictionary(bond_dict, '../Data/DLkcat/bond_dict.pickle')
-    dump_dictionary(edge_dict, '../Data/DLkcat/edge_dict.pickle')
-    dump_dictionary(word_dict, '../Data/DLkcat/sequence_dict.pickle')
+    dump_dictionary(fingerprint_dict, "../Data/DLkcat/fingerprint_dict.pickle")
+    dump_dictionary(atom_dict, "../Data/DLkcat/atom_dict.pickle")
+    dump_dictionary(bond_dict, "../Data/DLkcat/bond_dict.pickle")
+    dump_dictionary(edge_dict, "../Data/DLkcat/edge_dict.pickle")
+    dump_dictionary(word_dict, "../Data/DLkcat/sequence_dict.pickle")
 
 
-if __name__ == '__main__' :
+if __name__ == "__main__":
     main()

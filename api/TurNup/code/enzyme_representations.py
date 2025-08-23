@@ -8,17 +8,20 @@ from os.path import join
 import subprocess
 
 # Use environment variables to determine paths
-data_dir = os.environ.get('TURNUP_MEDIA_PATH', '/home/saleh/webKinPred') + '/../api/TurNup/data'
-if os.environ.get('TURNUP_MEDIA_PATH'):
+data_dir = (
+    os.environ.get("TURNUP_MEDIA_PATH", "/home/saleh/webKinPred")
+    + "/../api/TurNup/data"
+)
+if os.environ.get("TURNUP_MEDIA_PATH"):
     # Docker environment
-    data_dir = '/app/api/TurNup/data'
-    SEQ_VEC_DIR = os.environ.get('TURNUP_MEDIA_PATH') + "/sequence_info/esm1b_turnup"
+    data_dir = "/app/api/TurNup/data"
+    SEQ_VEC_DIR = os.environ.get("TURNUP_MEDIA_PATH") + "/sequence_info/esm1b_turnup"
     SEQMAP_PY = sys.executable  # Use current Python interpreter in Docker
-    SEQMAP_CLI = os.environ.get('TURNUP_TOOLS_PATH') + "/seqmap/main.py"
-    SEQMAP_DB = os.environ.get('TURNUP_MEDIA_PATH') + "/sequence_info/seqmap.sqlite3"
+    SEQMAP_CLI = os.environ.get("TURNUP_TOOLS_PATH") + "/seqmap/main.py"
+    SEQMAP_DB = os.environ.get("TURNUP_MEDIA_PATH") + "/sequence_info/seqmap.sqlite3"
 else:
     # Local environment
-    data_dir = '/home/saleh/webKinPred/api/TurNup/data'
+    data_dir = "/home/saleh/webKinPred/api/TurNup/data"
     SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/esm1b_turnup"
     SEQMAP_PY = "/home/saleh/webKinPredEnv/bin/python"
     SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"
@@ -28,45 +31,65 @@ aa = set("abcdefghiklmnpqrstxvwyzv".upper())
 
 os.makedirs(SEQ_VEC_DIR, exist_ok=True)
 
+
 def resolve_seq_ids_via_cli(sequences):
     """Resolve IDs for all sequences in order (increments uses_count per occurrence)."""
     payload = "\n".join(sequences) + "\n"
     cmd = [SEQMAP_PY, SEQMAP_CLI, "--db", SEQMAP_DB, "batch-get-or-create", "--stdin"]
-    proc = subprocess.run(cmd, input=payload, text=True,
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(
+        cmd, input=payload, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     if proc.returncode != 0:
-        raise RuntimeError(f"seqmap CLI failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        raise RuntimeError(
+            f"seqmap CLI failed (rc={proc.returncode})\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
     ids = proc.stdout.strip().splitlines()
     if len(ids) != len(sequences):
-        raise RuntimeError(f"seqmap returned {len(ids)} ids for {len(sequences)} sequences")
+        raise RuntimeError(
+            f"seqmap returned {len(ids)} ids for {len(sequences)} sequences"
+        )
     return ids
+
 
 def validate_enzyme(seq, alphabet=aa):
     "Checks that a sequence only contains values from an alphabet"
     leftover = set(seq.upper()) - alphabet
     return not leftover
 
+
 def load_esm1b_model():
     """Load ESM1b model once and return model and batch_converter"""
     print("Loading ESM1b model...")
     model_location = join(data_dir, "saved_models", "ESM1b", "esm1b_t33_650M_UR50S.pt")
-    model_data = torch.load(model_location, map_location='cpu')
+    model_data = torch.load(model_location, map_location="cpu")
     regression_location = model_location[:-3] + "-contact-regression.pt"
-    regression_data = torch.load(regression_location, map_location='cpu')
-    model, alphabet = esm.pretrained.load_model_and_alphabet_core(model_data, regression_data)
+    regression_data = torch.load(regression_location, map_location="cpu")
+    model, alphabet = esm.pretrained.load_model_and_alphabet_core(
+        model_data, regression_data
+    )
     model.eval()
 
     batch_converter = alphabet.get_batch_converter()
-    PATH = join(data_dir, "saved_models", "ESM1b", 'model_ESM_binary_A100_epoch_1_new_split.pkl')
-    model_dict = torch.load(PATH, map_location='cpu')
+    PATH = join(
+        data_dir, "saved_models", "ESM1b", "model_ESM_binary_A100_epoch_1_new_split.pkl"
+    )
+    model_dict = torch.load(PATH, map_location="cpu")
     model_dict_V2 = {k.split("model.")[-1]: v for k, v in model_dict.items()}
-    for key in ["module.fc1.weight", "module.fc1.bias", "module.fc2.weight", "module.fc2.bias", "module.fc3.weight", "module.fc3.bias"]:
+    for key in [
+        "module.fc1.weight",
+        "module.fc1.bias",
+        "module.fc2.weight",
+        "module.fc2.bias",
+        "module.fc3.weight",
+        "module.fc3.bias",
+    ]:
         if key in model_dict_V2:
             del model_dict_V2[key]
     model.load_state_dict(model_dict_V2)
     print("ESM1b model loaded successfully!")
-    
+
     return model, batch_converter
+
 
 def calcualte_esm1b_ts_vectors(enzyme_list, esm_model=None, batch_converter=None):
     """
@@ -82,12 +105,12 @@ def calcualte_esm1b_ts_vectors(enzyme_list, esm_model=None, batch_converter=None
 
     # Resolve IDs in a single call (updates uses_count & last_seen_at)
     seqs = df_enzyme["model_input"].tolist()
-    ids  = resolve_seq_ids_via_cli(seqs)
+    ids = resolve_seq_ids_via_cli(seqs)
     df_enzyme["ID"] = ids
 
     for ind in df_enzyme.index:
         seq_id = df_enzyme.at[ind, "ID"]
-        seq    = df_enzyme.at[ind, "model_input"]
+        seq = df_enzyme.at[ind, "model_input"]
 
         vec_path = os.path.join(SEQ_VEC_DIR, f"{seq_id}.npy")
         if os.path.exists(vec_path):
@@ -102,7 +125,9 @@ def calcualte_esm1b_ts_vectors(enzyme_list, esm_model=None, batch_converter=None
             print(f"Embedding {len(sequences_to_embed)} new sequences...")
             esm_model, batch_converter = load_esm1b_model()
         else:
-            print(f"Embedding {len(sequences_to_embed)} new sequences using pre-loaded model...")
+            print(
+                f"Embedding {len(sequences_to_embed)} new sequences using pre-loaded model..."
+            )
 
         for i, (seq_id, seq) in enumerate(sequences_to_embed):
             if not validate_enzyme(seq):
@@ -116,11 +141,12 @@ def calcualte_esm1b_ts_vectors(enzyme_list, esm_model=None, batch_converter=None
 
     return df_enzyme
 
+
 def preprocess_enzymes(enzyme_list):
     # If you want per-occurrence counting in uses_count, remove the set():
     # df_enzyme = pd.DataFrame(data={"amino acid sequence": list(enzyme_list)})
-    df_enzyme = pd.DataFrame(data = {"amino acid sequence" : list(set(enzyme_list))})
+    df_enzyme = pd.DataFrame(data={"amino acid sequence": list(set(enzyme_list))})
     df_enzyme["ID"] = ["protein_" + str(ind) for ind in df_enzyme.index]
     # if length of sequence is longer than 1020 amino acids, we crop it:
     df_enzyme["model_input"] = [seq[:1022] for seq in df_enzyme["amino acid sequence"]]
-    return(df_enzyme)
+    return df_enzyme

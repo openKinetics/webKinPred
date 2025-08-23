@@ -15,6 +15,7 @@ from torch.cuda.amp import GradScaler
 from torch import autocast
 import re
 import random
+
 scaler = GradScaler()
 
 
@@ -45,7 +46,7 @@ class Tester(object):
             MAE = np.abs(testY - testPredict).sum() / N
             rmse = np.sqrt(mean_squared_error(testY, testPredict))
             r2 = r2_score(testY, testPredict)
-            return MAE, rmse, r2, loss_total/N
+            return MAE, rmse, r2, loss_total / N
 
     def save_model(self, model, file_path):
         torch.save(model.state_dict(), file_path)
@@ -53,11 +54,13 @@ class Tester(object):
             os.remove(self.saved_file_path)
         self.saved_file_path = file_path
 
+
 class Trainer(object):
     def __init__(self, device, loss_fn, log10=False):
         self.device = device
         self.loss_fn = loss_fn
         self.log10 = log10
+
     def run(self, model, loader, optimizer, N, desc):
         model.train()
         loss_train = 0
@@ -66,14 +69,14 @@ class Trainer(object):
         for data in tqdm(loader, desc=desc, leave=False):
             i += 1
             optimizer.zero_grad()
-#             with autocast(device_type='cuda', dtype=torch.float16):
+            #             with autocast(device_type='cuda', dtype=torch.float16):
             pre_value = model(data.to(self.device))
             loss = self.loss_fn(pre_value, data.value)
-#             scaler.scale(loss).backward()
+            #             scaler.scale(loss).backward()
             loss.backward()
-#             scaler.step(optimizer)
+            #             scaler.step(optimizer)
             optimizer.step()
-#             scaler.update()
+            #             scaler.update()
             loss_train += loss.item()
             testY.extend(data.value.cpu().tolist())
             testPredict.extend(pre_value.cpu().tolist())
@@ -86,19 +89,23 @@ class Trainer(object):
         train_MAE = np.abs(testY - testPredict).sum() / N
         train_rmse = np.sqrt(mean_squared_error(testY, testPredict))
         train_r2 = r2_score(testY, testPredict)
-        return train_MAE, train_rmse, train_r2, loss_train/N
+        return train_MAE, train_rmse, train_r2, loss_train / N
+
 
 def get_pair_info(dataset_path, Type, infer=True):
     train_pair = torch.load(os.path.join(dataset_path, Type, f"{Type}TrainPairInfo"))
     test_pair = torch.load(os.path.join(dataset_path, Type, f"{Type}TestPairInfo"))
     if infer:
         extra_info = torch.load(os.path.join(dataset_path, Type, f"extraInfo"))
-        train_pair.extend(extra_info[:int(0.9*len(extra_info))])
-        test_pair.extend(extra_info[int(0.9*len(extra_info)):])
+        train_pair.extend(extra_info[: int(0.9 * len(extra_info))])
+        test_pair.extend(extra_info[int(0.9 * len(extra_info)) :])
     return train_pair, test_pair
-    
+
+
 def fold_test_split(dataset_path, Type, fold):
-    pair_info = torch.load(os.path.join(dataset_path, Type, f"{Type}TrainPairInfo")) + torch.load(os.path.join(dataset_path, Type, f"{Type}TestPairInfo"))
+    pair_info = torch.load(
+        os.path.join(dataset_path, Type, f"{Type}TrainPairInfo")
+    ) + torch.load(os.path.join(dataset_path, Type, f"{Type}TestPairInfo"))
     n = len(pair_info) // 5
-    test_set = pair_info[fold*n:(fold+1)*n]
-    return pair_info[0:fold*n] + pair_info[(fold+1)*n:], test_set
+    test_set = pair_info[fold * n : (fold + 1) * n]
+    return pair_info[0 : fold * n] + pair_info[(fold + 1) * n :], test_set

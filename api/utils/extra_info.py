@@ -7,12 +7,14 @@ Utility for turning an experimental-lookup dict into the
 
 from typing import Any
 
+
 # ------------------------------------------------------------------
 # internal helpers
 # ------------------------------------------------------------------
 def _nullish(v: Any) -> bool:
     """True if *v* counts as 'not provided'."""
     return v is None or str(v).strip().lower() in {"", "nan", "none", "-"}
+
 
 def _source(exp: dict) -> str:
     """Return BRENDA / Sabio-RK / UniProt or 'Experimental' as fallback."""
@@ -24,10 +26,13 @@ def _source(exp: dict) -> str:
         return "UniProt"
     return "Experimental"
 
+
 # ------------------------------------------------------------------
 # public function
 # ------------------------------------------------------------------
-def build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key: str = '') -> str:
+def build_extra_info(
+    exp: dict, param_type: str, prediction: str = "", model_key: str = ""
+) -> str:
     """
     Parameters
     ----------
@@ -49,9 +54,9 @@ def build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key
     if not exp.get("found"):
         return ""
 
-    src     = _source(exp)
+    src = _source(exp)
     prot_id = exp.get("protein_ID", "unknown ID")
-    parts   = [f"This is reported in {src} for protein {prot_id}"]
+    parts = [f"This is reported in {src} for protein {prot_id}"]
 
     # protein type / mutation
     descr_bits = []
@@ -59,9 +64,9 @@ def build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key
         descr_bits.append(str(exp["protein_type"]))
     if not _nullish(exp.get("mutation")):
         mutation = exp["mutation"]
-        if 'mutant' in mutation.lower():
+        if "mutant" in mutation.lower():
             # remove 'mutant' from the description
-            mutation = mutation.replace('mutant', '').strip()
+            mutation = mutation.replace("mutant", "").strip()
         descr_bits.append(str(mutation))
     if descr_bits:
         parts[-1] += f" ({' '.join(descr_bits)})"
@@ -75,21 +80,22 @@ def build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key
         parts.append(f"Standard deviation is {sd_val}")
 
     # full reaction, if both sides available
-    if not _nullish(exp.get("all_substrates")) and not _nullish(exp.get("all_products")):
+    if not _nullish(exp.get("all_substrates")) and not _nullish(
+        exp.get("all_products")
+    ):
         parts.append(
-            "Full reaction is:\n"
-            f"{exp['all_substrates']} --> {exp['all_products']}"
+            "Full reaction is:\n" f"{exp['all_substrates']} --> {exp['all_products']}"
         )
 
     # temperature / pH
     temp = None if _nullish(exp.get("temperature")) else exp["temperature"]
-    ph   = None if _nullish(exp.get("ph"))         else exp["ph"]
+    ph = None if _nullish(exp.get("ph")) else exp["ph"]
     if temp is not None or ph is not None:
-        t_str  = f"temperature {temp}" if temp is not None else ""
-        ph_str = f"pH {ph}"            if ph   is not None else ""
-        conj   = " and " if t_str and ph_str else ""
+        t_str = f"temperature {temp}" if temp is not None else ""
+        ph_str = f"pH {ph}" if ph is not None else ""
+        conj = " and " if t_str and ph_str else ""
         parts.append(f"at {t_str}{conj}{ph_str}".strip())
-    
+
     # prediction value
     if prediction:
         parts.append(f"Prediction by {model_key} is {prediction}")

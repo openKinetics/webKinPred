@@ -2,6 +2,7 @@ import os, json
 import pandas as pd
 from pathlib import Path
 from rdkit import Chem, rdBase
+
 try:
     from webKinPred.config_docker import KM_CSV, KCAT_CSV
 except ImportError:
@@ -9,10 +10,11 @@ except ImportError:
 
 blocker = rdBase.BlockLogs()
 
+
 def smiles_to_inchi(smiles: str) -> str | None:
     if type(smiles) is not str:
         return None
-    if 'InChI=' in smiles:
+    if "InChI=" in smiles:
         return smiles
     try:
         mol = Chem.MolFromSmiles(smiles)
@@ -22,9 +24,10 @@ def smiles_to_inchi(smiles: str) -> str | None:
         return None
     return Chem.MolToInchi(mol) if mol else None
 
-def lookup_experimental(prot_seqs: str,
-                        substrates: str,
-                        param_type: str = "Km") -> dict:
+
+def lookup_experimental(
+    prot_seqs: str, substrates: str, param_type: str = "Km"
+) -> dict:
     """
     Quick lookup of one experimental datum.
 
@@ -62,18 +65,18 @@ def lookup_experimental(prot_seqs: str,
             all_results.append(res_km)
         return all_results
 
-    df   = (pd.read_csv(csv_path))
-    
+    df = pd.read_csv(csv_path)
+
     results = []
     for idx, (prot_seq, substrate) in enumerate(zip(prot_seqs, substrates)):
         substrate_inchi = smiles_to_inchi(substrate)
-        if substrate_inchi is None or 'InChI=' not in substrate_inchi:
-            results.append({'found': False, 'idx': idx})
+        if substrate_inchi is None or "InChI=" not in substrate_inchi:
+            results.append({"found": False, "idx": idx})
             continue
-        df_subset = df[df['substrate_inchi'] == substrate_inchi]
-        df_subset = df_subset[df_subset['protein_sequence'] == prot_seq]
+        df_subset = df[df["substrate_inchi"] == substrate_inchi]
+        df_subset = df_subset[df_subset["protein_sequence"] == prot_seq]
         if df_subset.empty:
-            results.append({'found': False, 'idx': idx})
+            results.append({"found": False, "idx": idx})
             continue
 
         row = df_subset.iloc[0]  # Get the first matching row
@@ -81,7 +84,7 @@ def lookup_experimental(prot_seqs: str,
             row = row.iloc[0]
 
         result = row.to_dict()
-        result['found'] = True
-        result['idx'] = idx  
+        result["found"] = True
+        result["idx"] = idx
         results.append(result)
     return results

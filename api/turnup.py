@@ -8,6 +8,7 @@ from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job  # Import the Job model to update progress
 from webKinPred.settings import MEDIA_ROOT
 import numpy as np
+
 try:
     from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
 except ImportError:
@@ -16,6 +17,7 @@ except ImportError:
     except ImportError:
         PYTHON_PATHS = {}
         PREDICTION_SCRIPTS = {}
+
 
 def turnup_predictions(sequences, substrates, products, public_id, protein_ids=None):
     """
@@ -46,26 +48,29 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
     job.molecules_processed = 0
     job.invalid_molecules = 0
     job.predictions_made = 0
-    job.save(update_fields=["molecules_processed", "invalid_molecules", "predictions_made"])
+    job.save(
+        update_fields=["molecules_processed", "invalid_molecules", "predictions_made"]
+    )
 
     total_molecules = len(sequences)
     job.total_molecules = total_molecules
     job.save(update_fields=["total_molecules"])
 
     # Define paths
-    python_path = PYTHON_PATHS['TurNup']
-    prediction_script = PREDICTION_SCRIPTS['TurNup']
-    job_dir = os.path.join(MEDIA_ROOT, 'jobs/'+str(public_id))
+    python_path = PYTHON_PATHS["TurNup"]
+    prediction_script = PREDICTION_SCRIPTS["TurNup"]
+    job_dir = os.path.join(MEDIA_ROOT, "jobs/" + str(public_id))
 
-    input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
-    output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
+    input_temp_file = os.path.join(job_dir, f"input_{public_id}.csv")
+    output_temp_file = os.path.join(job_dir, f"output_{public_id}.csv")
 
     # Set environment variables for the subprocess to use Docker-compatible paths
     env = os.environ.copy()
     try:
         from webKinPred.config_docker import DATA_PATHS
-        env['TURNUP_MEDIA_PATH'] = DATA_PATHS['media']
-        env['TURNUP_TOOLS_PATH'] = DATA_PATHS['tools']
+
+        env["TURNUP_MEDIA_PATH"] = DATA_PATHS["media"]
+        env["TURNUP_TOOLS_PATH"] = DATA_PATHS["tools"]
     except (ImportError, KeyError):
         # If not using Docker config, don't set environment variables
         pass
@@ -75,15 +80,15 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
     subs_inchis = []
     prods_inchis = []
     valid_sequences = []
-    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
+    alphabet = set("ACDEFGHIKLMNPQRSTVWY")
     predictions = [None] * total_molecules  # Initialize with None
 
     # Process reactions and update progress
     for idx, (seq, sub, prod) in enumerate(zip(sequences, substrates, products)):
         job.molecules_processed += 1
 
-        sub_list = sub.split(';')
-        prod_list = prod.split(';')
+        sub_list = sub.split(";")
+        prod_list = prod.split(";")
         sub_mols = [convert_to_mol(s.strip()) for s in sub_list]
         prod_mols = [convert_to_mol(p.strip()) for p in prod_list]
         seq_valid = all(c in alphabet for c in seq)
@@ -93,8 +98,8 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
             job.invalid_molecules += 1
         else:
             # Convert mols to InChIs
-            sub_inchi = ';'.join(Chem.MolToInchi(mol) for mol in sub_mols)
-            prod_inchi = ';'.join(Chem.MolToInchi(mol) for mol in prod_mols)
+            sub_inchi = ";".join(Chem.MolToInchi(mol) for mol in sub_mols)
+            prod_inchi = ";".join(Chem.MolToInchi(mol) for mol in prod_mols)
 
             subs_inchis.append(sub_inchi)
             prods_inchis.append(prod_inchi)
@@ -110,11 +115,13 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
 
     # Prepare DataFrame for valid entries
     if valid_indices:
-        df_input = pd.DataFrame({
-            'Substrates': subs_inchis,
-            'Products': prods_inchis,
-            'Protein Sequence': valid_sequences
-        })
+        df_input = pd.DataFrame(
+            {
+                "Substrates": subs_inchis,
+                "Products": prods_inchis,
+                "Protein Sequence": valid_sequences,
+            }
+        )
         df_input.to_csv(input_temp_file, index=False)
     else:
         df_input = pd.DataFrame()
@@ -128,11 +135,11 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                env=env  # Pass environment variables
+                env=env,  # Pass environment variables
             )
 
             # Read stdout line by line
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 if not line:
                     break
                 # Process the line
@@ -144,13 +151,15 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
                     if len(parts) >= 2:
                         try:
                             progress = parts[1]
-                            predictions_made, total_predictions = progress.split('/')
+                            predictions_made, total_predictions = progress.split("/")
                             predictions_made = int(predictions_made)
                             total_predictions = int(total_predictions)
                             # Update the job object
                             job.predictions_made = predictions_made
                             job.total_predictions = total_predictions
-                            job.save(update_fields=["predictions_made", "total_predictions"])
+                            job.save(
+                                update_fields=["predictions_made", "total_predictions"]
+                            )
                         except Exception as e:
                             print("Error parsing progress update:", e)
                 else:
@@ -162,19 +171,25 @@ def turnup_predictions(sequences, substrates, products, public_id, protein_ids=N
 
             if process.returncode != 0:
                 # An error occurred - check if it's memory-related
-                if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
-                    raise subprocess.CalledProcessError(process.returncode, process.args, "Process killed by OOM killer")
+                if (
+                    process.returncode == -9 or process.returncode == 137
+                ):  # SIGKILL (OOM killer)
+                    raise subprocess.CalledProcessError(
+                        process.returncode, process.args, "Process killed by OOM killer"
+                    )
                 else:
-                    raise subprocess.CalledProcessError(process.returncode, process.args)
+                    raise subprocess.CalledProcessError(
+                        process.returncode, process.args
+                    )
 
             # Read the output file
             df_output = pd.read_csv(output_temp_file)
-            predicted_values = df_output['kcat [s^(-1)]'].tolist()
+            predicted_values = df_output["kcat [s^(-1)]"].tolist()
 
             # Merge predictions back into the original order
             for idx_in_valid_list, pred in enumerate(predicted_values):
                 idx = valid_indices[idx_in_valid_list]
-                if pred in ['None', '', np.nan, 'nan']:
+                if pred in ["None", "", np.nan, "nan"]:
                     predictions[idx] = None
                 else:
                     predictions[idx] = pred

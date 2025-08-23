@@ -37,6 +37,7 @@ COMMON_LABELS = [
     (re.compile(r"\bpref_\d+\b"), "[PREF_DB]"),
 ]
 
+
 def _normalise_target_db_refs(line: str, target_dbs: Dict[str, str] | None) -> str:
     """
     Replace any known target DB paths (and their basenames) with friendly labels:
@@ -64,27 +65,27 @@ def sanitise_log_line(line: str, target_dbs: Dict[str, str] | None = None) -> st
     """
     # 1) Normalise target DBs to friendly labels
     line = _normalise_target_db_refs(line, target_dbs)
-    
+
     # 2) Normalize Docker container paths to friendly labels
     line = re.sub(r"/app/media/sequence_info", "[MEDIA_SEQUENCE_INFO]", line)
     line = re.sub(r"/app/media", "[MEDIA]", line)
     line = re.sub(r"/app/staticfiles", "[STATICFILES]", line)
     line = re.sub(r"/app/mmseqs_tmp", "[MMSEQS_TMP]", line)
     line = re.sub(r"/app", "[APP]", line)
-    
+
     # 3) Apply temporary path patterns (most specific first)
     for pattern, replacement in RE_TMP_PATTERNS:
         line = pattern.sub(replacement, line)
-    
+
     # 4) Apply common labels for remaining patterns
     for regex, replacement in COMMON_LABELS:
         line = regex.sub(replacement, line)
-    
+
     # 5) General path patterns
-    line = RE_CONDA.sub("[CONDA]", line)          # conda binary path
-    line = RE_APP_ROOT.sub("[APP_ROOT]", line)    # project root
-    line = RE_HOME.sub("[HOME]", line)            # any /home/<user>
-    
+    line = RE_CONDA.sub("[CONDA]", line)  # conda binary path
+    line = RE_APP_ROOT.sub("[APP_ROOT]", line)  # project root
+    line = RE_HOME.sub("[HOME]", line)  # any /home/<user>
+
     # 6) Any other absolute paths that slipped through (more conservative pattern)
     line = RE_ABS_FALLBACK.sub("[PATH]", line)
 

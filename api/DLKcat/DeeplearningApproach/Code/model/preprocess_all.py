@@ -21,14 +21,18 @@ edge_dict = defaultdict(lambda: len(edge_dict))
 proteins = list()
 compounds = list()
 adjacencies = list()
-regression =list()
+regression = list()
+
 
 def split_sequence(sequence, ngram):
-    sequence = '-' + sequence + '='
+    sequence = "-" + sequence + "="
     # print(sequence)
-    words = [word_dict[sequence[i:i+ngram]] for i in range(len(sequence)-ngram+1)]
+    words = [
+        word_dict[sequence[i : i + ngram]] for i in range(len(sequence) - ngram + 1)
+    ]
     return np.array(words)
     # return word_dict
+
 
 def create_atoms(mol):
     """Create a list of atom (e.g., hydrogen and oxygen) IDs
@@ -38,9 +42,10 @@ def create_atoms(mol):
     # print(atoms)
     for a in mol.GetAromaticAtoms():
         i = a.GetIdx()
-        atoms[i] = (atoms[i], 'aromatic')
+        atoms[i] = (atoms[i], "aromatic")
     atoms = [atom_dict[a] for a in atoms]
     return np.array(atoms)
+
 
 def create_ijbonddict(mol):
     """Create a dictionary, which each key is a node ID
@@ -54,6 +59,7 @@ def create_ijbonddict(mol):
         i_jbond_dict[i].append((j, bond))
         i_jbond_dict[j].append((i, bond))
     return i_jbond_dict
+
 
 def extract_fingerprints(atoms, i_jbond_dict, radius):
     """Extract the r-radius subgraphs (i.e., fingerprints)
@@ -92,16 +98,19 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
 
     return np.array(fingerprints)
 
+
 def create_adjacency(mol):
     adjacency = Chem.GetAdjacencyMatrix(mol)
     return np.array(adjacency)
 
+
 def dump_dictionary(dictionary, filename):
-    with open(filename, 'wb') as file:
+    with open(filename, "wb") as file:
         pickle.dump(dict(dictionary), file)
 
-def main() :
-    with open('../../Data/database/Kcat_combination_0918.json', 'r') as infile :
+
+def main():
+    with open("../../Data/database/Kcat_combination_0918.json", "r") as infile:
         Kcat_data = json.load(infile)
 
     # smiles_all = [data['Smiles'] for data in Kcat_data]
@@ -115,11 +124,11 @@ def main() :
 
     """Exclude data contains '.' in the SMILES format."""
     i = 0
-    for data in Kcat_data :
-        smiles = data['Smiles']
-        sequence = data['Sequence']
+    for data in Kcat_data:
+        smiles = data["Smiles"]
+        sequence = data["Sequence"]
         # print(smiles)
-        Kcat = data['Value']
+        Kcat = data["Value"]
         if "." not in smiles and float(Kcat) > 0:
             # i += 1
             # print('This is',i)
@@ -136,7 +145,7 @@ def main() :
             adjacency = create_adjacency(mol)
             adjacencies.append(adjacency)
 
-            words = split_sequence(sequence,ngram)
+            words = split_sequence(sequence, ngram)
             # print(words)
             proteins.append(words)
 
@@ -148,17 +157,17 @@ def main() :
             # regression.append(np.array([math.log10(float(Kcat))]))
             # print(math.log10(float(Kcat)))
 
-    np.save('../../Data/input/'+'compounds', compounds)
-    np.save('../../Data/input/'+'adjacencies', adjacencies)
-    np.save('../../Data/input/'+'regression', regression)
-    np.save('../../Data/input/'+'proteins', proteins)
+    np.save("../../Data/input/" + "compounds", compounds)
+    np.save("../../Data/input/" + "adjacencies", adjacencies)
+    np.save("../../Data/input/" + "regression", regression)
+    np.save("../../Data/input/" + "proteins", proteins)
 
-    dump_dictionary(fingerprint_dict, '../../Data/input/fingerprint_dict.pickle')
-    dump_dictionary(atom_dict, '../../Data/input/atom_dict.pickle')
-    dump_dictionary(bond_dict, '../../Data/input/bond_dict.pickle')
-    dump_dictionary(edge_dict, '../../Data/input/edge_dict.pickle')
-    dump_dictionary(word_dict, '../../Data/input/sequence_dict.pickle')
+    dump_dictionary(fingerprint_dict, "../../Data/input/fingerprint_dict.pickle")
+    dump_dictionary(atom_dict, "../../Data/input/atom_dict.pickle")
+    dump_dictionary(bond_dict, "../../Data/input/bond_dict.pickle")
+    dump_dictionary(edge_dict, "../../Data/input/edge_dict.pickle")
+    dump_dictionary(word_dict, "../../Data/input/sequence_dict.pickle")
 
 
-if __name__ == '__main__' :
+if __name__ == "__main__":
     main()

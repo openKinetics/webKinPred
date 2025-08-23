@@ -9,8 +9,17 @@ class TorchVocab(object):
     :property stoi: collections.defaultdict, string → id の対応を示す辞書
     :property itos: collections.defaultdict, id → string の対応を示す辞書
     """
-    def __init__(self, counter, max_size=None, min_freq=1, specials=['<pad>', '<oov>'],
-                 vectors=None, unk_init=None, vectors_cache=None):
+
+    def __init__(
+        self,
+        counter,
+        max_size=None,
+        min_freq=1,
+        specials=["<pad>", "<oov>"],
+        vectors=None,
+        unk_init=None,
+        vectors_cache=None,
+    ):
         """
         :param counter: collections.Counter, データ中に含まれる単語の頻度を計測するためのcounter
         :param max_size: int, vocabularyの最大のサイズ. Noneの場合は最大値なし. defaultはNone
@@ -32,7 +41,7 @@ class TorchVocab(object):
         # まず頻度でソートし、次に文字順で並び替える
         words_and_frequencies = sorted(counter.items(), key=lambda tup: tup[0])
         words_and_frequencies.sort(key=lambda tup: tup[1], reverse=True)
-        
+
         # 出現頻度がmin_freq未満のものはvocabに加えない
         for word, freq in words_and_frequencies:
             if freq < min_freq or len(self.itos) == max_size:
@@ -80,7 +89,12 @@ class Vocab(TorchVocab):
         self.eos_index = 2
         self.sos_index = 3
         self.mask_index = 4
-        super().__init__(counter, specials=["<pad>", "<unk>", "<eos>", "<sos>", "<mask>"], max_size=max_size, min_freq=min_freq)
+        super().__init__(
+            counter,
+            specials=["<pad>", "<unk>", "<eos>", "<sos>", "<mask>"],
+            max_size=max_size,
+            min_freq=min_freq,
+        )
 
     # override用
     def to_seq(self, sentece, seq_len, with_eos=False, with_sos=False) -> list:
@@ -91,7 +105,7 @@ class Vocab(TorchVocab):
         pass
 
     @staticmethod
-    def load_vocab(vocab_path: str) -> 'Vocab':
+    def load_vocab(vocab_path: str) -> "Vocab":
         with open(vocab_path, "rb") as f:
             return pickle.load(f)
 
@@ -115,7 +129,9 @@ class WordVocab(Vocab):
                 counter[word] += 1
         super().__init__(counter, max_size=max_size, min_freq=min_freq)
 
-    def to_seq(self, sentence, seq_len=None, with_eos=False, with_sos=False, with_len=False):
+    def to_seq(
+        self, sentence, seq_len=None, with_eos=False, with_sos=False, with_len=False
+    ):
         if isinstance(sentence, str):
             sentence = sentence.split()
 
@@ -138,27 +154,45 @@ class WordVocab(Vocab):
         return (seq, origin_seq_len) if with_len else seq
 
     def from_seq(self, seq, join=False, with_pad=False):
-        words = [self.itos[idx]
-                 if idx < len(self.itos)
-                 else "<%d>" % idx
-                 for idx in seq
-                 if not with_pad or idx != self.pad_index]
+        words = [
+            self.itos[idx] if idx < len(self.itos) else "<%d>" % idx
+            for idx in seq
+            if not with_pad or idx != self.pad_index
+        ]
 
         return " ".join(words) if join else words
 
     @staticmethod
-    def load_vocab(vocab_path: str) -> 'WordVocab':
+    def load_vocab(vocab_path: str) -> "WordVocab":
         with open(vocab_path, "rb") as f:
             return pickle.load(f)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build a vocabulary pickle')
-    parser.add_argument('--corpus_path', '-c', type=str, default='data/chembl24_corpus.txt', help='path to th ecorpus')
-    parser.add_argument('--out_path', '-o', type=str, default='data/vocab.pkl', help='output file')
-    parser.add_argument('--min_freq', '-m', type=int, default=500, help='minimum frequency for vocabulary')
-    parser.add_argument('--vocab_size', '-v', type=int, default=None, help='max vocabulary size')
-    parser.add_argument('--encoding', '-e', type=str, default='utf-8', help='encoding of corpus')
+    parser = argparse.ArgumentParser(description="Build a vocabulary pickle")
+    parser.add_argument(
+        "--corpus_path",
+        "-c",
+        type=str,
+        default="data/chembl24_corpus.txt",
+        help="path to th ecorpus",
+    )
+    parser.add_argument(
+        "--out_path", "-o", type=str, default="data/vocab.pkl", help="output file"
+    )
+    parser.add_argument(
+        "--min_freq",
+        "-m",
+        type=int,
+        default=500,
+        help="minimum frequency for vocabulary",
+    )
+    parser.add_argument(
+        "--vocab_size", "-v", type=int, default=None, help="max vocabulary size"
+    )
+    parser.add_argument(
+        "--encoding", "-e", type=str, default="utf-8", help="encoding of corpus"
+    )
     args = parser.parse_args()
 
     with open(args.corpus_path, "r", encoding=args.encoding) as f:
@@ -167,5 +201,6 @@ def main():
     print("VOCAB SIZE:", len(vocab))
     vocab.save_vocab(args.out_path)
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     main()

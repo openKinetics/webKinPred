@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0006_job_handle_long_sequences'),
+        ("api", "0006_job_handle_long_sequences"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='job',
-            name='public_id',
+            model_name="job",
+            name="public_id",
             field=models.CharField(max_length=10, null=True),
         ),
     ]

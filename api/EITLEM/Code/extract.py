@@ -3,7 +3,13 @@ import pathlib
 
 import torch
 
-from esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained, MSATransformer
+from esm import (
+    Alphabet,
+    FastaBatchedDataset,
+    ProteinBertModel,
+    pretrained,
+    MSATransformer,
+)
 
 
 def create_parser():
@@ -27,7 +33,9 @@ def create_parser():
         help="output directory for extracted representations",
     )
 
-    parser.add_argument("--toks_per_batch", type=int, default=4096, help="maximum batch size")
+    parser.add_argument(
+        "--toks_per_batch", type=int, default=4096, help="maximum batch size"
+    )
     parser.add_argument(
         "--repr_layers",
         type=int,
@@ -50,7 +58,9 @@ def create_parser():
         help="truncate sequences longer than the given value",
     )
 
-    parser.add_argument("--nogpu", action="store_true", help="Do not use GPU even if available")
+    parser.add_argument(
+        "--nogpu", action="store_true", help="Do not use GPU even if available"
+    )
     return parser
 
 
@@ -70,14 +80,18 @@ def main(args):
     data_loader = torch.utils.data.DataLoader(
         dataset, collate_fn=alphabet.get_batch_converter(), batch_sampler=batches
     )
-#     args.truncation_seq_length
+    #     args.truncation_seq_length
     print(f"Read {args.fasta_file} with {len(dataset)} sequences")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     return_contacts = "contacts" in args.include
 
-    assert all(-(model.num_layers + 1) <= i <= model.num_layers for i in args.repr_layers)
-    repr_layers = [(i + model.num_layers + 1) % (model.num_layers + 1) for i in args.repr_layers]
+    assert all(
+        -(model.num_layers + 1) <= i <= model.num_layers for i in args.repr_layers
+    )
+    repr_layers = [
+        (i + model.num_layers + 1) % (model.num_layers + 1) for i in args.repr_layers
+    ]
 
     with torch.no_grad():
         for batch_idx, (labels, strs, toks) in enumerate(data_loader):
@@ -100,7 +114,7 @@ def main(args):
                 args.output_file = args.output_dir / f"{label}.pt"
                 args.output_file.parent.mkdir(parents=True, exist_ok=True)
                 result = {"label": label}
-#                 truncate_len = min(args.truncation_seq_length, len(strs[i]))
+                #                 truncate_len = min(args.truncation_seq_length, len(strs[i]))
                 # Call clone on tensors to ensure tensors are not views into a larger representation
                 # See https://github.com/pytorch/pytorch/issues/1995
                 if "per_tok" in args.include:
@@ -118,7 +132,9 @@ def main(args):
                         layer: t[i, 0].clone() for layer, t in representations.items()
                     }
                 if return_contacts:
-                    result["contacts"] = contacts[i, : truncate_len, : truncate_len].clone()
+                    result["contacts"] = contacts[
+                        i, :truncate_len, :truncate_len
+                    ].clone()
 
                 torch.save(
                     result,

@@ -6,6 +6,7 @@ from api.utils.convert_to_mol import convert_to_mol
 from api.models import Job
 import numpy as np
 from webKinPred.settings import MEDIA_ROOT
+
 try:
     from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
 except ImportError:
@@ -14,6 +15,7 @@ except ImportError:
     except ImportError:
         PYTHON_PATHS = {}
         PREDICTION_SCRIPTS = {}
+
 
 def run_prediction_subprocess(command, job, env=None):
     """
@@ -33,9 +35,9 @@ def run_prediction_subprocess(command, job, env=None):
             bufsize=1,
             env=env,  # Pass environment variables
         )
-        
+
         # Read stdout line by line
-        for line in iter(process.stdout.readline, ''):
+        for line in iter(process.stdout.readline, ""):
             if not line:
                 break
             # Process the line
@@ -47,26 +49,32 @@ def run_prediction_subprocess(command, job, env=None):
                 if len(parts) >= 2:
                     try:
                         progress = parts[1]
-                        predictions_made, total_predictions = progress.split('/')
+                        predictions_made, total_predictions = progress.split("/")
                         predictions_made = int(predictions_made)
                         total_predictions = int(total_predictions)
                         # Update the job object
                         job.predictions_made = predictions_made
                         job.total_predictions = total_predictions
-                        job.save(update_fields=["predictions_made", "total_predictions"])
+                        job.save(
+                            update_fields=["predictions_made", "total_predictions"]
+                        )
                     except Exception as e:
                         print("Error parsing progress update:", e)
             else:
                 # Handle other output if needed
                 pass
-        
+
         # Wait for the subprocess to finish
         process.wait()
 
         if process.returncode != 0:
             # An error occurred - check if it's memory-related
-            if process.returncode == -9 or process.returncode == 137:  # SIGKILL (OOM killer)
-                raise subprocess.CalledProcessError(process.returncode, process.args, "Process killed by OOM killer")
+            if (
+                process.returncode == -9 or process.returncode == 137
+            ):  # SIGKILL (OOM killer)
+                raise subprocess.CalledProcessError(
+                    process.returncode, process.args, "Process killed by OOM killer"
+                )
             else:
                 raise subprocess.CalledProcessError(process.returncode, process.args)
 
@@ -75,7 +83,10 @@ def run_prediction_subprocess(command, job, env=None):
         print(e)
         raise e
 
-def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kinetics_type='KCAT'):
+
+def unikp_predictions(
+    sequences, substrates, public_id, protein_ids=None, kinetics_type="KCAT"
+):
     print("Running UniKP model...")
 
     # Get the Job object
@@ -85,21 +96,24 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     job.molecules_processed = 0
     job.invalid_molecules = 0
     job.predictions_made = 0
-    job.save(update_fields=["molecules_processed", "invalid_molecules", "predictions_made"])
+    job.save(
+        update_fields=["molecules_processed", "invalid_molecules", "predictions_made"]
+    )
 
     # Define paths
-    python_path = PYTHON_PATHS['UniKP']
-    prediction_script = PREDICTION_SCRIPTS['UniKP']
-    job_dir = os.path.join(MEDIA_ROOT, 'jobs', str(public_id))
-    input_temp_file = os.path.join(job_dir, f'input_{public_id}.csv')
-    output_temp_file = os.path.join(job_dir, f'output_{public_id}.csv')
+    python_path = PYTHON_PATHS["UniKP"]
+    prediction_script = PREDICTION_SCRIPTS["UniKP"]
+    job_dir = os.path.join(MEDIA_ROOT, "jobs", str(public_id))
+    input_temp_file = os.path.join(job_dir, f"input_{public_id}.csv")
+    output_temp_file = os.path.join(job_dir, f"output_{public_id}.csv")
 
     # Set environment variables for the subprocess to use Docker-compatible paths
     env = os.environ.copy()
     try:
         from webKinPred.config_docker import DATA_PATHS
-        env['UNIKP_MEDIA_PATH'] = DATA_PATHS['media']
-        env['UNIKP_TOOLS_PATH'] = DATA_PATHS['tools']
+
+        env["UNIKP_MEDIA_PATH"] = DATA_PATHS["media"]
+        env["UNIKP_TOOLS_PATH"] = DATA_PATHS["tools"]
     except (ImportError, KeyError):
         # If not using Docker config, don't set environment variables
         pass
@@ -112,7 +126,7 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     invalid_indices = []
     smiles_list = []
     valid_sequences = []
-    alphabet = set('ACDEFGHIKLMNPQRSTVWY')
+    alphabet = set("ACDEFGHIKLMNPQRSTVWY")
     # Process substrates and update progress
     for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
         mol = convert_to_mol(substrate)
@@ -137,10 +151,9 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
 
     # Prepare DataFrame for valid entries
     if valid_indices:
-        df_input = pd.DataFrame({
-            'Substrate SMILES': smiles_list,
-            'Protein Sequence': valid_sequences
-        })
+        df_input = pd.DataFrame(
+            {"Substrate SMILES": smiles_list, "Protein Sequence": valid_sequences}
+        )
         df_input.to_csv(input_temp_file, index=False)
     else:
         df_input = pd.DataFrame()
@@ -149,17 +162,23 @@ def unikp_predictions(sequences, substrates, public_id, protein_ids=None, kineti
     predictions = [None] * total_molecules  # Initialize with None
     if not df_input.empty:
         try:
-            command = [python_path, prediction_script, input_temp_file, output_temp_file, kinetics_type]
+            command = [
+                python_path,
+                prediction_script,
+                input_temp_file,
+                output_temp_file,
+                kinetics_type,
+            ]
             run_prediction_subprocess(command, job, env)
 
             # Read the output file
             df_output = pd.read_csv(output_temp_file)
-            predicted_values = df_output['Predicted Value'].tolist()
+            predicted_values = df_output["Predicted Value"].tolist()
 
             # Merge predictions back into the original order
             for idx_in_valid_list, pred in enumerate(predicted_values):
                 idx = valid_indices[idx_in_valid_list]
-                if pred in ['None', '', np.nan, 'nan']:
+                if pred in ["None", "", np.nan, "nan"]:
                     predictions[idx] = None
                 else:
                     predictions[idx] = pred
