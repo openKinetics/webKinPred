@@ -141,7 +141,7 @@ def run_mmseqs_search(query_db: str, target_db: str, method_name: str, session_i
             result_db,
             tmp_dir,
             "--max-seqs",
-            "5000",
+            "1000",
             "-s",
             "7.5",
             "-e",
