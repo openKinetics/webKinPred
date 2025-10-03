@@ -6,7 +6,7 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple, Any
 from django.conf import settings
 from django.utils import timezone
-from api.utils.get_experimental import lookup_experimental
+from api.utils import get_experimental 
 
 
 def validate_prediction_parameters(
@@ -142,7 +142,7 @@ def get_experimental_results(
     if "Substrate" not in dataframe.columns:
         return None
     
-    return lookup_experimental(
+    return get_experimental.lookup_experimental(
         dataframe["Protein Sequence"].tolist(),
         dataframe["Substrate"].tolist(),
         param_type=prediction_type,
