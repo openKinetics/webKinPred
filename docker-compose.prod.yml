@@ -40,7 +40,7 @@ services:
       sh -c "python manage.py migrate &&
              python manage.py migrate --database=seqmap &&
              python manage.py collectstatic --noinput --clear &&
-             gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 webKinPred.wsgi:application"
+             gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 100000 webKinPred.wsgi:application"
 
   frontend:
     build:
