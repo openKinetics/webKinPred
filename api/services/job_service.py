@@ -8,6 +8,7 @@ from api.models import Job
 from api.utils.validation_utils import (
     parse_csv_file,
     validate_required_columns,
+    validate_column_emptiness,
 )
 from api.utils.job_utils import (
     validate_prediction_parameters,
@@ -82,6 +83,19 @@ def process_job_submission(request, file) -> Tuple[Optional[JsonResponse], Optio
     if column_error:
         return JsonResponse({"error": column_error}, status=400), None
     
+    # Validate that substrate and protein sequence columns are not mostly empty
+    substrate_col = "Substrate" if "Substrate" in dataframe.columns else None
+    if substrate_col:
+        print(f"DEBUG: Checking substrate emptiness for {len(dataframe)} rows")
+        emptiness_error = validate_column_emptiness(dataframe, substrate_col)
+        print(f"DEBUG: Substrate emptiness error: {emptiness_error}")
+        if emptiness_error:
+            return JsonResponse({"error": emptiness_error}, status=400), None
+    
+    sequence_error = validate_column_emptiness(dataframe, "Protein Sequence")
+    if sequence_error:
+        return JsonResponse({"error": sequence_error}, status=400), None
+    
     # Handle quota management
     ip_address = get_client_ip(request)
     quota_response = handle_quota_validation(ip_address, len(dataframe))
@@ -131,7 +145,7 @@ def handle_quota_validation(ip_address: str, requested_rows: int) -> Optional[Js
         JsonResponse with error if quota exceeded, None if allowed
     """
     allowed, remaining, ttl = reserve_or_reject(ip_address, requested_rows)
-    
+
     rate_headers = create_rate_limit_headers(DAILY_LIMIT, remaining, ttl)
     
     if not allowed:

@@ -43,3 +43,5 @@ __pycache__/
 
 webKinPred/config_local.py
 api/UniKP-main/models/*.pkl
+.vscode/settings.json
+.vscode/settings.json

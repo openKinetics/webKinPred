@@ -317,3 +317,85 @@ def validate_required_columns(dataframe: pd.DataFrame, required_columns: List[st
         return f'Missing required columns: {", ".join(missing_columns)}'
     
     return None
+
+
+def validate_column_emptiness(dataframe: pd.DataFrame, column_name: str, max_empty_percent: float = 0.1) -> Optional[str]:
+    """
+    Validate that a column doesn't have too many empty values.
+    
+    Args:
+        dataframe: DataFrame to validate
+        column_name: Name of the column to check
+        max_empty_percent: Maximum allowed percentage of empty rows (default 0.1 = 10%)
+        
+    Returns:
+        Error message if validation fails, None if valid
+    """
+    if column_name not in dataframe.columns:
+        return None  # Column doesn't exist, will be caught by other validation
+    
+    total_rows = len(dataframe)
+    if total_rows == 0:
+        return None
+    
+    # Check for empty values (NaN, None, empty strings, whitespace-only strings)
+    empty_mask = dataframe[column_name].isna() | (dataframe[column_name].astype(str).str.strip() == '')
+    empty_rows = dataframe[empty_mask].index + 2  # +2 because: +1 for header, +1 for 0-indexed to 1-indexed
+    num_empty = len(empty_rows)
+    empty_percent = num_empty / total_rows
+    
+    # If all or most rows are empty (>90%)
+    if empty_percent > 0.9:
+        return f'{column_name} column is empty'
+    
+    # If more than max_empty_percent are empty
+    if empty_percent > max_empty_percent:
+        if num_empty <= 10:
+            row_list = ', '.join(map(str, empty_rows))
+            return f'Rows {row_list} have no {column_name.lower()} value'
+        else:
+            return f'{num_empty} rows have no {column_name.lower()} value (>{max_empty_percent*100:.0f}% of data)'
+    
+    return None
+
+
+def validate_column_emptiness(dataframe: pd.DataFrame, column_name: str, max_empty_percent: float = 0.1) -> Optional[str]:
+    """
+    Validate that a column doesn't have too many empty values.
+    
+    Args:
+        dataframe: DataFrame to validate
+        column_name: Name of the column to check
+        max_empty_percent: Maximum allowed percentage of empty rows (default 0.1 = 10%)
+        
+    Returns:
+        Error message if validation fails, None if valid
+    """
+    if column_name not in dataframe.columns:
+        return None  # Column doesn't exist, will be caught by other validation
+    
+    total_rows = len(dataframe)
+    if total_rows == 0:
+        return None
+    
+    # Check for empty values (NaN, None, empty strings, whitespace-only strings)
+    empty_mask = dataframe[column_name].isna() | (dataframe[column_name].astype(str).str.strip() == '')
+    empty_rows = dataframe[empty_mask].index + 2  # +2 because: +1 for header, +1 for 0-indexed to 1-indexed
+    num_empty = len(empty_rows)
+    empty_percent = num_empty / total_rows
+    
+    # If all or most rows are empty (>90%)
+    if empty_percent > 0.9:
+        return f'{column_name} column is empty'
+    
+    # If more than max_empty_percent are empty
+    if empty_percent > max_empty_percent:
+        if num_empty <= 10:
+            # List specific rows if not too many
+            row_list = ', '.join(map(str, empty_rows.tolist()))
+            return f'Rows {row_list} have no {column_name} value'
+        else:
+            # Too many to list individually
+            return f'{num_empty} rows ({empty_percent*100:.1f}%) have no {column_name} value'
+    
+    return None
