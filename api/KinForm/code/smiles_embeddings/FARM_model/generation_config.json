@@ -1,0 +1,5 @@
+{
+  "do_sample": true,
+  "max_length": 50,
+  "transformers_version": "4.45.2"
+}

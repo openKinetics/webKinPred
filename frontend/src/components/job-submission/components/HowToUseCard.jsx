@@ -50,7 +50,7 @@ export default function HowToUseCard() {
               <Card.Body>
                 <Card.Title>Single-Substrate Models</Card.Title>
                 <Card.Subtitle className="mb-2 text-white-70">
-                  DLKcat, EITLEM, UniKP
+                  DLKcat, EITLEM, UniKP, KinForm-H, KinForm-L
                 </Card.Subtitle>
                 <ListGroup variant="flush">
                   <ListGroup.Item>

@@ -18,6 +18,7 @@ from api.prediction_engines.dlkcat import dlkcat_predictions
 from api.prediction_engines.turnup import turnup_predictions
 from api.prediction_engines.eitlem import eitlem_predictions
 from api.prediction_engines.unikp import unikp_predictions
+from api.prediction_engines.kinform import kinform_predictions
 from api.utils.quotas import credit_back
 from api.utils.extra_info import build_extra_info, _source
 
@@ -93,7 +94,7 @@ def run_model(
         elif model_key == "TurNup":
             kwargs["substrates"] = [df["Substrates"][i] for i in valid_idx]
             kwargs["products"] = [df["Products"][i] for i in valid_idx]
-        elif model_key in {"EITLEM", "UniKP"}:
+        elif model_key in {"EITLEM", "UniKP", "KinForm-H", "KinForm-L"}:
             kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
         # (extend for more models as needed)
 
@@ -431,8 +432,8 @@ def run_unikp_predictions(public_id, experimental_results=None):
                 status="Failed", error_message=str(e), completion_time=timezone.now()
             )
 
-
-# ------------------------------------------------------------ Run Both
+def run_kinform_predictions(public_id, experimental_results=None):
+    pass  # Placeholder for KinForm prediction task
 # ------------------------------------------------------------ Run Both
 @shared_task
 def run_both_predictions(public_id, experimental_results=None):
@@ -547,6 +548,16 @@ def run_both_predictions(public_id, experimental_results=None):
                     protein_ids=protein_ids,
                     kinetics_type="KCAT",
                 )
+            elif kcat_method in {"KinForm-H", "KinForm-L"}:
+                subs = [df["Substrate"].iloc[i] for i in valid_indices]
+                kcat_subset, bad_subset = kinform_predictions(
+                    sequences=sequences_proc,
+                    substrates=subs,
+                    public_id=job.public_id,
+                    protein_ids=protein_ids,
+                    model_variant=kcat_method,
+                    kinetics_type="KCAT",
+                )
             elif kcat_method == "TurNup":
                 multisub = True
                 subs = [df["Substrates"].iloc[i] for i in valid_indices]
@@ -614,6 +625,15 @@ def run_both_predictions(public_id, experimental_results=None):
                     substrates=subs_km,
                     public_id=job.public_id,
                     protein_ids=protein_ids,
+                    kinetics_type="KM",
+                )
+            elif km_method in {"KinForm-H", "KinForm-L"}:
+                km_pred, bad_km = kinform_predictions(
+                    sequences=seq_km,
+                    substrates=subs_km,
+                    public_id=job.public_id,
+                    protein_ids=protein_ids,
+                    model_variant=km_method,
                     kinetics_type="KM",
                 )
             else:

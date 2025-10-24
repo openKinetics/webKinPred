@@ -29,11 +29,11 @@ def validate_prediction_parameters(
         return 'Invalid prediction type. Expected "kcat", "Km", or "both".'
     
     if prediction_type in ["kcat", "both"]:
-        if kcat_method not in ["TurNup", "DLKcat", "EITLEM", "UniKP"]:
+        if kcat_method not in ["TurNup", "DLKcat", "EITLEM", "UniKP", "KinForm-H", "KinForm-L"]:
             return "Invalid kcat method"
     
     if prediction_type in ["Km", "both"]:
-        if km_method not in ["EITLEM", "UniKP"]:
+        if km_method not in ["EITLEM", "UniKP", "KinForm-H"]:
             return "Invalid Km method"
     
     return None
@@ -71,11 +71,11 @@ def determine_required_columns(prediction_type: str, kcat_method: str, km_method
     if prediction_type in ["kcat", "both"]:
         if kcat_method == "TurNup":
             required_columns.extend(["Substrates", "Products"])
-        elif kcat_method in ["DLKcat", "EITLEM", "UniKP"]:
+        elif kcat_method in ["DLKcat", "EITLEM", "UniKP", "KinForm-H", "KinForm-L"]:
             required_columns.append("Substrate")
     
     if prediction_type == "Km":
-        if km_method in ["EITLEM", "UniKP"]:
+        if km_method in ["EITLEM", "UniKP", "KinForm-H"]:
             required_columns.append("Substrate")
     
     return required_columns

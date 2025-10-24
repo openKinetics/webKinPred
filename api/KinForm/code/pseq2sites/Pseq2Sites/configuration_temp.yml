@@ -1,0 +1,19 @@
+architectures:
+  hidden_act: gelu
+  hidden_size: 256
+  intermediate_size: 512
+  num_attention_heads: 8
+  num_layer: 3
+  prots_input_dim: 1024
+paths:
+  model_path: /home/saleh/KinForm-1/code/pseq2sites/Pseq2Sites/results/model
+  prot_feats: /home/saleh/KinForm-1/results/pseq2sites_temp_features.pkl
+  result_path: /home/saleh/KinForm-1/results/pseq2sites_temp_bspred/results.tsv
+  save_path: /home/saleh/KinForm-1/results/pseq2sites_temp_bspred
+prots:
+  max_chains: 13
+  max_lengths: 1500
+train:
+  batch_size: 4
+  dropout: 0.3
+  epochs: 50

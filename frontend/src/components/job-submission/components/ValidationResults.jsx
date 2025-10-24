@@ -108,6 +108,8 @@ export default function ValidationResults({
                     </thead>
                     <tbody className="text-secondary">
                       {[
+                        { key: 'KinForm-H', label: 'KinForm-H', limit: 1500 },
+                        { key: 'KinForm-L', label: 'KinForm-L', limit: 1500 },
                         { key: 'EITLEM', label: 'EITLEM', limit: 1024 },
                         { key: 'TurNup', label: 'TurNup', limit: 1024 },
                         { key: 'UniKP', label: 'UniKP', limit: 1000 },

@@ -2,6 +2,20 @@
 // Keep purely static data here to avoid re-creating on each render.
 
 const methodDetails = {
+  "KinForm-H": {
+    description: 'Placeholder description for KinForm-H method.',
+    authors: 'Author A, Author B',
+    publicationTitle: 'Placeholder Title for KinForm-H',
+    citationUrl: 'placeholder-url-for-kinform-h',
+    repoUrl: 'https://github.com/Digital-Metabolic-Twin-Centre/KinForm',
+  },
+  "KinForm-L": {
+    description: 'Placeholder description for KinForm-L method.',
+    authors: 'Author C, Author D',
+    publicationTitle: 'Placeholder Title for KinForm-L',
+    citationUrl: 'placeholder-url-for-kinform-l',
+    repoUrl: 'https://github.com/Digital-Metabolic-Twin-Centre/KinForm',
+  },
   UniKP: {
     description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
     authors: 'Han Yu, Huaxiang Deng, Jiahui He, Jay D. Keasling & Xiaozhou Luo',

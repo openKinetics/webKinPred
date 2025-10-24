@@ -1,0 +1,24 @@
+paths:
+    prot_feats: "/home/msp/saleh/kinetics/results/binding_sites/pseq2sites_input/sequence_features_7.pkl"
+    save_path: "/home/msp/saleh/kinetics/results/binding_sites"
+    model_path: "/home/msp/saleh/Pseq2Sites/results/model"
+    result_path: "/home/msp/saleh/kinetics/results/binding_sites/prediction_7.tsv"
+    
+train:
+    epochs: 50
+    batch_size: 8
+    dropout: 0.3
+        
+architectures:
+    hidden_size: 256
+    prots_input_dim: 1024
+    num_layer: 3
+    hidden_act: gelu
+    hidden_size: 256
+    intermediate_size: 512
+    num_attention_heads: 8
+    
+    
+prots:
+    max_lengths: 1500
+    max_chains: 13
