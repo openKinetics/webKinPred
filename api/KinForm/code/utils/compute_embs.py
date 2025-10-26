@@ -9,7 +9,8 @@ import pickle
 # Silence warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*enable_nested_tensor.*")
 # ──────────────────────────── local imports ───────────────────────── #
-from config import COMPUTED_EMBEDDINGS_PATHS, ROOT, ESM_BIN, ESMC_BIN, T5_BIN
+from config import COMPUTED_EMBEDDINGS_PATHS, ESM_BIN, ESMC_BIN, T5_BIN, RESULTS_DIR, BS_PRED_PATH
+ROOT = RESULTS_DIR.parent
 def _embs_exist(seq_id, pllm_name):
     embeddings_paths = COMPUTED_EMBEDDINGS_PATHS[pllm_name]
     for dir_path in embeddings_paths:
@@ -40,8 +41,7 @@ def embeddings_exist(seq_ids: List[str]) -> Dict[str, List[bool]]:
     return bool_lists
 
 def _compute_esm2(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
-    seq_to_id = {v: k for k, v in seq_dict.items()}
-    seq_ids = list(seq_to_id.keys())
+    seq_ids = list(seq_dict.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "prot_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_seq_file_path = Path(tmpdir) / "temp_sequences.txt"
@@ -49,13 +49,18 @@ def _compute_esm2(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, 
             for seq_id in seq_ids:
                 temp_seq_file.write(f"{seq_id}\n")
         
-        weights_file = ROOT / "results" / "binding_sites" / "binding_sites_all.tsv"
+        temp_id_to_seq_path = Path(tmpdir) / "temp_id_to_seq.pkl"
+        temp_id_to_seq = {seq_id: seq_dict[seq_id] for seq_id in seq_ids}
+        with open(temp_id_to_seq_path, "wb") as f:
+            pickle.dump(temp_id_to_seq, f, protocol=4)
+    
         setting = "mean+weighted"
         command = [ESM_BIN, str(script_path),
                    "--seq_file", str(temp_seq_file_path),
                    "--models", "esm2",
                    "--setting", setting,
-                   "--weights_file", str(weights_file),
+                   "--weights_file", str(BS_PRED_PATH),
+                   "--id_to_seq_file", str(temp_id_to_seq_path),  
         ]
         subprocess.run(command, check=True)
     # After computation, check which succeeded
@@ -80,15 +85,22 @@ def _compute_t5(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, st
         with open(temp_seq_file_path, "w") as temp_seq_file:
             for seq_id in seq_ids:
                 temp_seq_file.write(f"{seq_id}\n")
-        weights_file = ROOT / "results" / "binding_sites" / "binding_sites_all.tsv"
+        
+        temp_id_to_seq_path = Path(tmpdir) / "temp_id_to_seq.pkl"
+        temp_id_to_seq = {seq_id: seq_dict[seq_id] for seq_id in seq_ids}
+        with open(temp_id_to_seq_path, "wb") as f:
+            pickle.dump(temp_id_to_seq, f, protocol=4)
+    
         setting = "mean+weighted"
         command = [T5_BIN, str(script_path),
                    "--seq_file", str(temp_seq_file_path),
                    "--setting", setting,
-                   "--weights_file", str(weights_file),
+                   "--weights_file", str(BS_PRED_PATH),
+                   "--id_to_seq_file", str(temp_id_to_seq_path),  # Pass the compatible pickle
         ]
         subprocess.run(command, check=True)
     # After computation, check which succeeded
+
     computed_dict = {}
     reasons_dict = {}
     for seq_id in seq_dict.keys():
@@ -115,14 +127,13 @@ def _compute_esmc(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, 
         temp_id_to_seq = {seq_id: seq_dict[seq_id] for seq_id in seq_ids}
         with open(temp_id_to_seq_path, "wb") as f:
             pickle.dump(temp_id_to_seq, f, protocol=4)
-        
-        weights_file = ROOT / "results" / "binding_sites" / "binding_sites_all.tsv"
+    
         setting = "mean+weighted"
         command = [ESMC_BIN, str(script_path),
                    "--seq_file", str(temp_seq_file_path),
                    "--models", "esmc",
                    "--setting", setting,
-                   "--weights_file", str(weights_file),
+                   "--weights_file", str(BS_PRED_PATH),
                    "--id_to_seq_file", str(temp_id_to_seq_path),  # Pass the compatible pickle
         ]
         subprocess.run(command, check=True)

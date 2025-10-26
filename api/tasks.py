@@ -433,6 +433,13 @@ def run_unikp_predictions(public_id, experimental_results=None):
                 status="Failed", error_message=str(e), completion_time=timezone.now()
             )
 
+@shared_task
+def run_kinform_h_predictions(public_id, experimental_results=None):
+    return run_kinform_predictions(public_id, variant="H", experimental_results=experimental_results)
+@shared_task
+def run_kinform_l_predictions(public_id, experimental_results=None):
+    return run_kinform_predictions(public_id, variant="L", experimental_results=experimental_results)
+
 def run_kinform_predictions(public_id, variant, experimental_results=None):
     job = Job.objects.get(public_id=public_id)
     job.status = "Processing"
@@ -501,10 +508,7 @@ def run_kinform_predictions(public_id, variant, experimental_results=None):
             Job.objects.filter(pk=job.pk).update(
                 status="Failed", error_message=str(e), completion_time=timezone.now()
             )
-def run_kinform_h_predictions(public_id, experimental_results=None):
-    return run_kinform_predictions(public_id, variant="H", experimental_results=experimental_results)
-def run_kinform_l_predictions(public_id, experimental_results=None):
-    return run_kinform_predictions(public_id, variant="L", experimental_results=experimental_results)
+
 # ------------------------------------------------------------ Run Both
 @shared_task
 def run_both_predictions(public_id, experimental_results=None):

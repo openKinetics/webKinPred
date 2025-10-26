@@ -41,8 +41,24 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     pip cache purge
 
 # Create all conda environments in a single layer to reduce image size
-RUN conda create -n turnup_env python=3.7 -c conda-forge && \
-    conda install -n turnup_env -c conda-forge py-xgboost=1.6.1 && \
+RUN conda create -n pseq2sites python=3.7.12 -c conda-forge && \
+    conda run -n pseq2sites pip install --no-cache-dir --prefer-binary torch==1.7.1 numpy==1.20.0 && \
+    conda run -n pseq2sites pip install --no-cache-dir --prefer-binary transformers==4.30.2 sentencepiece==0.2.0 biopython==1.79 rdkit-pypi==2021.3.1 openbabel-wheel pandas tqdm && \
+    \
+    conda create -n kinform_env python=3.12 -c conda-forge && \
+    conda run -n kinform_env pip install --no-cache-dir -r docker-requirements/kinform_requirements.txt && \
+    \
+    conda create -n esm python=3.7 -c conda-forge && \
+    conda run -n esm pip install --no-cache-dir torch fair-esm pandas tqdm && \
+    \
+    conda create -n esmc python=3.12 -c conda-forge && \
+    conda run -n esmc pip install --no-cache-dir esm pandas tqdm && \
+    \
+    conda create -n prot_t5 python=3.9 -c conda-forge && \
+    conda run -n prot_t5 pip install --no-cache-dir torch transformers sentencepiece pandas tqdm && \
+    \
+    conda create -n turnup_env python=3.7 -c conda-forge && \
+    conda install -n turnup_env -c conda-forge -y py-xgboost=1.6.1 && \
     conda run -n turnup_env pip install --no-cache-dir -r docker-requirements/turnup_requirements.txt && \
     \
     conda create -n dlkcat_env python=3.7.12 -c conda-forge && \
@@ -56,7 +72,7 @@ RUN conda create -n turnup_env python=3.7 -c conda-forge && \
     conda run -n unikp pip install --no-cache-dir -r docker-requirements/unikp_requirements.txt && \
     \
     conda create -n mmseqs2_env python=3.10 -c conda-forge && \
-    conda install -n mmseqs2_env -c bioconda mmseqs2=13.45111 && \
+    conda install -n mmseqs2_env -c bioconda -y mmseqs2=13.45111 && \
     \
     conda clean -afy && \
     find /opt/conda -name "*.pyc" -delete && \

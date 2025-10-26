@@ -58,7 +58,7 @@ from utils.sequence_features import sequences_to_feature_blocks
 from utils.pca import make_design_matrices
 from utils.seqmap_cli import resolve_seq_ids_via_cli
 from pseq2sites.get_sites import get_sites
-from code.utils.compute_embs import embeddings_exist, _compute_all_emb
+from utils.compute_embs import embeddings_exist, _compute_all_emb
 
 # Global paths - relative to repository root
 # ------------------------------------------------------------------- #
@@ -129,17 +129,19 @@ def load_kcat(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np
     if data_file is None:
         raise ValueError("Data path must be provided for loading kcat data.")
     print(f"Loading kcat data from {data_file}...")
-    no_y = False
     with data_file.open() as fp:
         raw = json.load(fp)
-    if "value" not in raw[0]:
+    if "value" not in raw[0]: # no target values provided
         for entry in raw:
             entry["value"] = None
-        no_y = True
-    valid = [(r["sequence"], r["smiles"], float(r["value"]))
-            for r in raw if len(r["sequence"]) <= 1499 and float(r["value"]) > 0]
-    seqs, smis, y = zip(*valid)
-    y = np.array([math.log(v, 10) for v in y], dtype=np.float32) if not no_y else None
+        valid = [(r["sequence"], r["smiles"]) for r in raw if len(r["sequence"]) <= 1499]
+        seqs, smis = zip(*valid)
+        y = None
+    else:
+        valid = [(r["sequence"], r["smiles"], float(r["value"]))
+                for r in raw if len(r["sequence"]) <= 1499 and float(r["value"]) > 0]
+        seqs, smis, y = zip(*valid) 
+        y = np.array([math.log(v, 10) for v in y], dtype=np.float32) 
     emb_computed, reasons = compute_embeddings(list(seqs))
     if not all(emb_computed):
         failed_seqs = [seqs[i] for i, v in enumerate(emb_computed) if not v]
@@ -155,16 +157,19 @@ def load_km(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.n
     if data_file is None:
         raise ValueError("Data path must be provided for loading KM data.")
     print(f"Loading KM data from {data_file}...")
-    no_y = False
     with data_file.open() as fp:
         raw = json.load(fp)
     if "log10_KM" not in raw[0]:
         for entry in raw:
             entry["log10_KM"] = None
-        no_y = True
-    valid = [(r["Sequence"], r["smiles"], float(r["log10_KM"]))
-            for r in raw if len(r["Sequence"]) <= 1499 and "." not in r["smiles"]]
-    seqs, smis, y = zip(*valid)
+        valid = [(r["Sequence"], r["smiles"]) for r in raw if len(r["Sequence"]) <= 1499]
+        seqs, smis = zip(*valid)
+        y = None
+    else:
+        valid = [(r["Sequence"], r["smiles"], float(r["log10_KM"]))
+                for r in raw if len(r["Sequence"]) <= 1499 and "." not in r["smiles"]]
+        seqs, smis, y = zip(*valid)
+        y = np.array(y, dtype=np.float32)
     emb_computed, reasons = compute_embeddings(list(seqs))
     if not all(emb_computed):
         failed_seqs = [seqs[i] for i, v in enumerate(emb_computed) if not v]
@@ -173,7 +178,6 @@ def load_km(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.n
             if any(reason_list):
                 print(f"  - Sequence ID {seq_id}: {'; '.join([r for r in reason_list if r])}")
 
-    y = np.asarray(y, dtype=np.float32) if not no_y else None
     return np.asarray(seqs), np.asarray(smis), y
 
 def get_dataset(task: str, data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

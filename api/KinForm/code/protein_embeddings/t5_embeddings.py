@@ -38,6 +38,9 @@ import torch
 from tqdm import tqdm
 from transformers import T5EncoderModel, T5Tokenizer
 
+PROTT5XL_MODEL_PATH = "Rostlab/prot_t5_xl_uniref50"
+if os.environ.get("KINFORM_MEDIA_PATH"):
+    PROTT5XL_MODEL_PATH = "/app/api/UniKP-main/models/protT5_xl/prot_t5_xl_uniref50"
 
 # --------------------------------------------------------------------------- #
 #                              HELPER FUNCTIONS                               #
@@ -92,8 +95,6 @@ def get_prot_t5_embeddings(
     # ------------------------- path handling ------------------------------ #
     # Get repository root relative to this file
     precomputed_root = Path(os.environ.get("KINFORM_MEDIA_PATH")) / "sequence_info" 
-    idseq_path = ROOT / "results/sequence_id_to_sequence.pkl"
-    id_to_seq = pickle.load(open(idseq_path, "rb")) if id_to_seq is None else id_to_seq
     assert all(k in id_to_seq and id_to_seq[k] == v for k, v in seq_dict.items()), (
         "Sequence mismatch between provided seq_dict and id_to_seq"
     )
@@ -141,9 +142,9 @@ def get_prot_t5_embeddings(
 
     # --------------------------- model load ------------------------------- #
     print("Loading ProtT5-XL UniRef50 ...")
-    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50", do_lower_case=False)
+    tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
     model = T5EncoderModel.from_pretrained(
-        "Rostlab/prot_t5_xl_uniref50", output_hidden_states=True
+        PROTT5XL_MODEL_PATH, output_hidden_states=True
     )
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -372,6 +373,12 @@ Examples:
         default='Pred_BS_Scores',
         help='Column name in weights file for weight values. Default: Pred_BS_Scores'
     )
+    parser.add_argument(
+        '--id_to_seq_file',
+        type=str,
+        default=None,
+        help='Path to pickle file with sequence_id to sequence mapping. If not provided, uses default path.'
+    )
     
     args = parser.parse_args()
     
@@ -384,18 +391,17 @@ Examples:
     if "weighted" in settings_requested and args.weights_file is None:
         parser.error("--weights_file is required when --setting includes 'weighted'")
     
-    # Paths relative to repository root
-    ROOT = Path(__file__).resolve().parent.parent.parent
-    SEQ_ID_TO_SEQ = ROOT / "results/sequence_id_to_sequence.pkl"
-    
     # Determine sequence file
     if args.seq_file:
         seq_file = Path(args.seq_file)
     else:
-        seq_file = ROOT / "data/unique_seq_ids.txt"
+        raise ValueError("Please provide --seq_file with sequence IDs.")
     
     # Load sequence ID to sequence mapping
-    id_to_seq: Dict[str, str] = pickle.load(open(SEQ_ID_TO_SEQ, "rb"))
+    if args.id_to_seq_file:
+        id_to_seq: Dict[str, str] = pickle.load(open(args.id_to_seq_file, "rb"))
+    else:
+        raise ValueError("Please provide --id_to_seq_file with the ID-to-sequence mapping pickle file.")
     
     # Load unique sequence IDs from file
     with open(seq_file, "r") as f:

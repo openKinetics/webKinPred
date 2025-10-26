@@ -7,10 +7,11 @@ from pathlib import Path
 import subprocess
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from config import ROOT, PSEQ2SITES_BIN
+from config import PSEQ2SITES_BIN, RESULTS_DIR
+ROOT = RESULTS_DIR.parent
 
-def _populate_initial(sec_dict, already_processed_ids):
-    all_seq_ids = list(sec_dict.keys())
+def _populate_initial(seq_dict, already_processed_ids):
+    all_seq_ids = list(seq_dict.keys())
     missing_seq_ids = [sid for sid in all_seq_ids if sid not in already_processed_ids]
 
     print(f"{len(missing_seq_ids)} sequences missing binding-site predictions. \n Generating T5 features ...")
@@ -22,7 +23,7 @@ def _populate_initial(sec_dict, already_processed_ids):
         if sid not in missing_seq_ids:
             success_dict[sid] = True
             reason_dict[sid] = None
-        elif len(sec_dict[sid]) > 1499:
+        elif len(seq_dict[sid]) > 1499:
             success_dict[sid] = False
             reason_dict[sid] = "Sequence length exceeds 1499 residues."
         else:

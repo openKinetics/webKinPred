@@ -31,6 +31,8 @@ from api.tasks import (
     run_turnup_predictions,
     run_eitlem_predictions,
     run_unikp_predictions,
+    run_kinform_h_predictions,
+    run_kinform_l_predictions,
     run_both_predictions,
 )
 
@@ -205,7 +207,7 @@ def dispatch_prediction_task(public_id: str, params: Dict[str, Any], experimenta
     prediction_type = params['prediction_type']
     kcat_method = params['kcat_method']
     km_method = params['km_method']
-    
+    print(f"DEBUG: Dispatching task: {prediction_type}, {kcat_method}, {km_method}")
     if prediction_type == "both":
         run_both_predictions.delay(public_id, experimental_results)
     elif prediction_type == "kcat":
@@ -214,19 +216,26 @@ def dispatch_prediction_task(public_id: str, params: Dict[str, Any], experimenta
             "TurNup": run_turnup_predictions,
             "EITLEM": run_eitlem_predictions,
             "UniKP": run_unikp_predictions,
+            "KinForm-H": run_kinform_h_predictions,
+            "KinForm-L": run_kinform_l_predictions,
         }
         pred_func = method_to_func.get(kcat_method)
         if pred_func:
             pred_func.delay(public_id, experimental_results)
+        else:
+            print("No valid prediction function found for the given method.")
     elif prediction_type == "Km":
         method_to_func = {
             "EITLEM": run_eitlem_predictions,
             "UniKP": run_unikp_predictions,
+            "KinForm-H": run_kinform_h_predictions,
         }
         pred_func = method_to_func.get(km_method)
         if pred_func:
             pred_func.delay(public_id, experimental_results)
             print("Dispatching task to Celery:", prediction_type, kcat_method, km_method)
+        else:
+            print("No valid prediction function found for the given method.")
 
 
 def get_job_status_data(job: Job) -> Dict[str, Any]:

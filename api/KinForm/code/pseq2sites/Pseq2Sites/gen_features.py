@@ -9,6 +9,9 @@ import os
 from pathlib import Path
 from transformers import T5EncoderModel, T5Tokenizer
 from tqdm import tqdm
+
+PROTT5XL_MODEL_PATH = "Rostlab/prot_t5_xl_uniref50"
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -65,9 +68,11 @@ def main():
         IDs, seqs = prots_df.iloc[:,0].values, prots_df.iloc[:,1].values
 
     print("2. Load tokenizer and pretrained model")
-    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50", do_lower_case=False )
-    prots_model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_uniref50")
-    
+    # Check if PROTT5XL_MODEL_PATH is a local directory path
+    is_local_path = os.path.isdir(PROTT5XL_MODEL_PATH) if PROTT5XL_MODEL_PATH.startswith('/') else False
+    tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False, local_files_only=is_local_path)
+    prots_model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, local_files_only=is_local_path)
+
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     
     prots_model = prots_model.to(device)

@@ -3,7 +3,6 @@ import sys
 import os
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
-from config import SEQMAP_CLI, SEQMAP_DB, SEQMAP_PY
 
 SEQMAP_CLI = (
     os.environ.get("KINFORM_TOOLS_PATH", "/home/saleh/webKinPred/tools")

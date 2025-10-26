@@ -66,9 +66,9 @@ export default function MethodPicker({
                     required
                   >
                     <option value="">Select KM method...</option>
+                    <option value="KinForm-H">KinForm-H</option>
                     <option value="EITLEM">EITLEM-Kinetics</option>
                     <option value="UniKP">UniKP</option>
-                    <option value="KinForm-H">KinForm-H</option>
                   </Form.Control>
                 </Form.Group>
               </div>
