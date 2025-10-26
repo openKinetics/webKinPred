@@ -27,6 +27,7 @@ services:
       - ./api/TurNup/data/saved_models:/app/api/TurNup/data/saved_models:ro
       - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
       - ./api/DLKcat/DeeplearningApproach:/app/api/DLKcat/DeeplearningApproach:ro
+      - ./api/KinForm/results/trained_models:/app/api/KinForm/results/trained_models:ro
     environment:
       - DEBUG=0
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker

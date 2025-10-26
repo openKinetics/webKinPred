@@ -16,7 +16,6 @@ Four operating modes:
          result shape: [24, hidden_size].
 
 Embeddings are written under:
-    results/full_protein_embeddings/t5_{layer}/       (per-residue embeddings)
     results/protein_embeddings/prot_t5_last/mean_vecs/     (mean vectors, last layer)
     results/protein_embeddings/prot_t5_layer_{n}/mean_vecs/ (mean vectors, layer n)
     results/protein_embeddings/prot_t5_last/weighted_vecs/     (weighted vectors, last layer)
@@ -92,7 +91,7 @@ def get_prot_t5_embeddings(
 
     # ------------------------- path handling ------------------------------ #
     # Get repository root relative to this file
-    ROOT = Path(__file__).resolve().parent.parent.parent
+    precomputed_root = Path(os.environ.get("KINFORM_MEDIA_PATH")) / "sequence_info" 
     idseq_path = ROOT / "results/sequence_id_to_sequence.pkl"
     id_to_seq = pickle.load(open(idseq_path, "rb")) if id_to_seq is None else id_to_seq
     assert all(k in id_to_seq and id_to_seq[k] == v for k, v in seq_dict.items()), (
@@ -103,27 +102,21 @@ def get_prot_t5_embeddings(
     paths = {}
     
     # Set up paths for each requested setting
-    if "residue" in settings:
-        if layer is None:
-            paths["residue"] = ROOT / "results/full_protein_embeddings/t5_last"
-        else:
-            paths["residue"] = ROOT / f"results/full_protein_embeddings/t5_{layer}"
+    if "residue" in settings or all_layers:
+        raise NotImplementedError("Residue embeddings extraction not implemented in this snippet.")
     
     if "mean" in settings:
         if layer is None:
-            paths["mean"] = ROOT / "results/protein_embeddings/prot_t5_last/mean_vecs"
+            paths["mean"] = precomputed_root / "prot_t5_last/mean_vecs"
         else:
-            paths["mean"] = ROOT / f"results/protein_embeddings/prot_t5_layer_{layer}/mean_vecs"
-    
+            paths["mean"] = precomputed_root / f"prot_t5_layer_{layer}/mean_vecs"
+
     if "weighted" in settings:
         if layer is None:
-            paths["weighted"] = ROOT / "results/protein_embeddings/prot_t5_last/weighted_vecs"
+            paths["weighted"] = precomputed_root / "prot_t5_last/weighted_vecs"
         else:
-            paths["weighted"] = ROOT / f"results/protein_embeddings/prot_t5_layer_{layer}/weighted_vecs"
-    
-    if all_layers:
-        paths["all_layers"] = ROOT / "results/embeddings/prot_t5_all_layers"
-    
+            paths["weighted"] = precomputed_root / f"prot_t5_layer_{layer}/weighted_vecs"
+
     for p in paths.values():
         p.mkdir(parents=True, exist_ok=True)
 

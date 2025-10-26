@@ -39,21 +39,15 @@ def embeddings_exist(seq_ids: List[str]) -> Dict[str, List[bool]]:
             bool_lists[pllm].append(_embs_exist(seq_id, pllm))
     return bool_lists
 
-def _compute_esm2(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
-    seq_to_id = {v: k for k, v in seq_id_to_sequence.items()}
-    seq_ids = [seq_to_id[seq] for seq in sequences]
+def _compute_esm2(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    seq_to_id = {v: k for k, v in seq_dict.items()}
+    seq_ids = list(seq_to_id.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "prot_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_seq_file_path = Path(tmpdir) / "temp_sequences.txt"
         with open(temp_seq_file_path, "w") as temp_seq_file:
             for seq_id in seq_ids:
                 temp_seq_file.write(f"{seq_id}\n")
-        
-        # Create a Python 3.7 compatible pickle file (protocol 4) with only needed sequences
-        temp_id_to_seq_path = Path(tmpdir) / "temp_id_to_seq.pkl"
-        temp_id_to_seq = {seq_id: seq_id_to_sequence[seq_id] for seq_id in seq_ids}
-        with open(temp_id_to_seq_path, "wb") as f:
-            pickle.dump(temp_id_to_seq, f, protocol=4)
         
         weights_file = ROOT / "results" / "binding_sites" / "binding_sites_all.tsv"
         setting = "mean+weighted"
@@ -62,14 +56,12 @@ def _compute_esm2(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> T
                    "--models", "esm2",
                    "--setting", setting,
                    "--weights_file", str(weights_file),
-                   "--id_to_seq_file", str(temp_id_to_seq_path),  # Pass the compatible pickle
         ]
         subprocess.run(command, check=True)
     # After computation, check which succeeded
     computed_dict = {}
     reasons_dict = {}
-    for seq in sequences:
-        seq_id = seq_to_id[seq]
+    for seq_id in seq_dict.keys():
         mean_vec_paths = [ROOT / "results" / "protein_embeddings" / "esm2_layer_26" / "mean_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "esm2_layer_29" / "mean_vecs" / f"{seq_id}.npy"]
         weighted_vec_paths = [ROOT / "results" / "protein_embeddings" / "esm2_layer_26" / "weighted_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "esm2_layer_29" / "weighted_vecs" / f"{seq_id}.npy"]
         if all(p.exists() for p in mean_vec_paths) and all(p.exists() for p in weighted_vec_paths):
@@ -80,9 +72,8 @@ def _compute_esm2(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> T
             reasons_dict[seq_id] = "Failed to compute ESM2 embeddings."
     return computed_dict, reasons_dict
 
-def _compute_t5(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
-    seq_to_id = {v: k for k, v in seq_id_to_sequence.items()}
-    seq_ids = [seq_to_id[seq] for seq in sequences]
+def _compute_t5(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    seq_ids = list(seq_dict.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "t5_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_seq_file_path = Path(tmpdir) / "temp_sequences.txt"
@@ -100,8 +91,7 @@ def _compute_t5(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tup
     # After computation, check which succeeded
     computed_dict = {}
     reasons_dict = {}
-    for seq in sequences:
-        seq_id = seq_to_id[seq]
+    for seq_id in seq_dict.keys():
         mean_vec_paths = [ROOT / "results" / "protein_embeddings" / "prot_t5_last" / "mean_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "prot_t5_layer_19" / "mean_vecs" / f"{seq_id}.npy"]
         weighted_vec_paths = [ROOT / "results" / "protein_embeddings" / "prot_t5_last" / "weighted_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "prot_t5_layer_19" / "weighted_vecs" / f"{seq_id}.npy"]
         if all(p.exists() for p in mean_vec_paths) and all(p.exists() for p in weighted_vec_paths):
@@ -112,9 +102,8 @@ def _compute_t5(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tup
             reasons_dict[seq_id] = "Failed to compute Prot-T5 embeddings."
     return computed_dict, reasons_dict
 
-def _compute_esmc(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
-    seq_to_id = {v: k for k, v in seq_id_to_sequence.items()}
-    seq_ids = [seq_to_id[seq] for seq in sequences]
+def _compute_esmc(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    seq_ids = list(seq_dict.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "prot_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_seq_file_path = Path(tmpdir) / "temp_sequences.txt"
@@ -123,7 +112,7 @@ def _compute_esmc(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> T
                 temp_seq_file.write(f"{seq_id}\n")
         
         temp_id_to_seq_path = Path(tmpdir) / "temp_id_to_seq.pkl"
-        temp_id_to_seq = {seq_id: seq_id_to_sequence[seq_id] for seq_id in seq_ids}
+        temp_id_to_seq = {seq_id: seq_dict[seq_id] for seq_id in seq_ids}
         with open(temp_id_to_seq_path, "wb") as f:
             pickle.dump(temp_id_to_seq, f, protocol=4)
         
@@ -140,8 +129,7 @@ def _compute_esmc(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> T
     # After computation, check which succeeded
     computed_dict = {}
     reasons_dict = {}
-    for seq in sequences:
-        seq_id = seq_to_id[seq]
+    for seq_id in seq_dict.keys():
         mean_vec_paths = [ROOT / "results" / "protein_embeddings" / "esmc_layer_24" / "mean_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "esmc_layer_32" / "mean_vecs" / f"{seq_id}.npy"]
         weighted_vec_paths = [ROOT / "results" / "protein_embeddings" / "esmc_layer_24" / "weighted_vecs" / f"{seq_id}.npy", ROOT / "results" / "protein_embeddings" / "esmc_layer_32" / "weighted_vecs" / f"{seq_id}.npy"]
         if all(p.exists() for p in mean_vec_paths) and all(p.exists() for p in weighted_vec_paths):
@@ -153,11 +141,8 @@ def _compute_esmc(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> T
     return computed_dict, reasons_dict
     
 
-def _compute_all_emb(sequences: List[str], seq_id_to_sequence: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
-    esmc_computed, esmc_reasons = _compute_esmc(sequences, seq_id_to_sequence)
-    print(esmc_computed)
-    print(esmc_reasons)
-    raise
-    esm2_computed, esm2_reasons = _compute_esm2(sequences, seq_id_to_sequence)
-    t5_computed, t5_reasons = _compute_t5(sequences, seq_id_to_sequence)
+def _compute_all_emb(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    esmc_computed, esmc_reasons = _compute_esmc(seq_dict)
+    esm2_computed, esm2_reasons = _compute_esm2(seq_dict)
+    t5_computed, t5_reasons = _compute_t5(seq_dict)
     return (esmc_computed, esmc_reasons, esm2_computed, esm2_reasons, t5_computed, t5_reasons)

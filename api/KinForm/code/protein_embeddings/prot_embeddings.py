@@ -46,6 +46,8 @@ def get_embeddings(seq_dict, batch_size=2, model=None, id_to_seq=None, setting='
         assert weights_df is not None, "--weights_file is required when setting includes 'weighted'"
         assert not all_layers, "weighted setting is incompatible with --all_layers"
     
+
+    precomputed_root = Path(os.environ.get("KINFORM_MEDIA_PATH")) / "sequence_info" 
     # Get repository root relative to this file
     ROOT = Path(__file__).resolve().parent.parent.parent
     assert all([key in id_to_seq.keys() and id_to_seq[key] == value for key, value in seq_dict.items()]), "Sequences must be in id_to_seq dictionary"
@@ -55,26 +57,20 @@ def get_embeddings(seq_dict, batch_size=2, model=None, id_to_seq=None, setting='
     paths = {}
     
     # Set up paths for each requested setting
-    if "residue" in settings:
-        if layer is None:
-            paths["residue"] = ROOT / f"results/full_protein_embeddings/{model}_last"
-        else:
-            paths["residue"] = ROOT / f"results/full_protein_embeddings/{model}_{layer}"
-    
+    if "residue" in settings or all_layers:
+        raise NotImplementedError("Residue embeddings extraction not implemented in this snippet.")
+
     if "mean" in settings:
         if layer is None:
-            paths["mean"] = ROOT / f"results/protein_embeddings/{model}_last/mean_vecs"
+            paths["mean"] = precomputed_root / f"{model}_last/mean_vecs"
         else:
-            paths["mean"] = ROOT / f"results/protein_embeddings/{model}_layer_{layer}/mean_vecs"
-    
+            paths["mean"] = precomputed_root / f"{model}_layer_{layer}/mean_vecs"
+
     if "weighted" in settings:
         if layer is None:
-            paths["weighted"] = ROOT / f"results/protein_embeddings/{model}_last/weighted_vecs"
+            paths["weighted"] = precomputed_root / f"{model}_last/weighted_vecs"
         else:
-            paths["weighted"] = ROOT / f"results/protein_embeddings/{model}_layer_{layer}/weighted_vecs"
-    
-    if all_layers:
-        paths["all_layers"] = ROOT / f"results/embeddings/{model}_all_layers"
+            paths["weighted"] = precomputed_root / f"{model}_layer_{layer}/weighted_vecs"
     
     for p in paths.values():
         p.mkdir(parents=True, exist_ok=True)
@@ -430,22 +426,18 @@ Examples:
     if "weighted" in settings_requested and args.weights_file is None:
         parser.error("--weights_file is required when --setting includes 'weighted'")
     
-    # Paths relative to repository root
-    ROOT = Path(__file__).resolve().parent.parent.parent
-    SEQ_ID_TO_SEQ = ROOT / "results/sequence_id_to_sequence.pkl"
-    
     # Determine sequence file
     if args.seq_file:
         seq_file = Path(args.seq_file)
     else:
-        seq_file = ROOT / "data/unique_seq_ids.txt"
-    
+        raise NotImplementedError("Default seq_file path is not set. Please provide --seq_file argument.")
+
     # Load sequence ID to sequence mapping
     if args.id_to_seq_file:
         id_to_seq_path = Path(args.id_to_seq_file)
         print(f"Loading sequence mapping from: {id_to_seq_path}")
     else:
-        id_to_seq_path = SEQ_ID_TO_SEQ
+        raise NotImplementedError("Default id_to_seq_file path is not set. Please provide --id_to_seq_file argument.")
     
     seq_id_to_seq = pickle.load(open(id_to_seq_path, 'rb'))
     

@@ -191,9 +191,9 @@ def seq_to_vec(sequences, tokenizer, model, device, seq_vec_dir, seqmap_py, seqm
 def test_unikp_memory():
     print("=== Peak RAM measurement: UniKP (single sample) ===")
 
-    # --- Config (edit as needed) ---
+    # --- Config (edit as needed) 
     UNIKP_DIR = '/home/saleh/webKinPred/api/UniKP-main'
-    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl_global"
+    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info//prot_t5_last/mean_vecs"
     PROTT5XL_MODEL_PATH = '/home/saleh/webKinPred/api/UniKP-main/models/prot_t5_xl_uniref50'
     SEQMAP_PY = "/home/saleh/webKinPredEnv/bin/python"
     SEQMAP_CLI = "/home/saleh/webKinPred/tools/seqmap/main.py"

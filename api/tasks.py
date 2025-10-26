@@ -96,7 +96,8 @@ def run_model(
             kwargs["products"] = [df["Products"][i] for i in valid_idx]
         elif model_key in {"EITLEM", "UniKP", "KinForm-H", "KinForm-L"}:
             kwargs["substrates"] = [df["Substrate"][i] for i in valid_idx]
-        # (extend for more models as needed)
+        if model_key in {"KinForm-H", "KinForm-L"}:
+            kwargs["model_variant"] = model_key.split("-")[1]
 
         # ------- 5. run prediction --------------------------------------------
         full_preds = ["" for _ in sequences]
@@ -432,8 +433,78 @@ def run_unikp_predictions(public_id, experimental_results=None):
                 status="Failed", error_message=str(e), completion_time=timezone.now()
             )
 
-def run_kinform_predictions(public_id, experimental_results=None):
-    pass  # Placeholder for KinForm prediction task
+def run_kinform_predictions(public_id, variant, experimental_results=None):
+    job = Job.objects.get(public_id=public_id)
+    job.status = "Processing"
+    job.save(update_fields=["status"])
+    assert variant in {"H", "L"}, "variant must be 'H' or 'L'"
+    model_key = f"KinForm-{variant}"
+    try:
+        df = safe_read_csv(
+            os.path.join(settings.MEDIA_ROOT, "jobs", str(job.public_id), "input.csv"),
+            job.ip_address,
+            job.requested_rows,
+        )
+        if df is None:
+            raise ValueError("Failed to read input CSV file.")
+
+        # Decide column name & kinetics flag once
+        kin_flag = job.prediction_type.upper()  # “KCAT” | “KM”
+        out_col = "kcat (1/s)" if kin_flag == "KCAT" else "KM (mM)"
+
+        run_model(
+            job=job,
+            model_key=model_key,
+            df=df,
+            pred_func=kinform_predictions,
+            requires_cols=["Substrate"],
+            output_col=out_col,
+            handle_long=job.handle_long_sequences,
+            extra_kwargs={"kinetics_type": kin_flag},
+            experimental_results=experimental_results,
+        )
+
+        Job.objects.filter(pk=job.pk).update(
+            status="Completed",
+            completion_time=timezone.now(),
+        )
+    except subprocess.CalledProcessError as e:
+        # Check if it's a memory error
+        if e.returncode == -9 or e.returncode == 137:  # SIGKILL (OOM killer)
+            handle_ram_error(
+                job, f"{model_key} prediction terminated due to insufficient memory"
+            )
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed", error_message=str(e), completion_time=timezone.now()
+            )
+    except MemoryError:
+        handle_ram_error(job, f"{model_key} prediction ran out of memory")
+    except Exception as e:
+        # Check if error message contains memory-related keywords
+        error_str = str(e).lower()
+        if any(
+            keyword in error_str
+            for keyword in [
+                "memory",
+                "ram",
+                "oom",
+                "out of memory",
+                "killed",
+                "sigkill",
+            ]
+        ):
+            handle_ram_error(
+                job, f"{model_key} prediction failed due to memory issues: {str(e)}"
+            )
+        else:
+            Job.objects.filter(pk=job.pk).update(
+                status="Failed", error_message=str(e), completion_time=timezone.now()
+            )
+def run_kinform_h_predictions(public_id, experimental_results=None):
+    return run_kinform_predictions(public_id, variant="H", experimental_results=experimental_results)
+def run_kinform_l_predictions(public_id, experimental_results=None):
+    return run_kinform_predictions(public_id, variant="L", experimental_results=experimental_results)
 # ------------------------------------------------------------ Run Both
 @shared_task
 def run_both_predictions(public_id, experimental_results=None):

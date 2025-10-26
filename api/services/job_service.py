@@ -31,7 +31,6 @@ from api.tasks import (
     run_turnup_predictions,
     run_eitlem_predictions,
     run_unikp_predictions,
-    run_kinform_predictions,
     run_both_predictions,
 )
 
@@ -215,8 +214,6 @@ def dispatch_prediction_task(public_id: str, params: Dict[str, Any], experimenta
             "TurNup": run_turnup_predictions,
             "EITLEM": run_eitlem_predictions,
             "UniKP": run_unikp_predictions,
-            "KinForm-H": run_kinform_predictions,
-            "KinForm-L": run_kinform_predictions,
         }
         pred_func = method_to_func.get(kcat_method)
         if pred_func:
@@ -225,7 +222,6 @@ def dispatch_prediction_task(public_id: str, params: Dict[str, Any], experimenta
         method_to_func = {
             "EITLEM": run_eitlem_predictions,
             "UniKP": run_unikp_predictions,
-            "KinForm-H": run_kinform_predictions,
         }
         pred_func = method_to_func.get(km_method)
         if pred_func:

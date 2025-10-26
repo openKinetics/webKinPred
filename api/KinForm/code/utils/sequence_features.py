@@ -1,4 +1,5 @@
 
+import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -125,7 +126,7 @@ def _try_load_precomputed_vectors(
     Tuple[bool, Optional[np.ndarray]]
         (success, vector) - success is True if vector was loaded successfully
     """
-    precomputed_root = ROOT / "results/protein_embeddings"
+    precomputed_root = Path(os.environ.get("KINFORM_MEDIA_PATH")) / "sequence_info" 
     
     try:
         if vec_type == "mean":
@@ -138,9 +139,9 @@ def _try_load_precomputed_vectors(
                 return True, np.load(vec_path)
         else:
             raise ValueError(f"Unknown vec_type: {vec_type}. Must be 'mean' or 'binding'")
-    except Exception:
-        pass
-    
+    except Exception as e:
+        raise RuntimeError(f"Failed to load precomputed vectors. \n {e}")
+
     return False, None
 
 

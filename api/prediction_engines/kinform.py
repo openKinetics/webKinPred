@@ -1,5 +1,208 @@
+import os
+import subprocess
+import pandas as pd
+import json
+from rdkit import Chem
+from api.utils.convert_to_mol import convert_to_mol
+from api.models import Job
+import numpy as np
+from webKinPred.settings import MEDIA_ROOT
+
+try:
+    from webKinPred.config_docker import PYTHON_PATHS, PREDICTION_SCRIPTS
+except ImportError:
+    try:
+        from webKinPred.config_local import PYTHON_PATHS, PREDICTION_SCRIPTS
+    except ImportError:
+        PYTHON_PATHS = {}
+        PREDICTION_SCRIPTS = {}
+
+
+def run_prediction_subprocess(command, job, env=None):
+    """
+    Run a prediction subprocess and update job progress based on stdout.
+
+    Parameters:
+    - command: List of command-line arguments to run the subprocess.
+    - job: Job object to update progress.
+    - env: Environment variables to pass to subprocess.
+    """
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,  # Pass environment variables
+        )
+
+        # Read stdout line by line
+        for line in iter(process.stdout.readline, ""):
+            if not line:
+                break
+            # Process the line
+            print("[KinForm subprocess]", line.strip())
+            # Check if it's a progress update
+            if line.startswith("Progress:"):
+                # Extract the number of predictions made
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        progress = parts[1]
+                        predictions_made, total_predictions = progress.split("/")
+                        predictions_made = int(predictions_made)
+                        total_predictions = int(total_predictions)
+                        # Update the job object
+                        job.predictions_made = predictions_made
+                        job.total_predictions = total_predictions
+                        job.save(
+                            update_fields=["predictions_made", "total_predictions"]
+                        )
+                    except Exception as e:
+                        print("Error parsing progress update:", e)
+            else:
+                # Handle other output if needed
+                pass
+
+        # Wait for the subprocess to finish
+        process.wait()
+
+        if process.returncode != 0:
+            # An error occurred - check if it's memory-related
+            if (
+                process.returncode == -9 or process.returncode == 137
+            ):  # SIGKILL (OOM killer)
+                raise subprocess.CalledProcessError(
+                    process.returncode, process.args, "Process killed by OOM killer"
+                )
+            else:
+                raise subprocess.CalledProcessError(process.returncode, process.args)
+
+    except Exception as e:
+        print("An error occurred while running the subprocess:")
+        print(e)
+        raise e
 
 def kinform_predictions(
     sequences, substrates, public_id, protein_ids=None, model_variant=None, kinetics_type="KCAT"
 ):
-    pass
+    print("Running KinForm model...")
+    assert model_variant in {"H", "L"}, "model_variant must be 'H' or 'L'"
+    # Get the Job object
+    job = Job.objects.get(public_id=public_id)
+
+    # Initialize progress fields
+    job.molecules_processed = 0
+    job.invalid_molecules = 0
+    job.predictions_made = 0
+    job.save(
+        update_fields=["molecules_processed", "invalid_molecules", "predictions_made"]
+    )
+
+    # Define paths
+    python_path = PYTHON_PATHS["KinForm"]
+    prediction_script = PREDICTION_SCRIPTS["KinForm"]
+    job_dir = os.path.join(MEDIA_ROOT, "jobs", str(public_id))
+    input_temp_file = os.path.join(job_dir, f"input_{public_id}.csv")
+    output_temp_file = os.path.join(job_dir, f"output_{public_id}.csv")
+
+    # Set environment variables for the subprocess to use Docker-compatible paths
+    env = os.environ.copy()
+    try:
+        from webKinPred.config_docker import DATA_PATHS
+        env["KINFORM_MEDIA_PATH"] = DATA_PATHS["media"]
+        env["KINFORM_TOOLS_PATH"] = DATA_PATHS["tools"]
+        env["KINFORM_DATA"] = DATA_PATHS["KinForm"]
+        env["KINFORM_ESM_PATH"] = PYTHON_PATHS["esm2"]
+        env["KINFORM_ESMC_PATH"] = PYTHON_PATHS["esmc"]
+        env["KINFORM_T5_PATH"] = PYTHON_PATHS["t5"]
+        env["KINFORM_PSEQ2SITES_PATH"] = PYTHON_PATHS["pseq2sites"]
+    except (ImportError, KeyError):
+        # If not using Docker config, don't set environment variables
+        pass
+
+    total_molecules = len(sequences)
+    job.total_molecules = total_molecules
+    job.save(update_fields=["total_molecules"])
+
+    valid_indices = []
+    invalid_indices = []
+    smiles_list = []
+    valid_sequences = []
+    alphabet = set("ACDEFGHIKLMNPQRSTVWY")
+    # Process substrates and update progress
+    for idx, (seq, substrate) in enumerate(zip(sequences, substrates)):
+        mol = convert_to_mol(substrate)
+        seq_valid = all(c in alphabet for c in seq)
+        job.molecules_processed += 1
+        if mol and seq_valid:
+            smiles = Chem.MolToSmiles(mol)
+            smiles_list.append(smiles)
+            valid_sequences.append(seq)
+            valid_indices.append(idx)
+        else:
+            print(f"Invalid substrate at row {idx + 1}: {substrate}")
+            invalid_indices.append(idx)
+            job.invalid_molecules += 1
+        # Save job progress after each molecule
+        job.save(update_fields=["molecules_processed", "invalid_molecules"])
+    # Update total predictions
+    job.total_predictions = len(valid_indices)
+    job.save(update_fields=["total_predictions"])
+    # Prepare DataFrame for valid entries
+    json_input = []
+    if valid_indices:
+        json_input = [{"smiles": sm, "sequence": seq} for sm, seq in zip(smiles_list, valid_sequences)]
+        with open(input_temp_file, "w") as f:
+            json.dump(json_input, f)
+
+    # Run the prediction script
+    predictions = [None] * total_molecules  # Initialize with None
+
+    """
+    python main.py --mode predict --task kcat --model_config KinForm-L \
+                --save_results ./predictions.csv --data_path ./my_data.json
+    """
+    map_to_command = {"KCAT": "kcat", "KM": "KM"}
+    if json_input:
+        try:
+            command = [
+                python_path, prediction_script,
+                "--mode", "predict",
+                "--task", map_to_command[kinetics_type],
+                "--model_config", f"KinForm-{model_variant}",
+                "--save_results", output_temp_file,
+                "--data_path", input_temp_file,
+            ]
+            run_prediction_subprocess(command, job, env)
+
+            # Read the output file
+            df_output = pd.read_csv(output_temp_file)
+            predicted_values = df_output["y_pred"].tolist()
+
+            # Merge predictions back into the original order
+            for idx_in_valid_list, pred in enumerate(predicted_values):
+                idx = valid_indices[idx_in_valid_list]
+                if pred in ["None", "", np.nan, "nan"]:
+                    predictions[idx] = None
+                else:
+                    predictions[idx] = pred
+
+        except Exception as e:
+            print("An error occurred while running the Unikp subprocess:")
+            print(e)
+            # Clean up temporary files
+            if os.path.exists(input_temp_file):
+                os.remove(input_temp_file)
+            if os.path.exists(output_temp_file):
+                os.remove(output_temp_file)
+            raise e
+
+    # Clean up temporary files
+    if os.path.exists(input_temp_file):
+        os.remove(input_temp_file)
+    if os.path.exists(output_temp_file):
+        os.remove(output_temp_file)
+
+    return predictions, invalid_indices

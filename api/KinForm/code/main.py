@@ -51,43 +51,22 @@ from sklearn.metrics import r2_score, mean_squared_error
 warnings.filterwarnings("ignore", category=UserWarning, message=".*enable_nested_tensor.*")
 
 # ──────────────────────────── local imports ───────────────────────── #
-from config import CONFIG_H, CONFIG_L, CONFIG_UniKP, COMPUTED_EMBEDDINGS_PATHS, BS_PRED_PATH
+from config import CONFIG_H, CONFIG_L, CONFIG_UniKP, BS_PRED_PATH, RESULTS_DIR
 from smiles_embeddings.smiles_transformer.build_vocab import WordVocab 
 from utils.smiles_features import smiles_to_vec
 from utils.sequence_features import sequences_to_feature_blocks
 from utils.pca import make_design_matrices
-from model_training import train_model
+from utils.seqmap_cli import resolve_seq_ids_via_cli
 from pseq2sites.get_sites import get_sites
 from code.utils.compute_embs import embeddings_exist, _compute_all_emb
 
 # Global paths - relative to repository root
-# This script is in code/, so go up one level to get to repo root
-ROOT = Path(__file__).resolve().parent.parent
-DATA_KCAT = ROOT / "data/EITLEM_data/KCAT/kcat_data.json"
-DATA_KM   = ROOT / "data/KM_data_raw.json"
-SEQ_LOOKUP   = ROOT / "results/sequence_id_to_sequence.pkl"
 # ------------------------------------------------------------------- #
 CONFIG_MAP = {
     "KinForm-H": CONFIG_H,
     "KinForm-L": CONFIG_L,
     "UniKP":     CONFIG_UniKP,
 }
-
-
-# ═════════════════════════ data loading ════════════════════════════ #
-def _get_or_create_seq_id(sequence, seq_id_to_sequence, sequence_to_seq_id):
-    if sequence in sequence_to_seq_id:
-        return sequence_to_seq_id[sequence], seq_id_to_sequence, sequence_to_seq_id, False
-    else:
-        print(f"↪ New sequence encountered – assigning new ID.")
-        new_id = f"Sequence {len(sequence_to_seq_id)+1}"
-        i = 2
-        while new_id in seq_id_to_sequence:
-            new_id = f"Sequence {len(sequence_to_seq_id)+i}"
-            i += 1
-        sequence_to_seq_id[sequence] = new_id
-        seq_id_to_sequence[new_id] = sequence
-        return new_id, seq_id_to_sequence, sequence_to_seq_id, True
 
 def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
     """
@@ -101,20 +80,8 @@ def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str,
             Dictionary of reasons for computation (e.g., missing embeddings)
     """
     # Check which embeddings are missing
-    seq_id_to_sequence = pd.read_pickle(SEQ_LOOKUP)
-    sequence_to_seq_id = {v: k for k, v in seq_id_to_sequence.items()}
-    seq_ids = []
-    changed_list = []
-    for seq in sequences:
-        seq_id, seq_id_to_sequence, sequence_to_seq_id, changed = _get_or_create_seq_id(
-            seq, seq_id_to_sequence, sequence_to_seq_id
-        )
-        seq_ids.append(seq_id)
-        changed_list.append(changed)
-    if any(changed_list):
-        print("↪ New sequences were added to the sequence ID lookup. Updating cache...")
-        pd.to_pickle(seq_id_to_sequence, SEQ_LOOKUP)
-
+    seq_ids = resolve_seq_ids_via_cli(sequences)
+    seq_dict = {sid: seq for sid, seq in zip(seq_ids, sequences)}
     computed_dict = {seq_id: None for seq_id in seq_ids}
     reasons = {seq_id: [] for seq_id in seq_ids}
 
@@ -136,13 +103,14 @@ def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str,
     missing_bs_seqs = set(seq_ids) - set(bs_df_ids)
     print(f"Missing binding-site predictions for {len(missing_bs_seqs)} sequences.")
     # compute ProtT5 embeddings (in batches):
-    bs_computed, bs_reasons, _ = get_sites(missing_bs_seqs, seq_id_to_sequence, bs_df, save_path=BS_PRED_PATH, return_prot_t5=False)
+    seq_dict_bs = {sid: seq_dict[sid] for sid in missing_bs_seqs}
+    bs_computed, bs_reasons, _ = get_sites(seq_dict_bs, bs_df, save_path=BS_PRED_PATH, return_prot_t5=False)
     # update bool list
     for seq_id in bs_computed:
         computed_dict[seq_id] = bs_computed[seq_id]
         reasons[seq_id].append(bs_reasons[seq_id])
     (esmc_computed, esmc_reasons, esm2_computed,
-     esm2_reasons, t5_computed, t5_reasons) = _compute_all_emb(sequences, seq_id_to_sequence)
+     esm2_reasons, t5_computed, t5_reasons) = _compute_all_emb(seq_dict)
     for seq_id in seq_ids:
         if not esm2_exists[seq_ids.index(seq_id)]:
             computed_dict[seq_id] = esm2_computed[seq_id]
@@ -157,16 +125,21 @@ def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str,
 
 def load_kcat(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return sequences, smiles and log10(kcat) as numpy arrays."""
-    data_file = data_path if data_path else DATA_KCAT
+    data_file = data_path if data_path else None
+    if data_file is None:
+        raise ValueError("Data path must be provided for loading kcat data.")
     print(f"Loading kcat data from {data_file}...")
-    
+    no_y = False
     with data_file.open() as fp:
         raw = json.load(fp)
-    
+    if "value" not in raw[0]:
+        for entry in raw:
+            entry["value"] = None
+        no_y = True
     valid = [(r["sequence"], r["smiles"], float(r["value"]))
             for r in raw if len(r["sequence"]) <= 1499 and float(r["value"]) > 0]
     seqs, smis, y = zip(*valid)
-    y = np.array([math.log(v, 10) for v in y], dtype=np.float32)
+    y = np.array([math.log(v, 10) for v in y], dtype=np.float32) if not no_y else None
     emb_computed, reasons = compute_embeddings(list(seqs))
     if not all(emb_computed):
         failed_seqs = [seqs[i] for i, v in enumerate(emb_computed) if not v]
@@ -178,12 +151,17 @@ def load_kcat(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np
 
 def load_km(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return sequences, smiles and log10(KM) as numpy arrays."""
-    data_file = data_path if data_path else DATA_KM
+    data_file = data_path if data_path else None
+    if data_file is None:
+        raise ValueError("Data path must be provided for loading KM data.")
     print(f"Loading KM data from {data_file}...")
-    
+    no_y = False
     with data_file.open() as fp:
         raw = json.load(fp)
-    
+    if "log10_KM" not in raw[0]:
+        for entry in raw:
+            entry["log10_KM"] = None
+        no_y = True
     valid = [(r["Sequence"], r["smiles"], float(r["log10_KM"]))
             for r in raw if len(r["Sequence"]) <= 1499 and "." not in r["smiles"]]
     seqs, smis, y = zip(*valid)
@@ -194,8 +172,9 @@ def load_km(data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.n
         for seq_id, reason_list in reasons.items():
             if any(reason_list):
                 print(f"  - Sequence ID {seq_id}: {'; '.join([r for r in reason_list if r])}")
-    return np.asarray(seqs), np.asarray(smis), np.asarray(y, dtype=np.float32)
 
+    y = np.asarray(y, dtype=np.float32) if not no_y else None
+    return np.asarray(seqs), np.asarray(smis), y
 
 def get_dataset(task: str, data_path: Path | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -234,11 +213,8 @@ def build_design_matrix(
     """
     # Binding-site predictions
     bs_df = pd.read_csv(BS_PRED_PATH, sep="\t")
-
-    # map sequence → id (for GroupKFold compatibility, but we only need ids here)
-    seq_lookup = pd.read_pickle(SEQ_LOOKUP)
-    seq_to_id = {v: k for k, v in seq_lookup.items()}
-
+    seq_ids = resolve_seq_ids_via_cli(seqs.tolist())
+    seq_to_id = {sid: seq for sid, seq in zip(seq_ids, seqs)}
     blocks_all, block_names = sequences_to_feature_blocks(
         sequence_list=seqs,
         binding_site_df=bs_df,
@@ -265,10 +241,13 @@ def build_design_matrix(
 
 # ═════════════════════════ main routine ════════════════════════════ #
 def train(task: str, cfg_name: str, model_dir: Path, train_test_split: float = 1.0, data_path: Path | None = None) -> None:
+    raise NotImplementedError("Training function is not fully implemented yet.")
     model_dir.mkdir(parents=True, exist_ok=True)
     cfg = CONFIG_MAP[cfg_name]
 
     seqs, smis, y = get_dataset(task, data_path)
+    if y is None:
+        raise ValueError("Target values are missing in the dataset; cannot train model.")
     print(f"✓ Loaded {len(seqs)} {task} samples with sequences and SMILES.")
     
     # If train_test_split < 1.0, perform cross-validation
@@ -393,8 +372,8 @@ def train(task: str, cfg_name: str, model_dir: Path, train_test_split: float = 1
 
 def predict(task: str, cfg_name: str, model_dir: Path, csv_out: Path, data_path: Path | None = None) -> None:
     model = joblib.load(model_dir / "model.joblib")
-
     seqs, smis, y_true_log = get_dataset(task, data_path)
+    no_ytrue = y_true_log is None
     cfg = CONFIG_MAP[cfg_name]
 
     # Load transformers if present and PCA is used by the config
@@ -403,23 +382,43 @@ def predict(task: str, cfg_name: str, model_dir: Path, csv_out: Path, data_path:
         transformers = joblib.load(model_dir / "transformers.joblib")
         print(f"✓ Loaded transformers from {model_dir / 'transformers.joblib'}")
 
-    X, _ = build_design_matrix(seqs, smis, cfg, task=task, transformers=transformers)
-    y_pred_log = model.predict(X)
-    
+    batch_size = 256
+    total_predictions = len(seqs)
+    y_pred_log = []
+    for i in range(0, total_predictions, batch_size):
+        # Get batch
+        end_idx = min(i + batch_size, total_predictions)
+        batch_seqs = seqs[i:end_idx]
+        batch_smis = smis[i:end_idx]
+        # Build design matrix for batch
+        X_batch, _ = build_design_matrix(batch_seqs, batch_smis, cfg, task=task, transformers=transformers)
+        # Predict for batch
+        y_pred_batch = model.predict(X_batch)
+        y_pred_log.extend(y_pred_batch)
+        print(f"Progress: {end_idx}/{total_predictions} predictions made", flush=True)
+    # Convert to numpy array
+    y_pred_log = np.array(y_pred_log)
     # Convert from log10 scale back to original scale
     if task.lower() == "kcat":
-        y_true = 10 ** y_true_log
+        y_true = 10 ** y_true_log if not no_ytrue else None
         y_pred = 10 ** y_pred_log
     else:  # KM task - also in log10
-        y_true = 10 ** y_true_log
+        y_true = 10 ** y_true_log if not no_ytrue else None
         y_pred = 10 ** y_pred_log
 
-    out = pd.DataFrame({
-        "sequence": seqs,
-        "smiles":   smis,
-        "y_true":   y_true,
-        "y_pred":   y_pred,
-    })
+    if no_ytrue:
+        out = pd.DataFrame({
+            "sequence": seqs,
+            "smiles":   smis,
+            "y_pred":   y_pred,
+        })
+    else:
+        out = pd.DataFrame({
+            "sequence": seqs,
+            "smiles":   smis,
+            "y_true":   y_true,
+            "y_pred":   y_pred,
+        })
     csv_out.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(csv_out, index=False)
     print(f"✓ Predictions saved to {csv_out} (values in original scale, not log10)")
@@ -446,11 +445,12 @@ if __name__ == "__main__":
                      "If not provided, uses default datasets.")
 
     args = p.parse_args()
-    results_dir = ROOT / "results"
+    results_dir = RESULTS_DIR
     os.makedirs(results_dir, exist_ok=True)
     model_dir = results_dir / f"./trained_models/{args.task}_{args.model_config}"
     
     if args.mode == "train":
+        raise NotImplementedError("Training mode is not fully implemented yet.")
         if args.train_test_split <= 0.0 or args.train_test_split > 1.0:
             p.error("--train_test_split must be in range (0.0, 1.0]")
         train(args.task, args.model_config, model_dir, args.train_test_split, args.data_path)

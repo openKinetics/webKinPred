@@ -9,7 +9,8 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import ROOT, PSEQ2SITES_BIN
 
-def _populate_initial(all_seq_ids, already_processed_ids, id_to_seq):
+def _populate_initial(sec_dict, already_processed_ids):
+    all_seq_ids = list(sec_dict.keys())
     missing_seq_ids = [sid for sid in all_seq_ids if sid not in already_processed_ids]
 
     print(f"{len(missing_seq_ids)} sequences missing binding-site predictions. \n Generating T5 features ...")
@@ -21,7 +22,7 @@ def _populate_initial(all_seq_ids, already_processed_ids, id_to_seq):
         if sid not in missing_seq_ids:
             success_dict[sid] = True
             reason_dict[sid] = None
-        elif len(id_to_seq[sid]) > 1499:
+        elif len(sec_dict[sid]) > 1499:
             success_dict[sid] = False
             reason_dict[sid] = "Sequence length exceeds 1499 residues."
         else:
@@ -29,8 +30,7 @@ def _populate_initial(all_seq_ids, already_processed_ids, id_to_seq):
     return to_process, success_dict, reason_dict
 
 def get_sites(
-    seq_ids: list[str],
-    id_to_seq: dict[str, str],
+    seq_dict: dict[str, str],
     binding_site_df: pd.DataFrame,
     batch_size: int = 4,
     save_path: str = "data/binding_sites/binding_site_cache.tsv",
@@ -44,12 +44,10 @@ def get_sites(
             List of reasons for failure (None if successful)
     """
     # check which sequences are missing
-    assert all(sid in id_to_seq for sid in seq_ids), "Some seq_ids not found in id_to_seq dict."
     already_processed_ids = binding_site_df['PDB'].unique().tolist()
     to_process, success_dict, reason_dict= _populate_initial(
-        all_seq_ids=seq_ids,
+        seq_dict=seq_dict,
         already_processed_ids=already_processed_ids,
-        id_to_seq=id_to_seq
     )
     if len(to_process) == 0:
         print("All sequences already have binding-site predictions.")
@@ -63,7 +61,7 @@ def get_sites(
         with open(input_tsv_path, "w") as f:
             f.write("PDB\tSequence\n")
             for _, sid in to_process:
-                f.write(f"{sid}\t{id_to_seq[sid]}\n")
+                f.write(f"{sid}\t{seq_dict[sid]}\n")
         # generate features
         script_path = ROOT / "code" / "pseq2sites" / "Pseq2Sites" / "gen_features.py"
         gen_feat_cmd = [

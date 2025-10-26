@@ -18,7 +18,7 @@ logging.set_verbosity_error()
 # Use environment variables to determine paths
 if os.environ.get("UNIKP_MEDIA_PATH"):
     # Docker environment
-    SEQ_VEC_DIR = os.environ.get("UNIKP_MEDIA_PATH") + "/sequence_info/protT5xl_global"
+    SEQ_VEC_DIR = os.environ.get("UNIKP_MEDIA_PATH") + "/sequence_info/prot_t5_last/mean_vecs"
     PROTT5XL_MODEL_PATH = "/app/api/UniKP-main/models/protT5_xl/prot_t5_xl_uniref50"
     SEQMAP_PY = sys.executable  # Use current Python interpreter in Docker
     SEQMAP_CLI = os.environ.get("UNIKP_TOOLS_PATH") + "/seqmap/main.py"
@@ -27,7 +27,7 @@ if os.environ.get("UNIKP_MEDIA_PATH"):
     TRFM_PATH = "/app/api/UniKP-main/trfm_12_23000.pkl"
 else:
     # Local environment
-    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/protT5xl_global"
+    SEQ_VEC_DIR = "/home/saleh/webKinPred/media/sequence_info/prot_t5_last/mean_vecs"
     PROTT5XL_MODEL_PATH = (
         "/home/saleh/webKinPred/api/UniKP-main/models/protT5_xl/prot_t5_xl_uniref50"
     )
