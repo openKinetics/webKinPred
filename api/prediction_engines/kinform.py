@@ -190,7 +190,7 @@ def kinform_predictions(
                     predictions[idx] = pred
 
         except Exception as e:
-            print("An error occurred while running the Unikp subprocess:")
+            print("An error occurred while running the KinForm subprocess:")
             print(e)
             # Clean up temporary files
             if os.path.exists(input_temp_file):
