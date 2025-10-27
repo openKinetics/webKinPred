@@ -26,12 +26,14 @@ services:
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
     environment:
       - PYTHONPATH=/app
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=webKinPred.settings_docker
       - REDIS_URL=redis://redis:6379/0
       - MMSEQS_TMP_DIR=/app/mmseqs_tmp
+      
     depends_on:
       redis:
         condition: service_healthy
@@ -79,6 +81,7 @@ services:
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
     environment:
       - PYTHONPATH=/app
       - DEBUG=1
@@ -113,7 +116,7 @@ services:
       - ./fastas:/app/fastas
       - ./tools:/app/tools
       - ./staticfiles:/app/staticfiles
-      - /home/saleh/protT5_xl/prot_t5_xl_uniref50:/app/protT5_xl/prot_t5_xl_uniref50:ro
+      - ./api/UniKP-main/models:/app/api/UniKP-main/models:ro
       
     environment:
       - PYTHONPATH=/app

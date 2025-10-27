@@ -92,8 +92,9 @@ def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str,
         exists_dict["t5"],
     )
     if (all(esm2_exists) and all(esmc_exists) and all(t5_exists)):
+        computed_dict = {seq_id: True for seq_id in seq_ids}
         print("✓ All embeddings already exist. No computation needed.")
-        return [True] * len(sequences)
+        return computed_dict, reasons
     print(f"Missing {sum(not x for x in esm2_exists)} ESM-2 embeddings.")
     print(f"Missing {sum(not x for x in esmc_exists)} ESM-C embeddings.")
     print(f"Missing {sum(not x for x in t5_exists)} Prot-T5 embeddings.")
@@ -218,7 +219,7 @@ def build_design_matrix(
     # Binding-site predictions
     bs_df = pd.read_csv(BS_PRED_PATH, sep="\t")
     seq_ids = resolve_seq_ids_via_cli(seqs.tolist())
-    seq_to_id = {sid: seq for sid, seq in zip(seq_ids, seqs)}
+    seq_to_id = {seq: sid for seq, sid in zip(seqs, seq_ids)}
     blocks_all, block_names = sequences_to_feature_blocks(
         sequence_list=seqs,
         binding_site_df=bs_df,

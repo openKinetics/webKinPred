@@ -14,7 +14,7 @@ def _populate_initial(seq_dict, already_processed_ids):
     all_seq_ids = list(seq_dict.keys())
     missing_seq_ids = [sid for sid in all_seq_ids if sid not in already_processed_ids]
 
-    print(f"{len(missing_seq_ids)} sequences missing binding-site predictions. \n Generating T5 features ...")
+    print(f"{len(missing_seq_ids)} sequences missing binding-site predictions")
     success_dict = {seq_id: None for seq_id in all_seq_ids}
     reason_dict = {seq_id: None for seq_id in all_seq_ids}
     # populate process_list with (original_index, seq_id) tuples
