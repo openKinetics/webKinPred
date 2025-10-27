@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 PROTT5XL_MODEL_PATH = "Rostlab/prot_t5_xl_uniref50"
 if os.environ.get("KINFORM_MEDIA_PATH"):
-    PROTT5XL_MODEL_PATH = "/app/api/UniKP-main/models/prot_t5_xl_uniref50"
+    PROTT5XL_MODEL_PATH = "/app/api/UniKP-main/models/protT5_xl/prot_t5_xl_uniref50"
     
 def str2bool(v):
     if isinstance(v, bool):
