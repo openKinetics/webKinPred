@@ -73,12 +73,12 @@ def main():
     print("2. Load tokenizer and pretrained model")
     # Check if PROTT5XL_MODEL_PATH is a local directory path
     is_local_path = os.path.isdir(PROTT5XL_MODEL_PATH) if PROTT5XL_MODEL_PATH.startswith('/') else False
-    tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False, local_files_only=is_local_path)
-    prots_model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, local_files_only=is_local_path)
+    tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
+    prots_model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, torch_dtype=torch.float32, low_cpu_mem_usage=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    
-    prots_model = prots_model.to(device)
+    if torch.cuda.is_available():
+        prots_model = prots_model.to(device)
     prots_model = prots_model.eval()
     
     batch_seq_list, prots_feat_list = list(), list()

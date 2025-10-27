@@ -143,9 +143,7 @@ def get_prot_t5_embeddings(
     # --------------------------- model load ------------------------------- #
     print("Loading ProtT5-XL UniRef50 ...")
     tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
-    model = T5EncoderModel.from_pretrained(
-        PROTT5XL_MODEL_PATH, output_hidden_states=True
-    )
+    model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, torch_dtype=torch.float32, low_cpu_mem_usage=True, output_hidden_states=True)
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
