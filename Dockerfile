@@ -55,7 +55,7 @@ RUN conda create -n pseq2sites python=3.7.12 -c conda-forge && \
     conda run -n esmc pip install --no-cache-dir esm pandas tqdm && \
     \
     conda create -n prot_t5 python=3.9 -c conda-forge && \
-    conda run -n prot_t5 pip install --no-cache-dir torch transformers sentencepiece pandas tqdm && \
+    conda run -n prot_t5 pip install --no-cache-dir torch transformers sentencepiece pandas tqdm accelerate && \
     \
     conda create -n turnup_env python=3.7 -c conda-forge && \
     conda install -n turnup_env -c conda-forge -y py-xgboost=1.6.1 && \

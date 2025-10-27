@@ -74,7 +74,7 @@ def main():
     # Check if PROTT5XL_MODEL_PATH is a local directory path
     is_local_path = os.path.isdir(PROTT5XL_MODEL_PATH) if PROTT5XL_MODEL_PATH.startswith('/') else False
     tokenizer = T5Tokenizer.from_pretrained(PROTT5XL_MODEL_PATH, do_lower_case=False)
-    prots_model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, torch_dtype=torch.float32, low_cpu_mem_usage=True)
+    prots_model = T5EncoderModel.from_pretrained(PROTT5XL_MODEL_PATH, torch_dtype=torch.float32)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     if torch.cuda.is_available():
