@@ -3,18 +3,20 @@
 
 const methodDetails = {
   "KinForm-H": {
-    description: 'Placeholder description for KinForm-H method.',
-    authors: 'Author A, Author B',
-    publicationTitle: 'Placeholder Title for KinForm-H',
-    citationUrl: 'placeholder-url-for-kinform-h',
+    description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
+    authors: 'Saleh Alwer, Ronan M T Fleming',
+    publicationTitle: 'KinForm: Kinetics Informed Feature Optimised Representation Models for Enzyme kcat and KM Prediction',
+    citationUrl: 'https://arxiv.org/abs/2507.14639',
     repoUrl: 'https://github.com/Digital-Metabolic-Twin-Centre/KinForm',
+    moreInfo: 'Recommended for proteins with high sequence similarity to training data.',
   },
   "KinForm-L": {
-    description: 'Placeholder description for KinForm-L method.',
-    authors: 'Author C, Author D',
-    publicationTitle: 'Placeholder Title for KinForm-L',
-    citationUrl: 'placeholder-url-for-kinform-l',
+    description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
+    authors: 'Saleh Alwer, Ronan M T Fleming',
+    publicationTitle: 'KinForm: Kinetics Informed Feature Optimised Representation Models for Enzyme kcat and KM Prediction',
+    citationUrl: 'https://arxiv.org/abs/2507.14639',
     repoUrl: 'https://github.com/Digital-Metabolic-Twin-Centre/KinForm',
+    moreInfo: 'Recommended for proteins with low sequence similarity to training data.',
   },
   UniKP: {
     description: 'Predicts kcat or KM for a reaction given protein sequence + substrate.',
@@ -29,7 +31,6 @@ const methodDetails = {
     publicationTitle: 'Deep learning-based kcat prediction enables improved enzyme-constrained model reconstruction',
     citationUrl: 'https://www.nature.com/articles/s41929-022-00798-z',
     repoUrl: 'https://github.com/SysBioChalmers/DLKcat',
-    moreInfo: '',
   },
   TurNup: {
     description: 'Predicts kcat for each reaction given protein sequence + list of substrates + list of products.',
@@ -45,7 +46,6 @@ const methodDetails = {
     publicationTitle: 'EITLEM-Kinetics: A deep-learning framework for kinetic parameter prediction of mutant enzymes',
     citationUrl: 'https://www.sciencedirect.com/science/article/pii/S2667109324002665',
     repoUrl: 'https://github.com/XvesS/EITLEM-Kinetics',
-    moreInfo: 'Recommended for mutants.',
   },
 };
 

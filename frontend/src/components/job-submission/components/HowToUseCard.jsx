@@ -1,9 +1,10 @@
 // src/components/HowToUseCard.js
 
 import React from 'react';
-import { Card, Row, Col, Alert, ListGroup, Button } from 'react-bootstrap';
-import { BoxArrowInDown, Bullseye, CloudUpload, Cpu } from 'react-bootstrap-icons';
+import { Card, Row, Col, Alert, ListGroup, Button, Badge } from 'react-bootstrap';
+import { BoxArrowInDown, Bullseye, CloudUpload, Cpu, Github } from 'react-bootstrap-icons';
 import '../../../styles/components/HowToUseCard.css';
+import methodDetails from '../constants/methodDetails';
 
 
 export default function HowToUseCard() {
@@ -107,6 +108,52 @@ export default function HowToUseCard() {
             Multi-Substrate Template
             </Button>
         </div>
+
+        <hr className="my-4" />
+        <h4 className="text-center mb-4">Available Prediction Methods</h4>
+        <Row className="g-3">
+          {Object.entries(methodDetails).map(([methodName, details]) => (
+            <Col key={methodName} md={6} lg={4}>
+              <Card className="method-card h-100">
+                <Card.Body className="d-flex flex-column">
+                  <div className="d-flex justify-content-between align-items-start mb-2">
+                    <Card.Title className="method-title mb-0">{methodName}</Card.Title>
+                    <a
+                      href={details.repoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="github-link"
+                      title="View on GitHub"
+                    >
+                      <Github size={20} />
+                    </a>
+                  </div>
+                  <Card.Text className="method-description flex-grow-1">
+                    {details.description}
+                  </Card.Text>
+                  <div className="method-publication">
+                    <a
+                      href={details.citationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="publication-link"
+                    >
+                      <small className="publication-title">{details.publicationTitle}</small>
+                    </a>
+                    <small className="text-muted d-block mt-1">{details.authors}</small>
+                  </div>
+                  {details.moreInfo && (
+                    <div className="mt-2">
+                      <Badge bg="secondary" className="more-info-badge">
+                        {details.moreInfo}
+                      </Badge>
+                    </div>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+          ))}
+        </Row>
       </Card.Body>
     </Card>
   );
