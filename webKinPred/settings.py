@@ -23,10 +23,8 @@ except ImportError:
     ALLOWED_FRONTEND_IPS = ["127.0.0.1", "localhost"]
     DEBUG = True
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-4bv*yd3s*pewklc+$$#m&ida!xc1+*+jthh&6r1l71&ubz&86-'
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = DEBUG
 ALLOWED_FRONTEND_IPS = ALLOWED_FRONTEND_IPS
 
