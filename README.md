@@ -1,70 +1,67 @@
-# Getting Started with Create React App
+# WebKinPred
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+WebKinPred is a production web interface for predicting enzyme kinetic parameters (kcat and KM) from protein sequence and substrate SMILES. It consolidates several state‑of‑the‑art machine learning / deep learning models behind a unified, asynchronous job API so you can submit sequences and retrieve structured predictions.
 
-## Available Scripts
+**Live service:** [https://kineticxpredictor.humanmetabolism.org/](https://kineticxpredictor.humanmetabolism.org/)
 
-In the project directory, you can run:
+## Prediction Engines
 
-### `npm start`
+| Engine | Input needed | Output | Citation |
+|--------|--------------|--------|----------|
+| KinForm-H | Protein sequence + substrate SMILES | kcat or KM | [Alwer & Fleming, Arxiv](https://arxiv.org/abs/2507.14639) ([GitHub](https://github.com/Digital-Metabolic-Twin-Centre/KinForm)) |
+| KinForm-L | Protein sequence + substrate SMILES | kcat or KM | [Alwer & Fleming, Arxiv](https://arxiv.org/abs/2507.14639) ([GitHub](https://github.com/Digital-Metabolic-Twin-Centre/KinForm)) |
+| UniKP | Protein sequence + substrate SMILES | kcat or KM | [Yu et al., Nat Commun 2023](https://www.nature.com/articles/s41467-023-44113-1) ([GitHub](https://github.com/Luo-SynBioLab/UniKP)) |
+| DLKcat | Protein sequence + substrate SMILES | kcat | [Li et al., Nat Catal 2022](https://www.nature.com/articles/s41929-022-00798-z) ([GitHub](https://github.com/SysBioChalmers/DLKcat)) |
+| TurNup | Protein sequence + substrates list + products list | kcat | [Kroll et al., Nat Commun 2023](https://www.nature.com/articles/s41467-023-39840-4) ([GitHub](https://github.com/AlexanderKroll/Kcat_prediction)) |
+| EITLEM | Protein sequence + substrate SMILES | kcat or KM | [Shen et al., Biotechnol Adv 2024](https://www.sciencedirect.com/science/article/pii/S2667109324002665) ([GitHub](https://github.com/XvesS/EITLEM-Kinetics)) |
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Each model is loaded with its published weights/code (see `api/prediction_engines/`) and invoked through a standard internal interface so new engines can be added with minimal wiring.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Features
 
-### `npm test`
+* Batch submission of sequences and substrates.
+* Long‑running inference handled asynchronously (Celery + Redis) with progress tracking.
+* Sequence similarity distribution of input data vs mehtods' training data (Using mmseq2).
+* Caching sequence embeddings.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Tech Stack
 
-### `npm run build`
+### Frontend
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+* React 18 + Vite (fast dev + ESM build)
+* Bootstrap / React‑Bootstrap for layout & components
+* Axios for API calls; Chart.js for result visualisation
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Backend
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+* Django 5.1 (REST-style endpoints under `api/`)
+* Celery workers for queued prediction tasks (`api/tasks.py`)
+* Redis as Celery broker
+* SQLite
+* PyTorch, scikit-learn, RDKit, pandas for model computation & cheminformatics
 
-### `npm run eject`
+## High-Level Flow
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+1. User submits a job (sequence + substrate(s) [+ products/mutant context if required]) via the frontend.
+2. Backend validates input (`api/services/validation_service.py`).
+3. A Celery task is enqueued; Redis broker stores the task message.
+4. Worker loads the selected model wrapper (e.g. `prediction_engines/kinform.py`) and executes inference.
+5. Results & intermediate status are persisted; cached for repeated identical queries.
+6. Frontend polls job status endpoint to update progress and results.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Adding a New Model
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+... todo ...
+Create a new module in `api/prediction_engines/` following existing wrappers.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Attribution
 
-## Learn More
+Please cite the original publications when using predictions from a specific engine. When publishing aggregated results produced through WebKinPred, cite all underlying sources plus this platform.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Contact
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+For questions or collaboration: open an issue or reach out to the authors of the respective model.
 
-### Code Splitting
+## Funding
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+... todo ...
