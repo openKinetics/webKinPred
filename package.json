@@ -6,6 +6,6 @@
     "bootstrap": "^5.3.3",
     "dotenv": "^16.4.5",
     "react-bootstrap": "^2.10.5",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.30.3"
   }
 }
