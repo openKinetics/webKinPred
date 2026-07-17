@@ -1,0 +1,129 @@
+similarity_utils
+================
+
+.. py:module:: similarity_utils
+
+.. autoapi-nested-parse::
+
+   Similarity analysis utility functions for protein sequence analysis.
+   These functions handle specific tasks following single responsibility principle.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: extract_protein_sequences_from_csv(csv_file) -> List[str]
+
+   Extract protein sequences from uploaded CSV file.
+
+   :param csv_file: Uploaded CSV file object
+
+   :returns: List of protein sequences
+
+   :raises ValueError: If CSV doesn't contain required column or has no sequences
+
+
+.. py:function:: create_unique_sequence_mapping(sequences: List[str]) -> Tuple[List[str], Dict[str, str]]
+
+   Create mapping between original sequences and unique sequences to avoid redundant analysis.
+
+   :param sequences: List of protein sequences (may contain duplicates)
+
+   :returns: Tuple of (unique_sequences_list, sequence_to_id_mapping)
+
+
+.. py:function:: create_fasta_file(sequences: List[str], seq_to_id_mapping: Dict[str, str]) -> str
+
+   Create a temporary FASTA file from protein sequences.
+
+   :param sequences: List of protein sequences
+   :param seq_to_id_mapping: Mapping from sequence to unique identifier
+
+   :returns: Path to the created FASTA file
+
+
+.. py:function:: create_mmseqs_database(fasta_file_path: str, session_id: str) -> Tuple[str, str]
+
+   Create MMseqs2 database from FASTA file.
+
+   :param fasta_file_path: Path to input FASTA file
+   :param session_id: Session ID for logging
+
+   :returns: Tuple of (query_db_path, temp_directory_path)
+
+
+.. py:function:: run_mmseqs_search(query_db: str, target_db: str, method_name: str, session_id: str, max_seqs: int = 1000) -> str
+
+   Run MMseqs2 search against target database.
+
+   :param query_db: Path to query database
+   :param target_db: Path to target database
+   :param method_name: Name of the method (for logging)
+   :param session_id: Session ID for logging
+   :param max_seqs: Max hits per query passed to --max-seqs (default 1000)
+
+   :returns: Path to the result file
+
+
+.. py:function:: parse_mmseqs_results(result_file: str, query_file_path: str) -> Tuple[Dict[str, float], Dict[str, float]]
+
+   Parse MMseqs2 search results to extract identity scores.
+
+   :param result_file: Path to MMseqs2 result file
+   :param query_file_path: Path to original query FASTA file
+
+   :returns: Tuple of (max_identity_dict, mean_identity_dict)
+
+
+.. py:function:: parse_mmseqs_results_raw(result_file: str) -> Dict[str, List[Tuple[str, float]]]
+
+   Parse MMseqs2 result file, keeping the target ID for each hit.
+
+   Used by the merged-DB path so hits can be filtered per database before
+   aggregating to max/mean.
+
+   :param result_file: Path to MMseqs2 result file
+
+   :returns: Dict mapping query_id -> [(target_id, pident), ...]
+
+
+.. py:function:: map_results_to_original_sequences(unique_results_max: Dict[str, float], unique_results_mean: Dict[str, float], original_sequences: List[str], seq_to_unique_id: Dict[str, str]) -> Tuple[Dict[str, float], Dict[str, float]]
+
+   Map results from unique sequences back to all original sequences.
+
+   :param unique_results_max: Max identity results for unique sequences
+   :param unique_results_mean: Mean identity results for unique sequences
+   :param original_sequences: Original list of sequences (may have duplicates)
+   :param seq_to_unique_id: Mapping from sequence to unique identifier
+
+   :returns: Tuple of (original_max_dict, original_mean_dict)
+
+
+.. py:function:: calculate_identity_histogram(identity_values: Dict[str, float]) -> Tuple[Dict[str, int], Dict[str, float]]
+
+   Calculate histogram of identity values rounded to nearest integer.
+
+   :param identity_values: Dictionary mapping sequence IDs to identity values
+
+   :returns: Tuple of (count_histogram, percentage_histogram)
+
+
+.. py:function:: calculate_average_similarity(identity_values: Dict[str, float]) -> float
+
+   Calculate average similarity percentage from identity values.
+
+   :param identity_values: Dictionary mapping sequence IDs to identity values
+
+   :returns: Average similarity as percentage (0-100)
+
+
+.. py:function:: cleanup_temporary_files(*file_paths: str) -> None
+
+   Clean up temporary files and directories.
+
+   :param file_paths: Paths to files/directories to remove
+
+

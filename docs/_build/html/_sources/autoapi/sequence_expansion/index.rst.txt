@@ -1,0 +1,53 @@
+sequence_expansion
+==================
+
+.. py:module:: sequence_expansion
+
+.. autoapi-nested-parse::
+
+   Position-safe expansion and reduction for semicolon-separated protein sequences.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:class:: ExpandedSequence
+
+   One protein-sequence candidate from an input row.
+
+
+.. py:class:: SequenceExpansionPlan
+
+   A positional mapping from input rows to split protein sequences.
+
+
+.. py:class:: TargetPredictionUnit
+
+   One flattened engine input unit after sequence/substrate adaptation.
+
+
+.. py:class:: TargetExpansionPlan
+
+   Position-safe mapping between engine units and original reaction rows.
+
+
+.. py:function:: split_sequence_list(value: Any) -> list[str]
+
+   Split a semicolon-separated protein list, trimming empty fragments.
+
+
+.. py:function:: count_multi_sequence_rows(values: Iterable[Any]) -> int
+
+   Return the number of rows containing more than one protein token.
+
+
+.. py:function:: reduce_sequence_predictions(*, plan: TargetExpansionPlan, target: str, child_predictions: Sequence[Any], child_sources: Sequence[str], child_errors: dict[int, str] | None, child_details: Sequence[str] | None, reaction_count: int) -> ReducedSequenceResults
+
+   Reduce flattened sequence/substrate child results back to input rows.
+
+

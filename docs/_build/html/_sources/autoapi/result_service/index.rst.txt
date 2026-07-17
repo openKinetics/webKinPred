@@ -1,0 +1,21 @@
+result_service
+==============
+
+.. py:module:: result_service
+
+.. autoapi-nested-parse::
+
+   Shared JSON serialization for completed prediction CSV files.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: serialize_result_csv(output_path: str) -> dict[str, Any]
+
+   Read a result CSV and represent every blank cell as JSON ``null``.
+
+

@@ -1,0 +1,31 @@
+embedding_progress_service
+==========================
+
+.. py:module:: embedding_progress_service
+
+.. autoapi-nested-parse::
+
+   Embedding progress tracking service.
+
+   Tracks per-job embedding cache progress in Redis without modifying the model
+   embedding scripts themselves. The tracker is:
+
+   - event-driven on Linux via inotify
+   - resilient via periodic reconciliation sweeps
+   - portable via polling fallback when inotify is unavailable
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: start_embedding_tracking(*, job_public_id: str, method_key: str, target: str, valid_sequences: list[str] | None, env: dict | None = None) -> bool
+
+   Start embedding progress tracking for a job/method run.
+
+   Returns True when tracking was started or initialized (including immediate
+   done state), False when tracking is not applicable or setup failed.
+
+

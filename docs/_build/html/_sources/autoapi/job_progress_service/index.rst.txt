@@ -1,0 +1,24 @@
+job_progress_service
+====================
+
+.. py:module:: job_progress_service
+
+.. autoapi-nested-parse::
+
+   Stage-based job progress tracking helpers.
+
+   This service keeps per-target progress in ``JobProgressStage`` rows while
+   maintaining legacy job-level counters for backward compatibility.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: initialise_job_progress_stages(job: api.models.Job, targets: list[str], desc_by_target: dict[str, Any]) -> None
+
+   Replace any existing stage rows for this job with fresh pending rows.
+
+

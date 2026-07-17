@@ -1,0 +1,38 @@
+substrate_expansion
+===================
+
+.. py:module:: substrate_expansion
+
+.. autoapi-nested-parse::
+
+   Position-safe expansion and reduction for ``Substrates`` CSV inputs.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:class:: ExpandedSubstrate
+
+   One flattened protein/substrate pair and its original positions.
+
+
+.. py:class:: SubstrateExpansionPlan
+
+   A positional mapping between reaction rows and flattened substrates.
+
+
+.. py:function:: split_substrate_list(value: Any) -> list[str]
+
+   Split a semicolon list, trimming and ignoring empty separator fragments.
+
+
+.. py:function:: reduce_substrate_predictions(*, plan: SubstrateExpansionPlan, target: str, child_predictions: Sequence[Any], child_sources: Sequence[str], child_errors: dict[int, str] | None, child_details: Sequence[str] | None, reaction_count: int) -> ReducedSubstrateResults
+
+   Reduce flattened child results back to their original reaction rows.
+
+

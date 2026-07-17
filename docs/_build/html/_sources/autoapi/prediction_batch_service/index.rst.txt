@@ -1,0 +1,38 @@
+prediction_batch_service
+========================
+
+.. py:module:: prediction_batch_service
+
+.. autoapi-nested-parse::
+
+   Pure positional planning for prediction engine batches.
+
+   The planner is deliberately free of database, cache, model, and progress side
+   effects.  Both the request-time ReconXKG preflight and the worker use these
+   objects, so a cache hit is proved against the exact units that execution will
+   consume.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:class:: SequenceBatchPlan
+
+   Position-safe sequence handling shared by all selected targets.
+
+
+.. py:class:: TargetBatchPlan
+
+   One method/target engine call after input-schema adaptation.
+
+
+.. py:function:: build_target_batch_plan(descriptor: Any, target: str, dataframe: pandas.DataFrame, sequence_plan: SequenceBatchPlan) -> TargetBatchPlan
+
+   Build the exact positional engine batch for one selected target.
+
+

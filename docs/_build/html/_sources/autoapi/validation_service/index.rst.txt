@@ -1,0 +1,25 @@
+validation_service
+==================
+
+.. py:module:: validation_service
+
+.. autoapi-nested-parse::
+
+   Validation service that orchestrates input validation workflows.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: validate_input_file(file) -> Dict[str, Any]
+
+   Validate an uploaded CSV file for substrate and protein sequence data.
+
+   :param file: Uploaded file object from Django request
+
+   :returns: Dictionary containing validation results or error information
+
+

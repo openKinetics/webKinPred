@@ -1,0 +1,34 @@
+extra_info
+==========
+
+.. py:module:: extra_info
+
+.. autoapi-nested-parse::
+
+   api/utils/extra_info.py
+   Utility for turning an experimental-lookup dict into the
+   'Extra Information' string shown in output.csv
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: build_extra_info(exp: dict, param_type: str, prediction: str = '', model_key: str = '') -> str
+
+   :param exp: Record returned by `lookup_experimental`, already guaranteed to
+               contain at least the keys used below.
+   :type exp: dict
+   :param param_type: 'Km' or 'kcat' (case-insensitive).  Used to pick the SD field.
+   :type param_type: str
+   :param prediction: The prediction value, if available. Used to include in the output.
+   :type prediction: str, optional
+   :param model_key: The model key used for the prediction, if applicable.
+   :type model_key: str, optional
+
+   :returns: A single human-readable paragraph, or '' if exp['found'] is False.
+   :rtype: str
+
+

@@ -1,0 +1,156 @@
+validation_utils
+================
+
+.. py:module:: validation_utils
+
+.. autoapi-nested-parse::
+
+   Validation utility functions for input processing.
+   These functions handle specific validation tasks following single responsibility principle.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: safe_convert_to_mol(value: Any) -> Optional[Any]
+
+   Safely convert a value to molecule format with robust NaN/empty string handling.
+
+   :param value: Input value to convert
+
+   :returns: Converted molecule object or None if invalid/empty
+
+
+.. py:function:: split_single_substrate_components(value: Any) -> List[str]
+
+   Split single-column substrate values into individually validatable components.
+
+   Rules:
+   - InChI values are treated as a single token.
+   - SMILES values are split by '.' to support multi-component entries
+     like "A.B" in the "Substrate" column.
+
+
+.. py:function:: validate_csv_structure(dataframe: pandas.DataFrame) -> Optional[str]
+
+   Validate that CSV has required columns for substrate/protein validation.
+
+   :param dataframe: Pandas DataFrame to validate
+
+   :returns: Error message if validation fails, None if valid
+
+
+.. py:function:: validate_single_substrate_schema(dataframe: pandas.DataFrame) -> List[Dict[str, Any]]
+
+   Validate substrates using single-substrate schema (Substrate column).
+
+   :param dataframe: DataFrame containing Substrate column
+
+   :returns: List of validation errors
+
+
+.. py:function:: validate_substrate_list_schema(dataframe: pandas.DataFrame) -> List[Dict[str, Any]]
+
+   Validate ordered substrates and optional products using list schema.
+
+   :param dataframe: DataFrame containing Substrates and optional Products columns
+
+   :returns: List of validation errors
+
+
+.. py:function:: validate_products_column(dataframe: pandas.DataFrame) -> List[Dict[str, Any]]
+
+   Validate every supplied product token for mandatory submission preflight.
+
+
+.. py:function:: validate_substrates(dataframe: pandas.DataFrame) -> List[Dict[str, Any]]
+
+   Validate substrate data based on available columns in the dataframe.
+
+   :param dataframe: DataFrame to validate substrates from
+
+   :returns: List of substrate validation errors
+
+
+.. py:function:: validate_protein_sequence_characters(sequence: str) -> List[str]
+
+   Validate that protein sequence contains only valid amino acid characters.
+
+   :param sequence: Protein sequence string
+
+   :returns: List of invalid characters found in sequence
+
+
+.. py:function:: calculate_sequence_length_violations(sequence_length: int) -> Dict[str, int]
+
+   Calculate which models would reject a sequence based on length limits.
+
+   :param sequence_length: Length of the protein sequence
+
+   :returns: Dictionary mapping model names to violation count (0 or 1)
+
+
+.. py:function:: validate_protein_sequences(dataframe: pandas.DataFrame) -> Tuple[List[Dict[str, Any]], Dict[str, int]]
+
+   Validate protein sequences for character validity and length constraints.
+
+   :param dataframe: DataFrame containing Protein Sequence column
+
+   :returns: Tuple of (invalid_proteins_list, aggregated_length_violations)
+
+
+.. py:function:: clean_data_for_json(data: Any) -> Any
+
+   Recursively clean data to make it JSON-serializable.
+   Converts pandas NaN values to string "NaN".
+
+   :param data: Data to clean (can be nested lists/dicts)
+
+   :returns: JSON-serializable version of the data
+
+
+.. py:function:: parse_csv_file(file) -> pandas.DataFrame
+
+   Parse and clean a CSV file from request.
+
+   :param file: File object from Django request
+
+   :returns: Cleaned pandas DataFrame
+
+   :raises Exception: If CSV parsing fails
+
+
+.. py:function:: validate_file_format(file, allowed_extensions: Optional[List[str]] = None) -> Optional[str]
+
+   Validate file format based on allowed extensions.
+
+   :param file: File object from request
+   :param allowed_extensions: List of allowed extensions (defaults to ['.csv'])
+
+   :returns: Error message if invalid, None if valid
+
+
+.. py:function:: validate_required_columns(dataframe: pandas.DataFrame, required_columns: List[str]) -> Optional[str]
+
+   Validate that DataFrame contains all required columns.
+
+   :param dataframe: DataFrame to validate
+   :param required_columns: List of required column names
+
+   :returns: Error message if validation fails, None if valid
+
+
+.. py:function:: validate_column_emptiness(dataframe: pandas.DataFrame, column_name: str, max_empty_percent: float = 0.1) -> Optional[str]
+
+   Validate that a column doesn't have too many empty values.
+
+   :param dataframe: DataFrame to validate
+   :param column_name: Name of the column to check
+   :param max_empty_percent: Maximum allowed percentage of empty rows (default 0.1 = 10%)
+
+   :returns: Error message if validation fails, None if valid
+
+

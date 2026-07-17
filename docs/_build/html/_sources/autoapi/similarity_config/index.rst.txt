@@ -1,0 +1,11 @@
+similarity_config
+=================
+
+.. py:module:: similarity_config
+
+.. autoapi-nested-parse::
+
+   Runtime-aware config access for MMseqs similarity analysis.
+
+
+

@@ -1,0 +1,78 @@
+similarity_service
+==================
+
+.. py:module:: similarity_service
+
+.. autoapi-nested-parse::
+
+   Similarity analysis service that orchestrates the similarity workflow.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:exception:: SimilarityCacheOnlyMiss
+
+
+
+   A strict synchronous run could not use its preflight snapshot.
+
+
+.. py:function:: analyze_sequence_similarity(csv_file, session_id: str = 'default') -> Dict[str, Any]
+
+   Analyze sequence similarity against target databases.
+
+   :param csv_file: Uploaded CSV file containing protein sequences
+   :param session_id: Session ID for logging
+
+   :returns: Dictionary containing similarity analysis results
+
+   :raises ValueError: If CSV is invalid or contains no sequences
+   :raises Exception: If analysis fails
+
+
+.. py:function:: analyze_similarity_for_method(query_db: str, target_db: str, query_file_path: str, method_name: str, original_sequences: List[str], seq_to_unique_id: Dict[str, str], session_id: str) -> Dict[str, Any]
+
+   Analyze similarity for a specific method/database.
+
+   :param query_db: Path to query database
+   :param target_db: Path to target database
+   :param query_file_path: Path to original FASTA file
+   :param method_name: Name of the method
+   :param original_sequences: Original sequence list
+   :param seq_to_unique_id: Sequence to unique ID mapping
+   :param session_id: Session ID for logging
+
+   :returns: Dictionary containing method-specific results
+
+
+.. py:function:: similarity_cache_label_for_method(method_key: str) -> str
+
+   Return the persistent-cache dataset label used by output enrichment.
+
+
+.. py:function:: append_kcat_similarity_columns_to_output_csv(output_csv_path: str, kcat_method_key: str, recon_xkg: bool = False, cached_similarity_snapshot: dict[str, tuple[float | None, float | None]] | None = None, cache_only: bool = False, selected_sequences_by_row: list[str] | None = None) -> None
+
+   Best-effort enrichment for completed kcat jobs.
+
+   Adds two per-row columns to output.csv:
+     - mean similarity to {method} training data
+     - max similarity to {method} training data
+
+   When ``recon_xkg`` is set, per-sequence similarity is served from the
+   persistent SimilarityStore and MMseqs2 runs only for sequences not yet
+   cached. A cached ``NULL``/``NULL`` pair is a negative cache hit and renders
+   as blank cells, so repeated deterministic failures do not retry MMseqs2.
+   On any error, both columns are still created with blank values.
+
+
+.. py:function:: kcat_similarity_sequences_for_output_rows(df: pandas.DataFrame, selected_sequences_by_row: list[str] | None = None) -> list[str]
+
+   Return the unique sequence keys kcat output enrichment will require.
+
+

@@ -1,0 +1,28 @@
+recon_xkg_preflight_service
+===========================
+
+.. py:module:: recon_xkg_preflight_service
+
+.. autoapi-nested-parse::
+
+   Request-time, cache-only qualification for ReconXKG jobs.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:class:: ReconXkgCacheSnapshot
+
+   Values captured by a successful full-cache preflight.
+
+
+.. py:function:: preflight_recon_xkg_cache(*, dataframe: pandas.DataFrame, targets: list[str], descriptors: dict[str, Any], handle_long_sequences: str, canonicalize_substrates: bool, include_similarity_columns: bool, job_public_id: str) -> ReconXkgPreflightResult
+
+   Return a snapshot only when every required cached value is present.
+
+

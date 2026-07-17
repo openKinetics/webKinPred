@@ -1,0 +1,51 @@
+recon_xkg
+=========
+
+.. py:module:: recon_xkg
+
+.. autoapi-nested-parse::
+
+   Authorization + parsing helpers for the undocumented ``recon_xkg`` submit flag.
+
+   ``recon_xkg`` lets an *allowlisted* API key serve predictions from the
+   persistent memoization store instead of recomputing everything. It is
+   deliberately kept out of the public docs/OpenAPI schema. Unauthorized use is
+   silently ignored (treated as a normal job) rather than rejected with a
+   distinctive error, so the parameter's existence is not confirmed to callers —
+   attempts are only recorded server-side for audit.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: coerce_recon_xkg(raw) -> bool
+
+   Parse the multipart/JSON ``recon_xkg`` value into a bool (default False).
+
+
+.. py:function:: is_recon_xkg_allowed(api_key) -> bool
+
+   Return True if ``api_key`` is on the ReconXKG allowlist.
+
+   Membership is the only authorization gate. Looks up an active
+   :class:`ReconXkgAllowedKey` row, with a brief per-process TTL cache. Any
+   lookup error fails closed (returns False).
+
+
+.. py:function:: resolve_recon_xkg(api_key, requested: bool) -> bool
+
+   Resolve the effective recon_xkg flag for a submission and audit-log it.
+
+   Returns True only when the flag was requested *and* the key is allowlisted.
+   Unauthorized requests are logged (without leaking to the client) and
+   downgraded to False.
+
+
+.. py:function:: log_recon_xkg_outcome(*, api_key_id, public_id: str, row_count: int, hit_count: int, miss_count: int) -> None
+
+   Audit-log the hit/miss outcome of an authorized ReconXKG job.
+
+

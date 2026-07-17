@@ -1,0 +1,36 @@
+about_stats_service
+===================
+
+.. py:module:: about_stats_service
+
+.. autoapi-nested-parse::
+
+   About-page usage metrics aggregation.
+
+   This module stores a persistent cache in the Django database so /api/about-stats/
+   can serve quickly without rescanning output CSV files on every request.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: mark_about_stats_cache_stale() -> None
+
+   Mark cache stale so next refresh recomputes payload.
+
+
+.. py:function:: refresh_about_stats_cache(*, force: bool = False) -> dict[str, Any]
+
+   Refresh and persist About stats cache.
+
+   If force=False and cache is fresh, return cached payload as-is.
+
+
+.. py:function:: get_about_stats() -> dict[str, Any]
+
+   Return cached About stats, recomputing only when stale/missing.
+
+

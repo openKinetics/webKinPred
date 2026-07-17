@@ -1,0 +1,49 @@
+api_key_views
+=============
+
+.. py:module:: api_key_views
+
+.. autoapi-nested-parse::
+
+   Web-facing API key management views.
+
+   These endpoints are used by the React frontend to let visitors generate,
+   view, and revoke API keys — all keyed by the visitor's IP address.
+
+   Endpoints (mounted under /api/ in api/urls.py):
+       GET   /api/api-key/          — check if the current IP already has a key
+       POST  /api/api-key/generate/ — generate a new key for the current IP
+       POST  /api/api-key/revoke/   — revoke the current IP's key
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: api_key_status(request)
+
+   Return whether the visitor's IP already has an active API key.
+
+   Response:
+       { "hasKey": true,  "keySuffix": "…a1b2c3" }
+       { "hasKey": false }
+
+
+.. py:function:: api_key_generate(request)
+
+   Generate a new API key for the visitor's IP address.
+
+   If an active key already exists, return 409 Conflict.  The caller
+   should revoke first and then generate.
+
+   The full key is returned exactly once — subsequent calls to the
+   status endpoint will only show the last 6 characters.
+
+
+.. py:function:: api_key_revoke(request)
+
+   Revoke (deactivate) the active API key for the visitor's IP.
+
+

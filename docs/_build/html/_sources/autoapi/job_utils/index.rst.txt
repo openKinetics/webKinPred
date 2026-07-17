@@ -1,0 +1,110 @@
+job_utils
+=========
+
+.. py:module:: job_utils
+
+.. autoapi-nested-parse::
+
+   Job-specific utility functions for job submission and management.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: coerce_bool_param(value: Any, default: bool = False) -> bool
+
+   Coerce common HTML/JSON boolean representations to a Python bool.
+
+
+.. py:function:: canonicalise_targets(targets: List[str]) -> List[str]
+
+   Return deduplicated targets in canonical display/execution order.
+
+
+.. py:function:: canonical_prediction_type(targets: List[str]) -> str
+
+   Build a compact, human-readable prediction_type label for persisted jobs.
+
+
+.. py:function:: validate_prediction_parameters(targets: List[str], methods: Dict[str, str]) -> Optional[str]
+
+   Validate target and method parameters against the method registry.
+
+   Returns an error message if validation fails, None if valid.
+
+
+.. py:function:: validate_sequence_handling_option(handle_long_seq: str) -> Optional[str]
+
+   Validate the sequence handling option parameter.
+
+   Returns an error message if invalid, None if valid.
+
+
+.. py:function:: determine_required_columns(targets: List[str], methods: Dict[str, str]) -> List[str]
+
+   Determine strict required columns for the selected target/method set.
+
+   The result always includes "Protein Sequence".  Additional columns are
+   derived from each selected descriptor's col_to_kwarg mapping.
+
+
+.. py:function:: validate_required_columns_for_methods(dataframe: pandas.DataFrame, targets: List[str], methods: Dict[str, str]) -> Optional[str]
+
+   Validate CSV columns for selected methods.
+
+   Pair-based methods accept either ``Substrate`` or ``Substrates``. CatPred
+   kcat accepts semicolon-separated ``Substrates`` natively, while TurNup
+   requires both ``Substrates`` and ``Products``.
+
+
+.. py:function:: create_job_directory(public_id: str) -> str
+
+   Create directory structure for a job.
+
+   Returns the path to the created job directory.
+
+
+.. py:function:: save_job_input_file(file, job_dir: str) -> str
+
+   Save the input CSV file to the job directory.
+
+   Returns the path to the saved file.
+
+
+.. py:function:: get_experimental_results(use_experimental: bool, methods: Dict[str, str], targets: List[str], dataframe: pandas.DataFrame) -> Optional[Dict[str, list[dict[str, Any]]]]
+
+   Look up experimental kinetic values when the user has opted in.
+
+   Experimental lookup is skipped for native full-reaction methods (TurNup).
+   For pair-based methods, ``Substrates`` rows are expanded positionally and
+   each protein/substrate pair is looked up independently.
+
+   Returns a dict keyed by target ("kcat", "Km"), or None.
+
+
+.. py:function:: extract_job_parameters_from_request(request) -> Dict[str, Any]
+
+   Extract job parameters from an HTTP request.
+
+   Returns a parameters dictionary used by process_job_submission_from_params.
+
+
+.. py:function:: create_rate_limit_headers(daily_limit: int, remaining: int, ttl: int) -> Dict[str, str]
+
+   Create standard rate-limiting headers for HTTP responses.
+
+
+.. py:function:: get_queue_position(job) -> Optional[int]
+
+   Return the 1-based queue position for a Pending job.
+   Returns None if the job is not Pending.
+
+
+.. py:function:: create_job_status_response_data(job) -> Dict[str, Any]
+
+   Create a response data dictionary for the job-status endpoint.
+
+

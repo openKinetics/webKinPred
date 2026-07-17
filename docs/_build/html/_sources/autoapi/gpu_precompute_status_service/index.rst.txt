@@ -1,0 +1,11 @@
+gpu_precompute_status_service
+=============================
+
+.. py:module:: gpu_precompute_status_service
+
+.. autoapi-nested-parse::
+
+   Persist per-job GPU precompute outcomes in Redis for API status reporting.
+
+
+

@@ -1,0 +1,39 @@
+API Reference
+=============
+
+This page contains auto-generated API reference documentation [#f1]_.
+
+.. toctree::
+   :titlesonly:
+
+   /autoapi/api_auth/index
+   /autoapi/v1_views/index
+   /autoapi/job_utils/index
+   /autoapi/recon_xkg/index
+   /autoapi/extra_info/index
+   /autoapi/http_utils/index
+   /autoapi/restart_job/index
+   /autoapi/job_service/index
+   /autoapi/api_key_views/index
+   /autoapi/create_api_key/index
+   /autoapi/result_service/index
+   /autoapi/recon_xkg_admin/index
+   /autoapi/validation_utils/index
+   /autoapi/similarity_utils/index
+   /autoapi/prediction_store/index
+   /autoapi/benchmark_methods/index
+   /autoapi/similarity_config/index
+   /autoapi/sequence_expansion/index
+   /autoapi/validation_service/index
+   /autoapi/similarity_service/index
+   /autoapi/substrate_expansion/index
+   /autoapi/about_stats_service/index
+   /autoapi/job_progress_service/index
+   /autoapi/resubmit_pending_jobs/index
+   /autoapi/migrate_json_to_sqlite/index
+   /autoapi/prediction_batch_service/index
+   /autoapi/embedding_progress_service/index
+   /autoapi/recon_xkg_preflight_service/index
+   /autoapi/gpu_precompute_status_service/index
+
+.. [#f1] Created with `sphinx-autoapi <https://github.com/readthedocs/sphinx-autoapi>`_

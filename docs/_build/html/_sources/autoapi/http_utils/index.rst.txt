@@ -1,0 +1,92 @@
+http_utils
+==========
+
+.. py:module:: http_utils
+
+.. autoapi-nested-parse::
+
+   HTTP utilities for request validation and response handling.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: validate_post_request(request: django.http.HttpRequest) -> Optional[django.http.JsonResponse]
+
+   Validate that the request uses POST method.
+
+   :param request: Django HttpRequest object
+
+   :returns: JsonResponse with error if invalid, None if valid
+
+
+.. py:function:: validate_post_request_similarity(request: django.http.HttpRequest) -> Optional[django.http.JsonResponse]
+
+   Validate that the request uses POST method (for similarity endpoints).
+
+   :param request: Django HttpRequest object
+
+   :returns: JsonResponse with error if invalid, None if valid
+
+
+.. py:function:: extract_file_from_request(request: django.http.HttpRequest) -> Tuple[Optional[django.core.files.uploadedfile.UploadedFile], Optional[django.http.JsonResponse]]
+
+   Extract file from POST request.
+
+   :param request: Django HttpRequest object
+
+   :returns: Tuple of (file_object, error_response). If file exists, error_response is None.
+             If file doesn't exist, file_object is None and error_response contains the error.
+
+
+.. py:function:: extract_csv_file_from_request(request: django.http.HttpRequest) -> Tuple[Optional[django.core.files.uploadedfile.UploadedFile], Optional[django.http.JsonResponse]]
+
+   Extract CSV file from POST request (for similarity analysis).
+
+   :param request: Django HttpRequest object
+
+   :returns: Tuple of (csv_file_object, error_response). If file exists, error_response is None.
+             If file doesn't exist, file_object is None and error_response contains the error.
+
+
+.. py:function:: extract_session_id_from_request(request: django.http.HttpRequest) -> Tuple[Optional[str], Optional[django.http.JsonResponse]]
+
+   Extract session_id from POST request.
+
+   :param request: Django HttpRequest object
+
+   :returns: Tuple of (session_id, error_response). If session_id exists, error_response is None.
+             If session_id doesn't exist, session_id is None and error_response contains the error.
+
+
+.. py:function:: extract_validation_session_id(request: django.http.HttpRequest) -> str
+
+   Extract validation session ID from POST request, with default fallback.
+
+   :param request: Django HttpRequest object
+
+   :returns: Session ID string (defaults to "default" if not provided)
+
+
+.. py:function:: validate_post_with_file_request(request: django.http.HttpRequest) -> Optional[django.http.JsonResponse]
+
+   Validate that request is POST and contains a file.
+
+   :param request: Django HttpRequest object
+
+   :returns: JsonResponse with error if invalid, None if valid
+
+
+.. py:function:: extract_csv_file_with_validation(request: django.http.HttpRequest) -> Tuple[Optional[django.core.files.uploadedfile.UploadedFile], Optional[django.http.JsonResponse]]
+
+   Extract and validate CSV file from POST request with format checking.
+
+   :param request: Django HttpRequest object
+
+   :returns: Tuple of (csv_file_object, error_response). If file is valid, error_response is None.
+             If file is invalid or missing, file_object is None and error_response contains the error.
+
+

@@ -1,0 +1,28 @@
+migrate_json_to_sqlite
+======================
+
+.. py:module:: migrate_json_to_sqlite
+
+.. autoapi-nested-parse::
+
+   Migrate seq_id_to_seq.json -> SQLite (WAL) sequences table.
+
+   Table (must exist or will be created if missing):
+     sequences(
+       id TEXT PRIMARY KEY,
+       seq TEXT UNIQUE NOT NULL,
+       sha256 TEXT UNIQUE NOT NULL,
+       len INTEGER NOT NULL,
+       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+       last_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+       uses_count INTEGER NOT NULL DEFAULT 0
+     )
+
+   Behaviour:
+   - Preserves existing rows, inserts new ones.
+   - If an ID exists with a different sequence, logs a conflict and keeps the DB value.
+   - If a sequence exists but with a different ID, logs a mismatch and keeps the DB value.
+   - New rows get uses_count=0, created_at/last_seen_at=CURRENT_TIMESTAMP.
+
+
+

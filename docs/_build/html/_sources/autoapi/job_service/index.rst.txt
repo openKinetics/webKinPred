@@ -1,0 +1,110 @@
+job_service
+===========
+
+.. py:module:: job_service
+
+.. autoapi-nested-parse::
+
+   Job service that orchestrates job submission and management workflows.
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:function:: process_job_submission(request, file) -> Tuple[Optional[django.http.JsonResponse], Optional[Dict[str, Any]]]
+
+   Process a job submission from the web UI.
+
+   Extracts parameters from the Django request object (form fields + IP) and
+   delegates to the shared ``process_job_submission_from_params`` function.
+
+   :param request: Django HTTP request (POST with multipart form data).
+   :param file: Uploaded CSV file extracted from request.FILES.
+
+   :returns: Tuple of (error_response, success_data).
+             On success: (None, {"message": ..., "public_id": ...})
+             On failure: (JsonResponse with error, None)
+
+
+.. py:function:: process_job_submission_from_params(params: Dict[str, Any], file, ip_address: str, *, quota_subject: str | None = None, daily_limit: int | None = None, user=None) -> Tuple[Optional[django.http.JsonResponse], Optional[Dict[str, Any]]]
+
+   Core job-submission logic, decoupled from the HTTP request object.
+
+   This function is called by both the web-UI view (via
+   ``process_job_submission``) and the public API v1 submit endpoint.  It
+   accepts an explicit params dict and request IP so it can be used
+   regardless of how the caller obtained those values.
+
+   :param params: Dict with keys:
+                  targets              – e.g. ["kcat"], ["Km", "kcat/Km"]
+                  methods              – e.g. {"kcat":"DLKcat","Km":"UniKP"}
+                  handle_long_sequences– "truncate" or "skip"
+                  use_experimental     – bool
+                  include_similarity_columns – bool
+                  canonicalize_substrates – bool
+                  disable_gpu_precompute – bool, internal benchmark toggle
+   :param file: A file-like object (Django InMemoryUploadedFile or
+                io.BytesIO) containing the CSV data.
+   :param ip_address: Request source IP to store on the Job record.
+   :param quota_subject: Identifier used for rate-limit accounting (defaults
+                         to ``ip_address`` when omitted).
+   :param daily_limit: Optional explicit daily limit for ``quota_subject``.
+   :param user: Optional ApiUser instance to attach to the created Job.
+
+   :returns: Tuple of (error_response, success_data).
+             On success: (None, {"message": ..., "public_id": ...})
+             On failure: (JsonResponse with error, None)
+
+
+.. py:function:: handle_quota_validation(quota_subject: str, requested_rows: int, *, daily_limit: int | None = None) -> Optional[django.http.JsonResponse]
+
+   Handle quota validation and return error response if quota exceeded.
+
+   :param quota_subject: Quota subject identifier (IP or API-key subject).
+   :param requested_rows: Number of rows being requested
+   :param daily_limit: Optional explicit limit for this subject.
+
+   :returns: JsonResponse with error if quota exceeded, None if allowed
+
+
+.. py:function:: create_job_record(params: Dict[str, Any], ip_address: str, requested_rows: int, user, *, quota_subject: str | None = None) -> api.models.Job
+
+   Create and save a new job record.
+
+   :param params: Job parameters dictionary
+   :param ip_address: Request source IP
+   :param requested_rows: Number of rows in the request
+   :param user: User model instance
+   :param quota_subject: Identifier used for quota accounting.
+
+   :returns: Created Job instance
+
+
+.. py:function:: dispatch_prediction_task(public_id: str, params: Dict[str, Any], experimental_results: Optional[dict]) -> None
+
+   Dispatch the appropriate Celery prediction task based on job parameters.
+
+   Uses one generic multi-target task that resolves each method at runtime.
+
+   :param public_id: Job public ID
+   :param params: Job parameters
+   :param experimental_results: Pre-fetched experimental results or None
+
+
+.. py:function:: dispatch_recon_xkg_cache_task(public_id: str, params: Dict[str, Any], experimental_results: Optional[dict]) -> None
+
+   Dispatch ReconXKG cache preflight/assembly to the dedicated cache queue.
+
+
+.. py:function:: get_job_status_data(job: api.models.Job) -> Dict[str, Any]
+
+   Get formatted job status data.
+
+   :param job: Job model instance
+
+   :returns: Dictionary containing job status information
+
+

@@ -1,0 +1,131 @@
+prediction_store
+================
+
+.. py:module:: prediction_store
+
+.. autoapi-nested-parse::
+
+   ReconXKG memoization store.
+
+   This module is the persistence + keying layer behind the (undocumented)
+   ``recon_xkg`` submit mode. It caches **raw model prediction values** at the
+   granularity of a single prediction unit, plus per-sequence training-set
+   similarity, in a dedicated SQLite database (``prediction_store``) using WAL mode
+   so cache traffic never contends with the primary application DB.
+
+   Design notes
+   ------------
+   * The cache is keyed at the *unit* level — one (sequence, single/native
+     substrate set, products, target, method, model_version, params) tuple — rather
+     than at the (row, target) level. This is what makes Km / kcat-Km ordered-array
+     outputs correct under substrate reordering: per-substrate units are looked up
+     individually and reassembled in the caller's input order.
+   * We store either the **raw** model output (before RealKcat formatting,
+     substrate reduction, or experimental overrides) or a row-level blank outcome
+     with a failure reason. Everything downstream runs unchanged on reconstructed
+     outcomes, so cached rows remain byte-for-byte identical to fresh rows.
+   * Every operation is best-effort: any failure logs and degrades to normal
+     computation rather than raising into the prediction pipeline. Similarity rows
+     with ``NULL`` mean/max values are deliberate negative cache hits that render
+     as blank output cells.
+
+
+
+
+
+
+
+Module Contents
+---------------
+
+.. py:class:: CachedFailure
+
+   A deterministic row-level validation failure stored as a cache hit.
+
+
+.. py:function:: sha256_text(text: str) -> str
+
+   Return the SHA-256 hex digest of ``text`` (UTF-8).
+
+
+.. py:function:: canonical_unit(value: Any, canonicalize: bool) -> str | None
+
+   Build the order-independent canonical form of a substrate/product unit.
+
+   ``value`` may be a single token, a ``;``-separated list (the ``Substrates``
+   schema), or an already-split list/tuple (native-multi grouping). Tokens are
+   canonicalized, sorted (set semantics — order does not change the prediction)
+   and re-joined with ``;``. Returns None if any token is unparseable or the
+   unit is empty.
+
+
+.. py:function:: params_fingerprint(canonicalize_substrates: bool, target_kwargs: dict | None) -> str
+
+   Hash the result-affecting parameters that are not already captured by the
+   sequence hash / canonical substrate fields.
+
+   ``handle_long_sequences`` is intentionally absent: the key uses the actual
+   (post-truncation) sequence, so truncation is already reflected. ``skip`` only
+   omits rows, it does not change a value for a given sequence.
+
+
+.. py:function:: make_lookup_key(*, target: str, method: str, model_version: str, params_fp: str, sequence_sha256: str, substrate_canon: str, products_canon: str) -> str
+
+   Compose the SHA-256 lookup key over all prediction-affecting fields.
+
+
+.. py:function:: build_unit_keys(descriptor: Any, target: str, sequences: collections.abc.Sequence[Any], call_kwargs: dict[str, Any], canonicalize_substrates: bool) -> tuple[list[str | None], list[tuple[str, str, str] | None], str]
+
+   Build position-aligned ReconXKG keys for one planned engine batch.
+
+
+.. py:function:: coerce_value(raw: Any) -> float | None
+
+   Coerce a raw model output to a finite float, or None if not storable.
+
+
+.. py:function:: cached_outcome_is_valid(raw: Any) -> bool
+
+   Return whether ``raw`` is a usable positive or negative cache hit.
+
+
+.. py:function:: is_cacheable_failure_reason(reason: Any) -> bool
+
+   Return whether an empty engine outcome should be stored as a cache hit.
+
+
+.. py:function:: get_many(keys: collections.abc.Iterable[str]) -> dict[str, float | CachedFailure]
+
+   Batch-fetch cached prediction values for ``keys``.
+
+   Returns positive values or ``CachedFailure`` objects keyed by lookup key.
+   Malformed rows are ignored. Reads are chunked to stay within SQLite's host-
+   parameter limit. Best-effort: any error returns an empty dict.
+
+
+.. py:function:: upsert_many(rows: collections.abc.Sequence[dict[str, Any]]) -> int
+
+   Append/overwrite prediction-unit rows by ``lookup_key`` (write-through).
+
+   A row contains either a finite ``value`` or a non-empty ``failure_reason``.
+   Uses one ``INSERT ... ON CONFLICT(lookup_key) DO UPDATE`` statement so
+   concurrent jobs that resolve the same miss converge on one outcome.
+
+
+.. py:function:: get_similarity_many(sequence_sha_by_seq: dict[str, str], dataset_label: str) -> dict[str, tuple[float | None, float | None]]
+
+   Fetch cached (mean, max) similarity for a set of sequences.
+
+   ``sequence_sha_by_seq`` maps raw sequence -> its sha256. Returns a dict keyed
+   by raw sequence for the hits only. ``(None, None)`` is a negative cache hit
+   that should render as blank similarity cells.
+
+
+.. py:function:: upsert_similarity_many(entries: collections.abc.Sequence[tuple[str, str, float | None, float | None]], dataset_label: str) -> int
+
+   Upsert per-sequence similarity rows.
+
+   ``entries`` is a list of (sequence, sequence_sha256, mean, max). ``None``
+   mean/max values intentionally cache blank output cells. Best-effort.
+
+
