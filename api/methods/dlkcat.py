@@ -7,6 +7,18 @@ from api.methods.base import MethodDescriptor
 
 def _dlkcat_predictions_lazy(*args, **kwargs):
     # Import prediction engine only when a job is actually executed.
+    """
+    Lazily execute DLKcat catalytic rate predictions, deferring the import of the prediction engine
+    until invocation.
+
+    Args:
+        *args: Positional arguments forwarded to dlkcat_predictions.
+        **kwargs: Keyword arguments forwarded to dlkcat_predictions.
+
+    Returns:
+        The result returned by dlkcat_predictions.
+
+    """
     from api.prediction_engines.dlkcat import dlkcat_predictions
 
     return dlkcat_predictions(*args, **kwargs)

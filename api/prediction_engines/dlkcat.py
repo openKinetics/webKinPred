@@ -112,9 +112,7 @@ def dlkcat_predictions(
             reason = "Invalid substrate (not a valid SMILES or InChI)"
         else:
             if len(Chem.GetMolFrags(mol)) > 1:
-                reason = (
-                    "Substrate contains multiple disconnected fragments and cannot be processed"
-                )
+                reason = "Substrate contains multiple disconnected fragments and cannot be processed"
             else:
                 if canonicalize_substrates:
                     smiles = Chem.MolToSmiles(Chem.AddHs(mol))
@@ -233,6 +231,16 @@ def dlkcat_predictions(
 
 
 def _cleanup(*paths: str) -> None:
+    """
+    Delete the given files if they exist, ignoring any OS errors.
+
+    Args:
+        *paths (str): One or more filesystem paths to remove.
+
+    Returns:
+        None
+
+    """
     for path in paths:
         try:
             if os.path.exists(path):

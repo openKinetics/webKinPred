@@ -7,6 +7,17 @@ from api.methods.base import MethodDescriptor
 
 def _eitlem_predictions_lazy(*args, **kwargs):
     # Import prediction engine only when a job is actually executed.
+    """
+    Lazily execute Eitlem predictions by importing the prediction engine only when called.
+
+    Args:
+        *args: Positional arguments forwarded to `eitlem_predictions`.
+        **kwargs: Keyword arguments forwarded to `eitlem_predictions`.
+
+    Returns:
+        Any: The result returned by `eitlem_predictions`.
+
+    """
     from api.prediction_engines.eitlem import eitlem_predictions
 
     return eitlem_predictions(*args, **kwargs)
@@ -15,12 +26,16 @@ def _eitlem_predictions_lazy(*args, **kwargs):
 descriptor = MethodDescriptor(
     key="EITLEM",
     display_name="EITLEM-Kinetics",
-    authors=("Xiaowei Shen, Ziheng Cui, Jianyu Long, Shiding Zhang, Biqiang Chen, Tianwei Tan"),
+    authors=(
+        "Xiaowei Shen, Ziheng Cui, Jianyu Long, Shiding Zhang, Biqiang Chen, Tianwei Tan"
+    ),
     publication_title=(
         "EITLEM-Kinetics: A deep-learning framework for kinetic "
         "parameter prediction of mutant enzymes"
     ),
-    citation_url=("https://www.sciencedirect.com/science/article/pii/S2667109324002665"),
+    citation_url=(
+        "https://www.sciencedirect.com/science/article/pii/S2667109324002665"
+    ),
     repo_url="https://github.com/XvesS/EITLEM-Kinetics",
     more_info="",
     # ── Capabilities ──────────────────────────────────────────────────────────

@@ -20,7 +20,9 @@ from api.services.job_progress_service import set_stage_prediction_progress
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _RATIO_RE = re.compile(r"(\d+)\s*/\s*(\d+)")
-_WARNING_LINE_RE = re.compile(r"(error|exception|traceback|fatal|failed|warning|warn)", re.I)
+_WARNING_LINE_RE = re.compile(
+    r"(error|exception|traceback|fatal|failed|warning|warn)", re.I
+)
 _NOISY_LINE_RE = re.compile(
     r"(MoleculeModel\(|^\s*\(|^\s*\)|^\s*\w+\(|\d+%\||\d+/\d+\s*\[|^\s*$)"
 )
@@ -66,6 +68,18 @@ class _CatPredProgressEstimator:
         self._last_batch_done = done
 
     def _estimate_done(self) -> int | None:
+        """
+        Estimate the number of completed predictions based on model and batch progress.
+
+        Args:
+            None (uses instance attributes: expected_predictions, model_total,
+            inferred_completed_models, model_done_hint, batch_done, batch_total).
+
+        Returns:
+            int | None: Estimated count of completed predictions clamped to [0,
+            expected_predictions], or None if progress cannot be estimated.
+
+        """
         if self.expected_predictions <= 0:
             return None
         if not self.model_total or self.model_total <= 0:
@@ -78,13 +92,27 @@ class _CatPredProgressEstimator:
             batch_frac = 0.0
             if self.batch_total and self.batch_total > 0:
                 batch_frac = max(0.0, min(1.0, self.batch_done / self.batch_total))
-            model_progress = min(float(self.model_total), float(completed_models) + batch_frac)
+            model_progress = min(
+                float(self.model_total), float(completed_models) + batch_frac
+            )
 
         frac = model_progress / float(self.model_total)
         est_done = int(round(frac * self.expected_predictions))
         return max(0, min(self.expected_predictions, est_done))
 
     def ingest_line(self, line: str) -> int | None:
+        """
+        Parse a progress line for tqdm-style ratios and update internal progress state.
+
+        Args:
+            line (str): Raw log line, possibly containing ANSI escape codes and one or more
+            "done/total" ratios.
+
+        Returns:
+            int | None: The newly estimated completed count if it advanced past the last emitted
+            value, otherwise None.
+
+        """
         cleaned = _strip_ansi(line)
         ratios = [(int(a), int(b)) for a, b in _RATIO_RE.findall(cleaned)]
         if not ratios:
@@ -98,7 +126,9 @@ class _CatPredProgressEstimator:
             if total <= 20:
                 self.model_total = total
                 self.model_done_hint = max(self.model_done_hint, done)
-                self.inferred_completed_models = max(self.inferred_completed_models, done)
+                self.inferred_completed_models = max(
+                    self.inferred_completed_models, done
+                )
                 continue
 
             # Inner batch-loop tqdm (e.g. 102/138).
@@ -176,6 +206,18 @@ def run_prediction_subprocess(
     )
 
     def _command_summary() -> dict[str, str | int | None]:
+        """
+        Build a summary of a command's executable, script, and argument count.
+
+        Args:
+            command (list[str]): The command and its arguments, where the first
+                element is the executable and the second (if present) is the script.
+
+        Returns:
+            dict[str, str | int | None]: Mapping with keys "executable", "script",
+                and "arg_count".
+
+        """
         return {
             "executable": os.path.basename(command[0]) if command else None,
             "script": os.path.basename(command[1]) if len(command) > 1 else None,
@@ -183,6 +225,17 @@ def run_prediction_subprocess(
         }
 
     def _base_extra() -> dict[str, object]:
+        """
+        Build the extra context dictionary for logging in the method subprocess handler.
+
+        Args:
+            None
+
+        Returns:
+            dict[str, object]: Contains job public ID, method key, target, subprocess label, and
+            source tag.
+
+        """
         return {
             "job_public_id": job.public_id,
             "method_key": method_key or label,
@@ -191,14 +244,30 @@ def run_prediction_subprocess(
             "source": "method_subprocess",
         }
 
-    def _log_progress(done_i: int, total_i: int | None, *, estimated: bool = False) -> None:
+    def _log_progress(
+        done_i: int, total_i: int | None, *, estimated: bool = False
+    ) -> None:
+        """
+        Log subprocess prediction progress at throttled intervals to reduce log noise.
+
+        Args:
+            done_i (int): Number of completed items.
+            total_i (int | None): Total number of items, or None if unknown.
+            estimated (bool, optional): Whether progress values are estimated. Defaults to False.
+
+        Returns:
+            None: Emits a log record as a side effect; does not return a value.
+
+        """
         nonlocal progress_events, last_progress_bucket
         progress_events += 1
         if total_i is None or total_i <= 0:
             return
 
         bucket = int((done_i / total_i) * 10) if total_i else 0
-        should_log = total_i <= 10 or done_i in {0, 1, total_i} or bucket > last_progress_bucket
+        should_log = (
+            total_i <= 10 or done_i in {0, 1, total_i} or bucket > last_progress_bucket
+        )
         if not should_log:
             return
 
@@ -216,6 +285,17 @@ def run_prediction_subprocess(
         )
 
     def _log_output_line(line: str) -> None:
+        """
+        Log a single line of subprocess output at an appropriate level, suppressing noisy or
+        irrelevant lines.
+
+        Args:
+            line (str): Raw output line from the subprocess, possibly containing ANSI codes.
+
+        Returns:
+            None: Logs the line via the module logger as a side effect; does not return a value.
+
+        """
         nonlocal suppressed_lines
         clean_line = _strip_ansi(line).strip()
         if _WARNING_LINE_RE.search(clean_line):
@@ -250,6 +330,18 @@ def run_prediction_subprocess(
         *,
         estimated: bool = False,
     ) -> None:
+        """
+        Report prediction progress, updating stored counts and logging if the state has changed.
+
+        Args:
+            done_i (int): Number of predictions completed so far.
+            total_i (int | None): Total number of predictions expected, if known.
+            estimated (bool): Whether the reported progress values are estimated rather than exact.
+
+        Returns:
+            None: Updates job/stage progress state and logs the current progress as a side effect.
+
+        """
         nonlocal last_done_reported, last_total_reported
 
         done_i = max(0, int(done_i))
@@ -374,5 +466,7 @@ def run_prediction_subprocess(
         )
     finally:
         if tracking_started:
-            final_state = "done" if (process is not None and process.returncode == 0) else "error"
+            final_state = (
+                "done" if (process is not None and process.returncode == 0) else "error"
+            )
             stop_embedding_tracking(job.public_id, final_state=final_state)

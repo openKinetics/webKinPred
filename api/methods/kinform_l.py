@@ -7,6 +7,19 @@ from api.methods.base import MethodDescriptor
 
 def _kinform_predictions_lazy(*args, **kwargs):
     # Import prediction engine only when a job is actually executed.
+    """
+    Lazily import and invoke the KinForm prediction engine.
+
+    Defers importing `kinform_predictions` until a job actually executes.
+
+    Args:
+        *args: Positional arguments forwarded to `kinform_predictions`.
+        **kwargs: Keyword arguments forwarded to `kinform_predictions`.
+
+    Returns:
+        The result returned by `kinform_predictions`.
+
+    """
     from api.prediction_engines.kinform import kinform_predictions
 
     return kinform_predictions(*args, **kwargs)

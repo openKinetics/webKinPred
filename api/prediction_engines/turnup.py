@@ -113,8 +113,9 @@ def turnup_predictions(
     disable_gpu_precompute = bool(kwargs.get("disable_gpu_precompute", False))
 
     # ── Validate inputs reaction by reaction ──────────────────────────────────
-    for idx, (seq, sub_str, prod_str) in enumerate(zip(sequences, substrates, products)):
-
+    for idx, (seq, sub_str, prod_str) in enumerate(
+        zip(sequences, substrates, products)
+    ):
         sub_tokens = [s.strip() for s in str(sub_str).split(";") if s.strip()]
         prod_tokens = [p.strip() for p in str(prod_str).split(";") if p.strip()]
         sub_mols = [convert_to_mol(s) for s in sub_tokens]
@@ -155,8 +156,12 @@ def turnup_predictions(
                 sub_value = ";".join(Chem.MolToInchi(mol) for mol in sub_mols)
                 prod_value = ";".join(Chem.MolToInchi(mol) for mol in prod_mols)
             else:
-                sub_value = ";".join(validated_molecule_text(token) or "" for token in sub_tokens)
-                prod_value = ";".join(validated_molecule_text(token) or "" for token in prod_tokens)
+                sub_value = ";".join(
+                    validated_molecule_text(token) or "" for token in sub_tokens
+                )
+                prod_value = ";".join(
+                    validated_molecule_text(token) or "" for token in prod_tokens
+                )
             valid_sub_values.append(sub_value)
             valid_prod_values.append(prod_value)
             valid_sequences.append(seq)
@@ -190,7 +195,10 @@ def turnup_predictions(
     if _gpu.attempted and not _gpu.completed:
         _log.warning(
             "GPU precompute incomplete for TurNup job %s: %s (used_gpu=%s, failed=%s)",
-            public_id, _gpu.reason, _gpu.used_gpu, _gpu.failed,
+            public_id,
+            _gpu.reason,
+            _gpu.used_gpu,
+            _gpu.failed,
         )
 
     # ── Write CSV input file ──────────────────────────────────────────────────
@@ -257,6 +265,16 @@ def turnup_predictions(
 
 
 def _cleanup(*paths: str) -> None:
+    """
+    Delete the given files if they exist, ignoring any OS-level errors.
+
+    Args:
+        *paths (str): One or more file paths to remove.
+
+    Returns:
+        None
+
+    """
     for path in paths:
         try:
             if os.path.exists(path):

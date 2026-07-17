@@ -213,7 +213,11 @@ def kinform_predictions(
     if _gpu.attempted and not _gpu.completed:
         _log.warning(
             "GPU precompute incomplete for %s job %s: %s (used_gpu=%s, failed=%s)",
-            model_key, public_id, _gpu.reason, _gpu.used_gpu, _gpu.failed,
+            model_key,
+            public_id,
+            _gpu.reason,
+            _gpu.used_gpu,
+            _gpu.failed,
         )
 
     # ── Write JSON input file (KinForm expects JSON, not CSV) ─────────────────
@@ -378,6 +382,17 @@ def kinform_predictions(
 
 
 def _cleanup(*paths: str) -> None:
+    """
+    Silently remove one or more files from the filesystem, ignoring any that don't exist or can't be
+    deleted.
+
+    Args:
+        *paths (str): One or more filesystem paths to remove.
+
+    Returns:
+        None
+
+    """
     for path in paths:
         try:
             if os.path.exists(path):
