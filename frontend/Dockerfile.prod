@@ -51,7 +51,32 @@ server { \
         proxy_send_timeout 1200s; \
     } \
     \
-    # Handle static assets with caching \
+    # Stable root icon files change without filename hashes, so keep them revalidatable \
+    location = /favicon.ico { \
+        expires -1; \
+        add_header Cache-Control "no-cache, no-store, must-revalidate"; \
+        try_files $uri =404; \
+    } \
+    \
+    location = /manifest.json { \
+        expires -1; \
+        add_header Cache-Control "no-cache, no-store, must-revalidate"; \
+        try_files $uri =404; \
+    } \
+    \
+    location = /logo192.png { \
+        expires -1; \
+        add_header Cache-Control "no-cache, no-store, must-revalidate"; \
+        try_files $uri =404; \
+    } \
+    \
+    location = /logo512.png { \
+        expires -1; \
+        add_header Cache-Control "no-cache, no-store, must-revalidate"; \
+        try_files $uri =404; \
+    } \
+    \
+    # Handle hashed static assets with long-lived caching \
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ { \
         expires 1y; \
         add_header Cache-Control "public, immutable"; \
