@@ -1,0 +1,21 @@
+create_api_key
+==============
+
+.. py:module:: create_api_key
+
+.. autoapi-nested-parse::
+
+   Management command: create_api_key
+
+   Creates a new API key for a given IP address.  The IP is used to look up or
+   create the ApiUser record, so quota limits and blocking settings apply as usual.
+
+   Usage:
+       python manage.py create_api_key --ip 1.2.3.4
+       python manage.py create_api_key --ip 1.2.3.4 --label "Lab Python Script"
+
+   The full key is printed to stdout exactly once.  Store it securely — it cannot
+   be recovered afterwards (only the first 10 characters are visible in the admin).
+
+
+

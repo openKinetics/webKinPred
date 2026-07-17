@@ -1,0 +1,24 @@
+resubmit_pending_jobs
+=====================
+
+.. py:module:: resubmit_pending_jobs
+
+.. autoapi-nested-parse::
+
+   Flush all Pending jobs and resubmit them as fresh tasks.
+
+   Strategy
+   --------
+   1. Snapshot every Pending job from the DB.
+   2. Purge the entire Celery queue (removes all enqueued but not-yet-started tasks).
+   3. Revoke any active/reserved/scheduled tasks whose first arg matches a pending job ID.
+   4. Delete the stale Job rows.
+   5. Recreate each Job with a clean state and fire run_multi_prediction.delay().
+
+   Run with:
+       python manage.py resubmit_pending_jobs
+       python manage.py resubmit_pending_jobs --dry-run
+       python manage.py resubmit_pending_jobs --ids qew3T0D 9IitFoz
+
+
+

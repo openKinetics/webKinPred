@@ -1,2 +1,0 @@
-"""webKinPred tools package."""
-

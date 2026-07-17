@@ -1,8 +1,0 @@
-.venv/
-.e2e-assets/
-.e2e-tests/
-results/
-output/
-checkpoints/
-external/
-*.ipynb

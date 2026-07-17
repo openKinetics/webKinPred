@@ -1,0 +1,30 @@
+benchmark_methods
+=================
+
+.. py:module:: benchmark_methods
+
+.. autoapi-nested-parse::
+
+   Benchmark inference latency for all production API methods.
+
+   For each method, this command can run up to three benchmark modes:
+   1) uncached CPU baseline (existing path)
+   2) uncached GPU precompute path (requires actual GPU execution)
+   3) cached repeat, for methods with a persistent cache
+
+   Each method is benchmarked for exactly one target: kcat if supported, otherwise
+   Km. With --kcat_km_ratio, only kcat/Km-capable methods are benchmarked and each
+   run uses the kcat/Km target. GPU mode is submitted only for method/target pairs
+   with GPU offload support.
+   Methods with ephemeral embedding use (currently OmniESI and EITLEM) skip the
+   cached repeat because there is no persistent sequence cache to benchmark.
+
+   Example summary:
+     DLKcat [kcat] - 100.00s compute (not cached cpu), n/a compute (not cached gpu), 10.00s compute (cached)
+
+   The command submits jobs to the public REST API (/api/v1/submit/) and polls
+   /api/v1/status/<job_id>/, reporting only server-side compute time
+   (`computeSeconds`) and not queue time.
+
+
+

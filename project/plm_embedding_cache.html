@@ -1,0 +1,1016 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PLM Embedding Cache and Remote GPU Offload &mdash; Open Kinetics Predictor  documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom-wide.css?v=ebf51d4c" />
+
+  
+    <link rel="shortcut icon" href="../_static/favicon.ico"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="MMseqs Similarity Datasets Guide" href="mmseqs_similarity_datasets.html" />
+    <link rel="prev" title="Contributing a New Prediction Method" href="contributing.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Open Kinetics Predictor
+              <img src="../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Project</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">OpenKinetics Predictor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#main-use-cases">Main use cases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#main-users">Main users</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="input_data.html">Input Data</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#required-columns">Required columns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#csv-formats">CSV formats</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="input_data.html#single-substrate-csv">Single-substrate CSV</a></li>
+<li class="toctree-l3"><a class="reference internal" href="input_data.html#multi-substrate-csv">Multi-substrate CSV</a></li>
+<li class="toctree-l3"><a class="reference internal" href="input_data.html#full-reaction-csv">Full-reaction CSV</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#method-compatibility">Method compatibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#semicolon-lists">Semicolon lists</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#validation">Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#long-sequences">Long sequences</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#submission-options">Submission options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input_data.html#templates">Templates</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="supported_methods.html">Supported Methods</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="supported_methods.html#prediction-targets">Prediction targets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="supported_methods.html#supported-engines">Supported engines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="supported_methods.html#model-selection">Model selection</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="prediction_workflow.html">Prediction Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="prediction_workflow.html#workflow">Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="prediction_workflow.html#progress-tracking">Progress tracking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api_and_limits.html">API and Limits</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api_and_limits.html#base-url">Base URL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_and_limits.html#main-endpoints">Main endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_and_limits.html#quota">Quota</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_and_limits.html#good-api-practice">Good API practice</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contributor Guides</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing a New Prediction Method</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#define-the-descriptor-first">1. Define the Descriptor First</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="contributing.html#what-these-fields-mean">What these fields mean</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#implement-your-method-s-predictor">2. Implement Your Method’s Predictor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#path-1-script-shared-engine-default">Path 1: Script + Shared Engine (default)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#path-2-script-custom-engine-only-when-required">Path 2: Script + Custom Engine (only when required)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#register-runtime-paths">3. Register Runtime Paths</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#plm-embeddings-optional">4. PLM Embeddings (Optional)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#add-mmseqs-similarity-dataset-optional">5. Add MMseqs Similarity Dataset (Optional)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#test-your-integration-end-to-end">6. Test Your Integration End-to-End</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">PLM Embedding Cache and Remote GPU Offload</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#purpose">1. Purpose</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#core-concepts">2. Core concepts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#seq-id-is-the-cache-key">2.1 <code class="docutils literal notranslate"><span class="pre">seq_id</span></code> is the cache key</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#planner-is-sparse">2.2 Planner is sparse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#prediction-and-embedding-are-separate-stages">2.3 Prediction and embedding are separate stages</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#current-method-by-method-behaviour">3. Current method-by-method behaviour</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#kinform-h-and-kinform-l">3.1 KinForm-H and KinForm-L</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#catapro">3.2 CataPro</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unikp">3.3 UniKP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#turnup">3.4 TurNup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#catpred">3.5 CatPred</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#eitlem">3.6 EITLEM</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omniesi">3.7 OmniESI</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#realkcat">3.8 RealKcat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#iecata">3.9 IECata</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mmisa-km">3.10 MMISA-KM</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#planner-contract">4. Planner contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend-orchestration-contract">5. Backend orchestration contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#gpu-service-api-contract">6. GPU service API contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-runner-contract">7. Step runner contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#progress-tracking">8. Progress tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contributor-playbook">9. Contributor playbook</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#reuse-an-existing-embedding-family">9.1 Reuse an existing embedding family</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#add-a-new-embedding-family">9.2 Add a new embedding family</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#full-matrix-policy">10. Full matrix policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tests-to-add">11. Tests to add</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#operations-and-configuration">12. Operations and configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="mmseqs_similarity_datasets.html">MMseqs Similarity Datasets Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="mmseqs_similarity_datasets.html#if-your-training-dataset-already-matches-an-existing-dataset">1. If Your Training Dataset Already Matches an Existing Dataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="mmseqs_similarity_datasets.html#if-you-need-a-new-dataset">2. If You Need a New Dataset</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability.html">Logging and Observability</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#log-shape">Log Shape</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#local-development">Local Development</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#production-observability-stack">Production Observability Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#common-logql-queries">Common LogQL Queries</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#contributor-rules">Contributor Rules</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference.html">API Reference</a><ul class="simple">
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html">Documentation Notes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#application-setup">Application setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#build-these-docs-locally">Build these docs locally</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#where-to-start">Where to start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../autoapi/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/api_auth/index.html">api_auth</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/api_auth/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/api_auth/index.html#api_auth.require_api_key"><code class="docutils literal notranslate"><span class="pre">require_api_key()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/v1_views/index.html">v1_views</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/v1_views/index.html#authentication">Authentication</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/v1_views/index.html#quota">Quota</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/v1_views/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_health"><code class="docutils literal notranslate"><span class="pre">api_health()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_gpu_status"><code class="docutils literal notranslate"><span class="pre">api_gpu_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_list_methods"><code class="docutils literal notranslate"><span class="pre">api_list_methods()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_quota"><code class="docutils literal notranslate"><span class="pre">api_quota()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_submit_job"><code class="docutils literal notranslate"><span class="pre">api_submit_job()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_job_status"><code class="docutils literal notranslate"><span class="pre">api_job_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_download_result"><code class="docutils literal notranslate"><span class="pre">api_download_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/v1_views/index.html#v1_views.api_validate"><code class="docutils literal notranslate"><span class="pre">api_validate()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/job_utils/index.html">job_utils</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/job_utils/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.coerce_bool_param"><code class="docutils literal notranslate"><span class="pre">coerce_bool_param()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.canonicalise_targets"><code class="docutils literal notranslate"><span class="pre">canonicalise_targets()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.canonical_prediction_type"><code class="docutils literal notranslate"><span class="pre">canonical_prediction_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.validate_prediction_parameters"><code class="docutils literal notranslate"><span class="pre">validate_prediction_parameters()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.validate_sequence_handling_option"><code class="docutils literal notranslate"><span class="pre">validate_sequence_handling_option()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.determine_required_columns"><code class="docutils literal notranslate"><span class="pre">determine_required_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.validate_required_columns_for_methods"><code class="docutils literal notranslate"><span class="pre">validate_required_columns_for_methods()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.create_job_directory"><code class="docutils literal notranslate"><span class="pre">create_job_directory()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.save_job_input_file"><code class="docutils literal notranslate"><span class="pre">save_job_input_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.get_experimental_results"><code class="docutils literal notranslate"><span class="pre">get_experimental_results()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.extract_job_parameters_from_request"><code class="docutils literal notranslate"><span class="pre">extract_job_parameters_from_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.create_rate_limit_headers"><code class="docutils literal notranslate"><span class="pre">create_rate_limit_headers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.get_queue_position"><code class="docutils literal notranslate"><span class="pre">get_queue_position()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_utils/index.html#job_utils.create_job_status_response_data"><code class="docutils literal notranslate"><span class="pre">create_job_status_response_data()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/recon_xkg/index.html">recon_xkg</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/recon_xkg/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg/index.html#recon_xkg.coerce_recon_xkg"><code class="docutils literal notranslate"><span class="pre">coerce_recon_xkg()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg/index.html#recon_xkg.is_recon_xkg_allowed"><code class="docutils literal notranslate"><span class="pre">is_recon_xkg_allowed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg/index.html#recon_xkg.resolve_recon_xkg"><code class="docutils literal notranslate"><span class="pre">resolve_recon_xkg()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg/index.html#recon_xkg.log_recon_xkg_outcome"><code class="docutils literal notranslate"><span class="pre">log_recon_xkg_outcome()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/extra_info/index.html">extra_info</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/extra_info/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/extra_info/index.html#extra_info.build_extra_info"><code class="docutils literal notranslate"><span class="pre">build_extra_info()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/http_utils/index.html">http_utils</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/http_utils/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.validate_post_request"><code class="docutils literal notranslate"><span class="pre">validate_post_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.validate_post_request_similarity"><code class="docutils literal notranslate"><span class="pre">validate_post_request_similarity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.extract_file_from_request"><code class="docutils literal notranslate"><span class="pre">extract_file_from_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.extract_csv_file_from_request"><code class="docutils literal notranslate"><span class="pre">extract_csv_file_from_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.extract_session_id_from_request"><code class="docutils literal notranslate"><span class="pre">extract_session_id_from_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.extract_validation_session_id"><code class="docutils literal notranslate"><span class="pre">extract_validation_session_id()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.validate_post_with_file_request"><code class="docutils literal notranslate"><span class="pre">validate_post_with_file_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/http_utils/index.html#http_utils.extract_csv_file_with_validation"><code class="docutils literal notranslate"><span class="pre">extract_csv_file_with_validation()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/job_service/index.html">job_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/job_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.process_job_submission"><code class="docutils literal notranslate"><span class="pre">process_job_submission()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.process_job_submission_from_params"><code class="docutils literal notranslate"><span class="pre">process_job_submission_from_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.handle_quota_validation"><code class="docutils literal notranslate"><span class="pre">handle_quota_validation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.create_job_record"><code class="docutils literal notranslate"><span class="pre">create_job_record()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.dispatch_prediction_task"><code class="docutils literal notranslate"><span class="pre">dispatch_prediction_task()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.dispatch_recon_xkg_cache_task"><code class="docutils literal notranslate"><span class="pre">dispatch_recon_xkg_cache_task()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_service/index.html#job_service.get_job_status_data"><code class="docutils literal notranslate"><span class="pre">get_job_status_data()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/restart_job/index.html">restart_job</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/api_key_views/index.html">api_key_views</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/api_key_views/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/api_key_views/index.html#api_key_views.api_key_status"><code class="docutils literal notranslate"><span class="pre">api_key_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/api_key_views/index.html#api_key_views.api_key_generate"><code class="docutils literal notranslate"><span class="pre">api_key_generate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/api_key_views/index.html#api_key_views.api_key_revoke"><code class="docutils literal notranslate"><span class="pre">api_key_revoke()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/result_service/index.html">result_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/result_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/result_service/index.html#result_service.serialize_result_csv"><code class="docutils literal notranslate"><span class="pre">serialize_result_csv()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/create_api_key/index.html">create_api_key</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/recon_xkg_admin/index.html">recon_xkg_admin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/prediction_store/index.html">prediction_store</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/prediction_store/index.html#design-notes">Design notes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/prediction_store/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.CachedFailure"><code class="docutils literal notranslate"><span class="pre">CachedFailure</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.sha256_text"><code class="docutils literal notranslate"><span class="pre">sha256_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.canonical_unit"><code class="docutils literal notranslate"><span class="pre">canonical_unit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.params_fingerprint"><code class="docutils literal notranslate"><span class="pre">params_fingerprint()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.make_lookup_key"><code class="docutils literal notranslate"><span class="pre">make_lookup_key()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.build_unit_keys"><code class="docutils literal notranslate"><span class="pre">build_unit_keys()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.coerce_value"><code class="docutils literal notranslate"><span class="pre">coerce_value()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.cached_outcome_is_valid"><code class="docutils literal notranslate"><span class="pre">cached_outcome_is_valid()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.is_cacheable_failure_reason"><code class="docutils literal notranslate"><span class="pre">is_cacheable_failure_reason()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.get_many"><code class="docutils literal notranslate"><span class="pre">get_many()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.upsert_many"><code class="docutils literal notranslate"><span class="pre">upsert_many()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.get_similarity_many"><code class="docutils literal notranslate"><span class="pre">get_similarity_many()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_store/index.html#prediction_store.upsert_similarity_many"><code class="docutils literal notranslate"><span class="pre">upsert_similarity_many()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/similarity_utils/index.html">similarity_utils</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/similarity_utils/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.extract_protein_sequences_from_csv"><code class="docutils literal notranslate"><span class="pre">extract_protein_sequences_from_csv()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.create_unique_sequence_mapping"><code class="docutils literal notranslate"><span class="pre">create_unique_sequence_mapping()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.create_fasta_file"><code class="docutils literal notranslate"><span class="pre">create_fasta_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.create_mmseqs_database"><code class="docutils literal notranslate"><span class="pre">create_mmseqs_database()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.run_mmseqs_search"><code class="docutils literal notranslate"><span class="pre">run_mmseqs_search()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.parse_mmseqs_results"><code class="docutils literal notranslate"><span class="pre">parse_mmseqs_results()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.parse_mmseqs_results_raw"><code class="docutils literal notranslate"><span class="pre">parse_mmseqs_results_raw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.map_results_to_original_sequences"><code class="docutils literal notranslate"><span class="pre">map_results_to_original_sequences()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.calculate_identity_histogram"><code class="docutils literal notranslate"><span class="pre">calculate_identity_histogram()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.calculate_average_similarity"><code class="docutils literal notranslate"><span class="pre">calculate_average_similarity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_utils/index.html#similarity_utils.cleanup_temporary_files"><code class="docutils literal notranslate"><span class="pre">cleanup_temporary_files()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/validation_utils/index.html">validation_utils</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/validation_utils/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.safe_convert_to_mol"><code class="docutils literal notranslate"><span class="pre">safe_convert_to_mol()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.split_single_substrate_components"><code class="docutils literal notranslate"><span class="pre">split_single_substrate_components()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_csv_structure"><code class="docutils literal notranslate"><span class="pre">validate_csv_structure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_single_substrate_schema"><code class="docutils literal notranslate"><span class="pre">validate_single_substrate_schema()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_substrate_list_schema"><code class="docutils literal notranslate"><span class="pre">validate_substrate_list_schema()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_products_column"><code class="docutils literal notranslate"><span class="pre">validate_products_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_substrates"><code class="docutils literal notranslate"><span class="pre">validate_substrates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_protein_sequence_characters"><code class="docutils literal notranslate"><span class="pre">validate_protein_sequence_characters()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.calculate_sequence_length_violations"><code class="docutils literal notranslate"><span class="pre">calculate_sequence_length_violations()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_protein_sequences"><code class="docutils literal notranslate"><span class="pre">validate_protein_sequences()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.clean_data_for_json"><code class="docutils literal notranslate"><span class="pre">clean_data_for_json()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.parse_csv_file"><code class="docutils literal notranslate"><span class="pre">parse_csv_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_file_format"><code class="docutils literal notranslate"><span class="pre">validate_file_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_required_columns"><code class="docutils literal notranslate"><span class="pre">validate_required_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_utils/index.html#validation_utils.validate_column_emptiness"><code class="docutils literal notranslate"><span class="pre">validate_column_emptiness()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/benchmark_methods/index.html">benchmark_methods</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/similarity_config/index.html">similarity_config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/similarity_service/index.html">similarity_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/similarity_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.SimilarityCacheOnlyMiss"><code class="docutils literal notranslate"><span class="pre">SimilarityCacheOnlyMiss</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.analyze_sequence_similarity"><code class="docutils literal notranslate"><span class="pre">analyze_sequence_similarity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.analyze_similarity_for_method"><code class="docutils literal notranslate"><span class="pre">analyze_similarity_for_method()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.similarity_cache_label_for_method"><code class="docutils literal notranslate"><span class="pre">similarity_cache_label_for_method()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.append_kcat_similarity_columns_to_output_csv"><code class="docutils literal notranslate"><span class="pre">append_kcat_similarity_columns_to_output_csv()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/similarity_service/index.html#similarity_service.kcat_similarity_sequences_for_output_rows"><code class="docutils literal notranslate"><span class="pre">kcat_similarity_sequences_for_output_rows()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/validation_service/index.html">validation_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/validation_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/validation_service/index.html#validation_service.validate_input_file"><code class="docutils literal notranslate"><span class="pre">validate_input_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/sequence_expansion/index.html">sequence_expansion</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.ExpandedSequence"><code class="docutils literal notranslate"><span class="pre">ExpandedSequence</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.SequenceExpansionPlan"><code class="docutils literal notranslate"><span class="pre">SequenceExpansionPlan</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.TargetPredictionUnit"><code class="docutils literal notranslate"><span class="pre">TargetPredictionUnit</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.TargetExpansionPlan"><code class="docutils literal notranslate"><span class="pre">TargetExpansionPlan</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.split_sequence_list"><code class="docutils literal notranslate"><span class="pre">split_sequence_list()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.count_multi_sequence_rows"><code class="docutils literal notranslate"><span class="pre">count_multi_sequence_rows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/sequence_expansion/index.html#sequence_expansion.reduce_sequence_predictions"><code class="docutils literal notranslate"><span class="pre">reduce_sequence_predictions()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/about_stats_service/index.html">about_stats_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/about_stats_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/about_stats_service/index.html#about_stats_service.mark_about_stats_cache_stale"><code class="docutils literal notranslate"><span class="pre">mark_about_stats_cache_stale()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/about_stats_service/index.html#about_stats_service.refresh_about_stats_cache"><code class="docutils literal notranslate"><span class="pre">refresh_about_stats_cache()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/about_stats_service/index.html#about_stats_service.get_about_stats"><code class="docutils literal notranslate"><span class="pre">get_about_stats()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/substrate_expansion/index.html">substrate_expansion</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/substrate_expansion/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/substrate_expansion/index.html#substrate_expansion.ExpandedSubstrate"><code class="docutils literal notranslate"><span class="pre">ExpandedSubstrate</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/substrate_expansion/index.html#substrate_expansion.SubstrateExpansionPlan"><code class="docutils literal notranslate"><span class="pre">SubstrateExpansionPlan</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/substrate_expansion/index.html#substrate_expansion.split_substrate_list"><code class="docutils literal notranslate"><span class="pre">split_substrate_list()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/substrate_expansion/index.html#substrate_expansion.reduce_substrate_predictions"><code class="docutils literal notranslate"><span class="pre">reduce_substrate_predictions()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/job_progress_service/index.html">job_progress_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/job_progress_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/job_progress_service/index.html#job_progress_service.initialise_job_progress_stages"><code class="docutils literal notranslate"><span class="pre">initialise_job_progress_stages()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/resubmit_pending_jobs/index.html">resubmit_pending_jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/resubmit_pending_jobs/index.html#strategy">Strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/migrate_json_to_sqlite/index.html">migrate_json_to_sqlite</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/prediction_batch_service/index.html">prediction_batch_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/prediction_batch_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_batch_service/index.html#prediction_batch_service.SequenceBatchPlan"><code class="docutils literal notranslate"><span class="pre">SequenceBatchPlan</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_batch_service/index.html#prediction_batch_service.TargetBatchPlan"><code class="docutils literal notranslate"><span class="pre">TargetBatchPlan</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/prediction_batch_service/index.html#prediction_batch_service.build_target_batch_plan"><code class="docutils literal notranslate"><span class="pre">build_target_batch_plan()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/embedding_progress_service/index.html">embedding_progress_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/embedding_progress_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/embedding_progress_service/index.html#embedding_progress_service.start_embedding_tracking"><code class="docutils literal notranslate"><span class="pre">start_embedding_tracking()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/recon_xkg_preflight_service/index.html">recon_xkg_preflight_service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../autoapi/recon_xkg_preflight_service/index.html#module-contents">Module Contents</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg_preflight_service/index.html#recon_xkg_preflight_service.ReconXkgCacheSnapshot"><code class="docutils literal notranslate"><span class="pre">ReconXkgCacheSnapshot</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../autoapi/recon_xkg_preflight_service/index.html#recon_xkg_preflight_service.preflight_recon_xkg_cache"><code class="docutils literal notranslate"><span class="pre">preflight_recon_xkg_cache()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../autoapi/gpu_precompute_status_service/index.html">gpu_precompute_status_service</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Open Kinetics Predictor</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">PLM Embedding Cache and Remote GPU Offload</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project/plm_embedding_cache.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="plm-embedding-cache-and-remote-gpu-offload">
+<h1>PLM Embedding Cache and Remote GPU Offload<a class="headerlink" href="#plm-embedding-cache-and-remote-gpu-offload" title="Link to this heading"></a></h1>
+<p>Use this guide when your method depends on protein language model
+embeddings.</p>
+<section id="purpose">
+<h2>1. Purpose<a class="headerlink" href="#purpose" title="Link to this heading"></a></h2>
+<p>The PLM step is expensive. You should run it once per sequence, store
+the result, and reuse it across jobs.</p>
+<p>The system already supports this with:</p>
+<ul class="simple">
+<li><p>file-based cache artefacts under <code class="docutils literal notranslate"><span class="pre">media/sequence_info</span></code></p></li>
+<li><p>stable sequence IDs from <code class="docutils literal notranslate"><span class="pre">tools/seqmap/main.py</span></code></p></li>
+<li><p>remote GPU precompute with local fail-open fallback</p></li>
+<li><p>file-level embedding progress tracking through inotify</p></li>
+</ul>
+</section>
+<section id="core-concepts">
+<h2>2. Core concepts<a class="headerlink" href="#core-concepts" title="Link to this heading"></a></h2>
+<section id="seq-id-is-the-cache-key">
+<h3>2.1 <code class="docutils literal notranslate"><span class="pre">seq_id</span></code> is the cache key<a class="headerlink" href="#seq-id-is-the-cache-key" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>The cache key is <code class="docutils literal notranslate"><span class="pre">seq_id</span></code>, not raw sequence text.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">seq_id</span></code> is shared across methods.</p></li>
+<li><p>One cached artefact can serve many jobs and many methods.</p></li>
+</ul>
+</section>
+<section id="planner-is-sparse">
+<h3>2.2 Planner is sparse<a class="headerlink" href="#planner-is-sparse" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">api/services/embedding_plan_service.py</span></code> computes:</p>
+<ul class="simple">
+<li><p>expected cache paths per <code class="docutils literal notranslate"><span class="pre">seq_id</span></code></p></li>
+<li><p>missing paths per <code class="docutils literal notranslate"><span class="pre">seq_id</span></code></p></li>
+<li><p>step-level missing work</p></li>
+<li><p>watch directories for progress tracking</p></li>
+</ul>
+<p>Only missing work is sent to the GPU service.</p>
+</section>
+<section id="prediction-and-embedding-are-separate-stages">
+<h3>2.3 Prediction and embedding are separate stages<a class="headerlink" href="#prediction-and-embedding-are-separate-stages" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Embedding generation is precompute.</p></li>
+<li><p>Prediction inference consumes cached artefacts.</p></li>
+<li><p>If GPU precompute fails, local prediction continues and computes
+missing artefacts.</p></li>
+</ul>
+</section>
+</section>
+<section id="current-method-by-method-behaviour">
+<h2>3. Current method-by-method behaviour<a class="headerlink" href="#current-method-by-method-behaviour" title="Link to this heading"></a></h2>
+<p>This section reflects the current code paths.</p>
+<section id="kinform-h-and-kinform-l">
+<h3>3.1 KinForm-H and KinForm-L<a class="headerlink" href="#kinform-h-and-kinform-l" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: <code class="docutils literal notranslate"><span class="pre">api/prediction_engines/kinform.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">kinform_full</span></code></p></li>
+<li><p>GPU precompute call: yes</p></li>
+</ul>
+<p>Cache artefacts:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esm2_layer_26/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esm2_layer_29/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esmc_layer_24/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esmc_layer_32/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/prot_t5_layer_19/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/prot_t5_last/{mean_vecs,weighted_vecs}/{seq_id}.npy</span></code></p></li>
+<li><p>Binding site table: <code class="docutils literal notranslate"><span class="pre">media/pseq2sites/binding_sites_all.tsv</span></code></p></li>
+</ul>
+<p>GPU steps:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_t5_full</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_esm2_layers</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_esmc_layers</span></code></p></li>
+</ul>
+<p>KinForm rule:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_t5_full</span></code> covers both binding sites and ProtT5 outputs.</p></li>
+<li><p>A sequence enters this step if binding sites are missing, ProtT5 files
+are missing, or both.</p></li>
+</ul>
+</section>
+<section id="catapro">
+<h3>3.2 CataPro<a class="headerlink" href="#catapro" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: generic subprocess
+<code class="docutils literal notranslate"><span class="pre">api/prediction_engines/generic_subprocess.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">prot_t5_mean</span></code></p></li>
+<li><p>GPU precompute call: yes, from generic engine</p></li>
+</ul>
+<p>Cache artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/prot_t5_last/mean_vecs/{seq_id}.npy</span></code></p></li>
+</ul>
+</section>
+<section id="unikp">
+<h3>3.3 UniKP<a class="headerlink" href="#unikp" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: <code class="docutils literal notranslate"><span class="pre">api/prediction_engines/unikp.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">prot_t5_mean</span></code></p></li>
+<li><p>GPU precompute call: yes</p></li>
+</ul>
+<p>Cache artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/prot_t5_last/mean_vecs/{seq_id}.npy</span></code></p></li>
+</ul>
+</section>
+<section id="turnup">
+<h3>3.4 TurNup<a class="headerlink" href="#turnup" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: <code class="docutils literal notranslate"><span class="pre">api/prediction_engines/turnup.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">turnup_esm1b</span></code></p></li>
+<li><p>GPU precompute call: yes</p></li>
+</ul>
+<p>Cache artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esm1b_turnup/{seq_id}.npy</span></code></p></li>
+</ul>
+</section>
+<section id="catpred">
+<h3>3.5 CatPred<a class="headerlink" href="#catpred" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: generic subprocess
+<code class="docutils literal notranslate"><span class="pre">api/prediction_engines/generic_subprocess.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">catpred_embed</span></code></p></li>
+<li><p>GPU precompute call: yes, from generic engine</p></li>
+</ul>
+<p>Cache artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/catpred_esm2/{parameter}/{model_key}/{seq_id}.pt</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">parameter</span></code> is <code class="docutils literal notranslate"><span class="pre">kcat</span></code> or <code class="docutils literal notranslate"><span class="pre">km</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">model_key</span></code> comes from checkpoint path structure</p></li>
+</ul>
+<p>GPU steps:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">catpred_embed_kcat</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">catpred_embed_km</span></code></p></li>
+</ul>
+<p>CatPred uses a deterministic reduction path. The cached <code class="docutils literal notranslate"><span class="pre">.pt</span></code> file is
+the checkpoint specific pooled tensor.</p>
+</section>
+<section id="eitlem">
+<h3>3.6 EITLEM<a class="headerlink" href="#eitlem" title="Link to this heading"></a></h3>
+<p>Planner and GPU runner:</p>
+<ul class="simple">
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">eitlem_esm1v</span></code></p></li>
+<li><p>GPU step key: <code class="docutils literal notranslate"><span class="pre">eitlem_esm1v</span></code></p></li>
+<li><p>Cache path: <code class="docutils literal notranslate"><span class="pre">media/sequence_info/esm1v/{seq_id}.npy</span></code></p></li>
+</ul>
+<p>Current configured prediction script:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">webKinPred/config_base.py</span></code> points to
+<code class="docutils literal notranslate"><span class="pre">models/EITLEM/Code/eitlem_prediction_script_batch.py</span></code></p></li>
+</ul>
+<p>Also present in the repo:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">models/EITLEM/Code/eitlem_prediction_script.py</span></code></p></li>
+<li><p>This script shows the preferred full-matrix ephemeral cleanup pattern.</p></li>
+<li><p>It removes touched <code class="docutils literal notranslate"><span class="pre">esm1v</span></code> files after prediction.</p></li>
+</ul>
+</section>
+<section id="omniesi">
+<h3>3.7 OmniESI<a class="headerlink" href="#omniesi" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: generic subprocess
+<code class="docutils literal notranslate"><span class="pre">api/prediction_engines/generic_subprocess.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">omniesi_esm2</span></code></p></li>
+<li><p>GPU precompute call: yes, from generic engine</p></li>
+</ul>
+<p>Staged artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/omniesi_esm2/{seq_id}.pt</span></code></p></li>
+</ul>
+<p>GPU step:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">omniesi_esm2</span></code></p></li>
+</ul>
+<p>OmniESI stages the full per-residue <code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer-33
+tensor, shape <code class="docutils literal notranslate"><span class="pre">[seq_len,</span> <span class="pre">1280]</span></code>, as a CPU <code class="docutils literal notranslate"><span class="pre">.pt</span></code> file. Prediction
+deletes these files after the run, matching EITLEM’s ephemeral <code class="docutils literal notranslate"><span class="pre">esm1v</span></code>
+behaviour. This is intentionally separate from CatPred’s
+checkpoint-specific pooled ESM2 cache.</p>
+</section>
+<section id="realkcat">
+<h3>3.8 RealKcat<a class="headerlink" href="#realkcat" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: generic subprocess
+<code class="docutils literal notranslate"><span class="pre">api/prediction_engines/generic_subprocess.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">realkcat_esm2_last_mean</span></code></p></li>
+<li><p>GPU precompute call: yes, from generic engine</p></li>
+</ul>
+<p>Cache artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/esm2_layer_last_mean/{seq_id}.npy</span></code></p></li>
+</ul>
+<p>GPU step:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">realkcat_esm2_last_mean</span></code></p></li>
+</ul>
+<p>RealKcat uses a persistent ESM2 layer-33 mean-vector cache keyed by
+<code class="docutils literal notranslate"><span class="pre">seq_id</span></code>. Files are reused across runs and are not deleted after
+prediction.</p>
+</section>
+<section id="iecata">
+<h3>3.9 IECata<a class="headerlink" href="#iecata" title="Link to this heading"></a></h3>
+<p>Engine and planner:</p>
+<ul class="simple">
+<li><p>Engine: generic subprocess
+<code class="docutils literal notranslate"><span class="pre">api/prediction_engines/generic_subprocess.py</span></code></p></li>
+<li><p>Planner profile: <code class="docutils literal notranslate"><span class="pre">iecata_prot_t5_residues</span></code></p></li>
+<li><p>GPU precompute call: yes, from generic engine</p></li>
+</ul>
+<p>Staged artefact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">media/sequence_info/iecata_prot_t5_residues/{seq_id}.npy</span></code></p></li>
+</ul>
+<p>GPU step:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">iecata_prot_t5_residues</span></code></p></li>
+</ul>
+<p>IECata stages full ProtT5 per-residue tensors as ephemeral files.
+Prediction consumes these files and removes touched artefacts after the
+run.</p>
+</section>
+<section id="mmisa-km">
+<h3>3.10 MMISA-KM<a class="headerlink" href="#mmisa-km" title="Link to this heading"></a></h3>
+<p>MMISA-KM does not use a PLM embedding cache and is not GPU-offload
+eligible in the shared embedding system.</p>
+<p>It uses a method-local contact-map cache:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MMISA_KM_CACHE_DIR</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">media/sequence_info/mmisa_km_contacts/</span></code></p></li>
+</ul>
+<p>The generic subprocess engine skips shared embedding planning and
+progress tracking for MMISA-KM because its descriptor has
+<code class="docutils literal notranslate"><span class="pre">embeddings_used=[]</span></code>.</p>
+</section>
+</section>
+<section id="planner-contract">
+<h2>4. Planner contract<a class="headerlink" href="#planner-contract" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">build_embedding_plan(...)</span></code> produces an <code class="docutils literal notranslate"><span class="pre">EmbeddingPlan</span></code> with:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">profile</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">seq_ids</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">seq_id_to_seq</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">expected_paths_by_seq</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">missing_paths_by_seq</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">watch_dirs</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">step_plans</span></code></p></li>
+<li><p>file-level totals for <code class="docutils literal notranslate"><span class="pre">total</span></code>, <code class="docutils literal notranslate"><span class="pre">cached_already</span></code>,
+<code class="docutils literal notranslate"><span class="pre">need_computation</span></code></p></li>
+</ul>
+<p>Important details:</p>
+<ul class="simple">
+<li><p>Counts are file based, not sequence based.</p></li>
+<li><p>One sequence may be complete for one step and missing in another.</p></li>
+<li><p>Step work must stay sparse by step and by sequence.</p></li>
+</ul>
+<p>Key planner functions to update for new work:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">_profile_for_method</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">expected_paths_by_seq</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">_step_plans_for_profile</span></code></p></li>
+</ul>
+</section>
+<section id="backend-orchestration-contract">
+<h2>5. Backend orchestration contract<a class="headerlink" href="#backend-orchestration-contract" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">api/services/gpu_embed_service.py</span></code> runs the precompute flow.</p>
+<p>Main entry point:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">run_gpu_precompute_if_available(...)</span></code></p></li>
+</ul>
+<p>Flow:</p>
+<ol class="arabic simple">
+<li><p>Build embedding plan.</p></li>
+<li><p>Return if cache is complete.</p></li>
+<li><p>Return if method is unsupported or service URL is not set.</p></li>
+<li><p>Read GPU health with TTL cache.</p></li>
+<li><p>Build sparse <code class="docutils literal notranslate"><span class="pre">step_work</span></code>.</p></li>
+<li><p>Start embedding tracker before remote submission.</p></li>
+<li><p>Submit <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/embed/jobs</span></code>.</p></li>
+<li><p>Poll <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/embed/jobs/{job_id}</span></code>.</p></li>
+<li><p>Rebuild plan after remote <code class="docutils literal notranslate"><span class="pre">done</span></code> and verify no missing files
+remain.</p></li>
+<li><p>Continue to prediction subprocess.</p></li>
+</ol>
+<p>Fallback behaviour:</p>
+<ul class="simple">
+<li><p>Default is fail-open.</p></li>
+<li><p>Local prediction continues on failure or unreachable GPU.</p></li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">GPU_EMBED_FAIL_CLOSED=1</span></code> only if fail-fast is required.</p></li>
+</ul>
+</section>
+<section id="gpu-service-api-contract">
+<h2>6. GPU service API contract<a class="headerlink" href="#gpu-service-api-contract" title="Link to this heading"></a></h2>
+<p>Service file:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tools/gpu_embed_service/app.py</span></code></p></li>
+</ul>
+<p>Endpoints:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/embed/jobs</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/embed/jobs/{job_id}</span></code></p></li>
+</ul>
+<p>Submit payload:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;method_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;KinForm-H&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;kcat&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;profile&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;kinform_full&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;step_work&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;kinform_t5_full&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;sid_1&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;kinform_esm2_layers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;sid_2&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;seq_id_to_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;sid_1&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MPE...&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;sid_2&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MQA...&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Optional auth:</p>
+<ul class="simple">
+<li><p>bearer token via <code class="docutils literal notranslate"><span class="pre">GPU_EMBED_SERVICE_TOKEN</span></code></p></li>
+</ul>
+<p>Health payload includes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">online</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpu_name</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">free_vram_gb</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">total_vram_gb</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">active_jobs</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queued_jobs</span></code></p></li>
+</ul>
+</section>
+<section id="step-runner-contract">
+<h2>7. Step runner contract<a class="headerlink" href="#step-runner-contract" title="Link to this heading"></a></h2>
+<p>Step runner file:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tools/gpu_embed_service/run_step.py</span></code></p></li>
+</ul>
+<p>Current active step keys:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_t5_full</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_esm2_layers</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_esmc_layers</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prot_t5_mean</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turnup_esm1b</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">eitlem_esm1v</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">catpred_embed_kcat</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">catpred_embed_km</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">omniesi_esm2</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">realkcat_esm2_last_mean</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">iecata_prot_t5_residues</span></code></p></li>
+</ul>
+<p>Deprecated keys kept for compatibility:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_pseq2sites</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinform_prott5_layers</span></code></p></li>
+</ul>
+<p>Do not add new features on deprecated keys.</p>
+</section>
+<section id="progress-tracking">
+<h2>8. Progress tracking<a class="headerlink" href="#progress-tracking" title="Link to this heading"></a></h2>
+<p>Tracker file:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">api/services/embedding_progress_service.py</span></code></p></li>
+</ul>
+<p>Rules:</p>
+<ul class="simple">
+<li><p>Progress is driven by expected missing file paths.</p></li>
+<li><p>Progress increments when files appear.</p></li>
+<li><p>Inotify is used on Linux.</p></li>
+<li><p>Reconciliation polling handles missed events.</p></li>
+<li><p>Existing tracker is reused for the same job stage.</p></li>
+</ul>
+<p>UI impact:</p>
+<ul class="simple">
+<li><p>UI receives embedding progress without direct GPU progress streaming.</p></li>
+<li><p>Remote writes through shared storage still update UI progress.</p></li>
+</ul>
+</section>
+<section id="contributor-playbook">
+<h2>9. Contributor playbook<a class="headerlink" href="#contributor-playbook" title="Link to this heading"></a></h2>
+<p>Use this decision rule first:</p>
+<ol class="arabic simple">
+<li><p>If your method uses a PLM and artefact type already supported, you
+must reuse that existing embedding family.</p></li>
+<li><p>If your method introduces a new PLM or artefact type, you must add a
+new embedding family.</p></li>
+</ol>
+<p>Existing PLM caches:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">prot_t5_last/mean_vecs/{seq_id}.npy</span></code>: mean embedding of the last
+layer from <code class="docutils literal notranslate"><span class="pre">Rostlab/prot_t5_xl_uniref50</span></code> (shared by CataPro and
+UniKP, also used by KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prot_t5_last/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+last-layer <code class="docutils literal notranslate"><span class="pre">Rostlab/prot_t5_xl_uniref50</span></code> residue embeddings, with
+weights from Pseq2Sites binding-site probabilities in
+<code class="docutils literal notranslate"><span class="pre">media/pseq2sites/binding_sites_all.tsv</span></code> (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prot_t5_layer_19/mean_vecs/{seq_id}.npy</span></code>: mean embedding of layer
+19 from <code class="docutils literal notranslate"><span class="pre">Rostlab/prot_t5_xl_uniref50</span></code> (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prot_t5_layer_19/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+layer 19 <code class="docutils literal notranslate"><span class="pre">Rostlab/prot_t5_xl_uniref50</span></code> residue embeddings, with
+Pseq2Sites binding-site probabilities (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm2_layer_26/mean_vecs/{seq_id}.npy</span></code>: mean embedding from
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer 26 (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm2_layer_26/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer 26 residue embeddings, with Pseq2Sites
+binding-site probabilities (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm2_layer_29/mean_vecs/{seq_id}.npy</span></code>: mean embedding from
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer 29 (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm2_layer_29/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer 29 residue embeddings, with Pseq2Sites
+binding-site probabilities (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esmc_layer_24/mean_vecs/{seq_id}.npy</span></code>: mean embedding from
+<code class="docutils literal notranslate"><span class="pre">esmc_600m</span></code> layer 24 (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esmc_layer_24/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+<code class="docutils literal notranslate"><span class="pre">esmc_600m</span></code> layer 24 residue embeddings, with Pseq2Sites
+binding-site probabilities (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esmc_layer_32/mean_vecs/{seq_id}.npy</span></code>: mean embedding from
+<code class="docutils literal notranslate"><span class="pre">esmc_600m</span></code> layer 32 (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esmc_layer_32/weighted_vecs/{seq_id}.npy</span></code>: weighted average of
+<code class="docutils literal notranslate"><span class="pre">esmc_600m</span></code> layer 32 residue embeddings, with Pseq2Sites
+binding-site probabilities (KinForm).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm1b_turnup/{seq_id}.npy</span></code>: TurNup protein vector derived from
+<code class="docutils literal notranslate"><span class="pre">esm1b_t33_650M_UR50S</span></code> plus the TurNup fine-tuned checkpoint
+(<code class="docutils literal notranslate"><span class="pre">model_ESM_binary_A100_epoch_1_new_split.pkl</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">catpred_esm2/{kcat|km}/{model_key}/{seq_id}.pt</span></code>: CatPred
+checkpoint-specific pooled tensor, generated from
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> residue features and attentive pooling.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">omniesi_esm2/{seq_id}.pt</span></code>: OmniESI ephemeral full per-residue
+<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code> layer-33 tensor.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">esm2_layer_last_mean/{seq_id}.npy</span></code>: RealKcat persistent ESM2
+layer-33 mean vector (<code class="docutils literal notranslate"><span class="pre">esm2_t33_650M_UR50D</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">iecata_prot_t5_residues/{seq_id}.npy</span></code>: IECata ephemeral full ProtT5
+per-residue embedding tensor.</p></li>
+</ul>
+<section id="reuse-an-existing-embedding-family">
+<h3>9.1 Reuse an existing embedding family<a class="headerlink" href="#reuse-an-existing-embedding-family" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Reuse an existing cache artefact shape in <code class="docutils literal notranslate"><span class="pre">media/sequence_info</span></code>.</p></li>
+<li><p>Reuse the related planner profile in <code class="docutils literal notranslate"><span class="pre">_profile_for_method</span></code>.</p></li>
+<li><p>Update expected path logic only when path shape differs.</p></li>
+<li><p>Ensure method script reads cache first and computes missing only.</p></li>
+<li><p>Ensure precompute hook runs before prediction subprocess.</p>
+<ul class="simple">
+<li><p>Generic subprocess methods already do this.</p></li>
+<li><p>Custom engines must call <code class="docutils literal notranslate"><span class="pre">run_gpu_precompute_if_available(...)</span></code>.</p></li>
+</ul>
+</li>
+<li><p>Add tests for cache hit, partial miss, and full miss.</p></li>
+</ol>
+</section>
+<section id="add-a-new-embedding-family">
+<h3>9.2 Add a new embedding family<a class="headerlink" href="#add-a-new-embedding-family" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Define deterministic artefact paths keyed by <code class="docutils literal notranslate"><span class="pre">seq_id</span></code>.</p></li>
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">expected_paths_by_seq</span></code> logic.</p></li>
+<li><p>Add method to profile mapping.</p></li>
+<li><p>Add sparse step partitioning logic.</p></li>
+<li><p>Implement step execution in <code class="docutils literal notranslate"><span class="pre">run_step.py</span></code>.</p></li>
+<li><p>Add optional command override in <code class="docutils literal notranslate"><span class="pre">gpu_service.env</span></code>.</p></li>
+<li><p>Pass required env paths into prediction subprocess env.</p></li>
+<li><p>Add planner, orchestration, and API tests.</p></li>
+</ol>
+</section>
+</section>
+<section id="full-matrix-policy">
+<h2>10. Full matrix policy<a class="headerlink" href="#full-matrix-policy" title="Link to this heading"></a></h2>
+<p>Default rule:</p>
+<ul class="simple">
+<li><p>Do not cache full residue matrices.</p></li>
+<li><p>Cache reduced artefacts when reduction is deterministic and substrate
+independent.</p></li>
+</ul>
+<p>CatPred pattern:</p>
+<ul class="simple">
+<li><p>ESM2 residue level signals are reduced by checkpoint attentive
+pooling.</p></li>
+<li><p>The reduced tensor is deterministic for <code class="docutils literal notranslate"><span class="pre">(seq_id,</span> <span class="pre">checkpoint_key)</span></code>.</p></li>
+<li><p>Persist and reuse
+<code class="docutils literal notranslate"><span class="pre">catpred_esm2/{parameter}/{model_key}/{seq_id}.pt</span></code>.</p></li>
+</ul>
+<p>Full matrix pattern:</p>
+<ul class="simple">
+<li><p>Use full matrix files only when your model consumes them directly.</p></li>
+<li><p>Treat those files as ephemeral job files.</p></li>
+<li><p>Create files, run prediction, then delete touched files.</p></li>
+<li><p>EITLEM is the reference pattern in
+<code class="docutils literal notranslate"><span class="pre">models/EITLEM/Code/eitlem_prediction_script.py</span></code>.</p></li>
+</ul>
+</section>
+<section id="tests-to-add">
+<h2>11. Tests to add<a class="headerlink" href="#tests-to-add" title="Link to this heading"></a></h2>
+<p>Planner tests:</p>
+<ul class="simple">
+<li><p>mixed cache state with step-level partial misses</p></li>
+<li><p>KinForm mixed state where only one step is missing per sequence</p></li>
+<li><p>CatPred target-specific step mapping</p></li>
+</ul>
+<p>Orchestration tests:</p>
+<ul class="simple">
+<li><p>tracker starts before remote submission</p></li>
+<li><p>request payload includes only sparse missing <code class="docutils literal notranslate"><span class="pre">step_work</span></code></p></li>
+<li><p>failure fallback</p></li>
+<li><p>post-check catches remote done with missing artefacts</p></li>
+</ul>
+<p>API tests:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/api/v1/gpu/status/</span></code> for configured and unconfigured cases</p></li>
+<li><p>status payload includes <code class="docutils literal notranslate"><span class="pre">gpuPrecompute</span></code> events</p></li>
+</ul>
+</section>
+<section id="operations-and-configuration">
+<h2>12. Operations and configuration<a class="headerlink" href="#operations-and-configuration" title="Link to this heading"></a></h2>
+<p>Backend environment keys:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPU_EMBED_SERVICE_URL</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPU_EMBED_SERVICE_TOKEN</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPU_EMBED_HEALTH_TTL_SECONDS</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPU_EMBED_JOB_TIMEOUT_SECONDS</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPU_EMBED_FAIL_CLOSED</span></code></p></li>
+</ul>
+<p>GPU host env setup:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tools/gpu_embed_service/gpu_service.env</span></code></p></li>
+</ul>
+<p>If <code class="docutils literal notranslate"><span class="pre">GPU_EMBED_SERVICE_URL</span></code> is empty, GPU offload is skipped and local
+behaviour remains unchanged.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="contributing.html" class="btn btn-neutral float-left" title="Contributing a New Prediction Method" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="mmseqs_similarity_datasets.html" class="btn btn-neutral float-right" title="MMseqs Similarity Datasets Guide" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Digital Metabolic Twin Centre.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

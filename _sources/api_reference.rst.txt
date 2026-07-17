@@ -1,0 +1,75 @@
+API Reference
+=============
+
+Browse the generated API pages below.
+
+.. toctree::
+   :maxdepth: 2
+
+   autoapi/api/methods/index
+   autoapi/api/methods/base/index
+   autoapi/api/methods/catapro/index
+   autoapi/api/methods/catpred/index
+   autoapi/api/methods/dlkcat/index
+   autoapi/api/methods/eitlem/index
+   autoapi/api/methods/iecata/index
+   autoapi/api/methods/kinform_h/index
+   autoapi/api/methods/kinform_l/index
+   autoapi/api/methods/mmisa_km/index
+   autoapi/api/methods/omniesi/index
+   autoapi/api/methods/omniesi_o2denet/index
+   autoapi/api/methods/realkcat/index
+   autoapi/api/methods/registry/index
+   autoapi/api/methods/turnup/index
+   autoapi/api/methods/unikp/index
+   autoapi/api/models/index
+   autoapi/api/prediction_engines/dlkcat/index
+   autoapi/api/prediction_engines/eitlem/index
+   autoapi/api/prediction_engines/generic_subprocess/index
+   autoapi/api/prediction_engines/kinform/index
+   autoapi/api/prediction_engines/runtime_paths/index
+   autoapi/api/prediction_engines/subprocess_runner/index
+   autoapi/api/prediction_engines/turnup/index
+   autoapi/api/prediction_engines/unikp/index
+   autoapi/api/services/about_stats_service/index
+   autoapi/api/services/embedding_plan_service/index
+   autoapi/api/services/embedding_progress_service/index
+   autoapi/api/services/gpu_embed_service/index
+   autoapi/api/services/gpu_precompute_status_service/index
+   autoapi/api/services/job_progress_service/index
+   autoapi/api/services/job_service/index
+   autoapi/api/services/prediction_batch_service/index
+   autoapi/api/services/prediction_store/index
+   autoapi/api/services/progress_service/index
+   autoapi/api/services/recon_xkg_preflight_service/index
+   autoapi/api/services/result_service/index
+   autoapi/api/services/similarity_service/index
+   autoapi/api/services/validation_service/index
+   autoapi/api/tasks/index
+   autoapi/api/utils/api_auth/index
+   autoapi/api/utils/convert_to_mol/index
+   autoapi/api/utils/extra_info/index
+   autoapi/api/utils/get_experimental/index
+   autoapi/api/utils/handle_long/index
+   autoapi/api/utils/http_utils/index
+   autoapi/api/utils/job_utils/index
+   autoapi/api/utils/log_sanitiser/index
+   autoapi/api/utils/quotas/index
+   autoapi/api/utils/recon_xkg/index
+   autoapi/api/utils/run_and_stream/index
+   autoapi/api/utils/safe_read/index
+   autoapi/api/utils/sequence_expansion/index
+   autoapi/api/utils/similarity_config/index
+   autoapi/api/utils/similarity_utils/index
+   autoapi/api/utils/substrate_expansion/index
+   autoapi/api/utils/validation_utils/index
+   autoapi/api/views/api_key_views/index
+   autoapi/api/views/csrf_views/index
+   autoapi/api/views/file_views/index
+   autoapi/api/views/health_views/index
+   autoapi/api/views/job_views/index
+   autoapi/api/views/progress_views/index
+   autoapi/api/views/similarity_views/index
+   autoapi/api/views/stats_views/index
+   autoapi/api/views/v1_views/index
+   autoapi/api/views/validation_views/index

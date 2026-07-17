@@ -1,0 +1,20 @@
+restart_job
+===========
+
+.. py:module:: restart_job
+
+.. autoapi-nested-parse::
+
+   Kill an in-flight (or stuck) job and resubmit it as a fresh Celery task.
+
+   Unlike resubmit_pending_jobs this works for any status (Pending, Processing,
+   Failed, …).  The DB row is deleted and recreated so that public_id and
+   submission_time are preserved while all runtime state is wiped clean.
+   JobProgressStage rows cascade-delete with the old Job row.
+
+   Usage:
+       python manage.py restart_job Mbv8CWH
+       python manage.py restart_job Mbv8CWH --dry-run
+
+
+

@@ -1,0 +1,33 @@
+recon_xkg_admin
+===============
+
+.. py:module:: recon_xkg_admin
+
+.. autoapi-nested-parse::
+
+   Management command: recon_xkg_admin
+
+   Administer the ReconXKG memoization store: inspect stats, purge stale entries by
+   model version or method, and manage the API-key allowlist.
+
+   .. rubric:: Examples
+
+   # Show counts in the store
+   python manage.py recon_xkg_admin stats
+
+   # Purge all cached predictions for a method (e.g. after a weights bump)
+   python manage.py recon_xkg_admin purge --method CatPred
+
+   # Purge a specific stale model version of a method
+   python manage.py recon_xkg_admin purge --method TurNup --model-version 1
+
+   # Purge the entire prediction store (keeps similarity cache)
+   python manage.py recon_xkg_admin purge --all
+
+   # Allowlist / de-allowlist an API key by id or key prefix
+   python manage.py recon_xkg_admin allow --api-key-id 7
+   python manage.py recon_xkg_admin deny --api-key-id 7
+   python manage.py recon_xkg_admin list-allowed
+
+
+
