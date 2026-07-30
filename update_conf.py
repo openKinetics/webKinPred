@@ -96,7 +96,7 @@ def update_conf(conf_py: str) -> None:
     conf_path.write_text(text, encoding="utf-8")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     if len(sys.argv) < 2:
         sys.exit(1)
 
