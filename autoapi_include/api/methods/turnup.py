@@ -7,6 +7,17 @@ from api.methods.base import MethodDescriptor
 
 def _turnup_predictions_lazy(*args, **kwargs):
     # Import prediction engine only when a job is actually executed.
+    """
+    Lazily invoke the turnup prediction engine, importing it only when a job actually runs.
+
+    Args:
+        *args: Positional arguments forwarded to `turnup_predictions`.
+        **kwargs: Keyword arguments forwarded to `turnup_predictions`.
+
+    Returns:
+        Any: The result returned by `turnup_predictions`.
+
+    """
     from api.prediction_engines.turnup import turnup_predictions
 
     return turnup_predictions(*args, **kwargs)
@@ -15,7 +26,9 @@ def _turnup_predictions_lazy(*args, **kwargs):
 descriptor = MethodDescriptor(
     key="TurNup",
     display_name="TurNup",
-    authors=("Alexander Kroll, Yvan Rousset, Xiao-Pan Hu, Nina A. Liebrand & Martin J. Lercher"),
+    authors=(
+        "Alexander Kroll, Yvan Rousset, Xiao-Pan Hu, Nina A. Liebrand & Martin J. Lercher"
+    ),
     publication_title=(
         "Turnover number predictions for kinetically uncharacterised "
         "enzymes using machine and deep learning"

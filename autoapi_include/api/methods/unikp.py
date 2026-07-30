@@ -7,6 +7,17 @@ from api.methods.base import MethodDescriptor
 
 def _unikp_predictions_lazy(*args, **kwargs):
     # Import prediction engine only when a job is actually executed.
+    """
+    Lazily import and execute the UniKP prediction engine.
+
+    Args:
+        *args: Positional arguments forwarded to unikp_predictions.
+        **kwargs: Keyword arguments forwarded to unikp_predictions.
+
+    Returns:
+        Any: The result returned by unikp_predictions.
+
+    """
     from api.prediction_engines.unikp import unikp_predictions
 
     return unikp_predictions(*args, **kwargs)
