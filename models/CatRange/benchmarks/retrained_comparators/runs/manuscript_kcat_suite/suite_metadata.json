@@ -1,0 +1,6 @@
+{
+  "parameter": "kcat",
+  "embedding": "esmc",
+  "n_sets": 11,
+  "manifest_csv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/suite_manifest.csv"
+}

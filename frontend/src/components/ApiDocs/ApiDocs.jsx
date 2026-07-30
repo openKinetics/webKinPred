@@ -574,7 +574,7 @@ export default function ApiDocs() {
     "KinForm-L": 0,
     "CatPred": 0,
     "OmniESI": 0,
-    "RealKcat": 0,
+    "CatRange": 0,
     "IECata": 1,
     "MMISA-KM": 0,
     "Server": 0
@@ -589,7 +589,7 @@ export default function ApiDocs() {
     "KinForm-L": 1500,
     "CatPred": 2048,
     "OmniESI": 1000,
-    "RealKcat": 1022,
+    "CatRange": 1024,
     "IECata": 1000,
     "MMISA-KM": 500,
     "Server": 10000
@@ -905,10 +905,10 @@ export default function ApiDocs() {
                 <td>1,000 residues</td>
               </tr>
               <tr>
-                <td><code>RealKcat</code></td>
+                <td><code>CatRange</code></td>
                 <td>kcat or Km</td>
                 <td><code>Protein Sequence</code>, <code>Substrate</code></td>
-                <td>1,022 residues</td>
+                <td>1,024 residues</td>
               </tr>
               <tr>
                 <td><code>IECata</code></td>

@@ -36,7 +36,7 @@ Open Kinetics Predictor is a production web interface for predicting enzyme kine
 | CataPro | Protein sequence + substrate SMILES | kcat, Km, or kcat/Km | [Wang et al., Nat Commun 2025](https://www.nature.com/articles/s41467-025-58038-4) ([GitHub](https://github.com/zchwang/CataPro)) |
 | CatPred | Protein sequence + substrate SMILES | kcat or Km | [Boorla et al., Nat Commun 2025](https://www.nature.com/articles/s41467-025-57215-9) ([GitHub](https://github.com/maranasgroup/CatPred)) |
 | OmniESI | Protein sequence + substrate SMILES | kcat or Km | [Nie et al., arXiv 2025](https://doi.org/10.48550/arXiv.2506.17963) ([GitHub](https://github.com/Hong-yu-Zhang/OmniESI)) |
-| RealKcat | Protein sequence + substrate SMILES | kcat or Km | [Sajeevan et al., bioRxiv 2025](https://doi.org/10.1101/2025.02.10.637555) ([GitHub](https://github.com/TKAI-LAB-Mali/RealKcat)) |
+| CatRange | Protein sequence + substrate SMILES | kcat or Km | [Sajeevan et al., bioRxiv 2025](https://doi.org/10.1101/2025.02.10.637555) ([GitHub](https://github.com/ssbio/CatRange)) |
 | IECata | Protein sequence + substrate SMILES | kcat/Km | [Wang et al., Brief Bioinform 2025](https://doi.org/10.1093/bib/bbaf283) ([GitHub](https://github.com/zhaoyanpeng208/IECata)) |
 | MMISA-KM | Protein sequence + substrate SMILES | Km | [Song & Wang, DDCLS 2025](https://doi.org/10.1109/DDCLS66240.2025.11064981) ([GitHub](https://github.com/kaiwang-group/MMISA-KM)) |
 

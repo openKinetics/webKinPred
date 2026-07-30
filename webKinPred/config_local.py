@@ -36,7 +36,7 @@ PYTHON_PATHS = {
     "MMISA-KM": _env_python("mmisakm_env"),
     "OmniESI": os.environ.get("WEBKINPRED_OMNIESI_PYTHON", _env_python("omniesi_env")),
     "IECata": _env_python("iecata_env"),
-    "RealKcat": _env_python("realkcat_env"),
+    "CatRange": _env_python("catrange_env"),
     "esm2": _env_python("esm"),
     "esmc": _env_python("esmc"),
     "t5": _env_python("prot_t5"),

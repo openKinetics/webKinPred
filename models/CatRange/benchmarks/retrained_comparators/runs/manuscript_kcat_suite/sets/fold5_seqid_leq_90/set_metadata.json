@@ -1,0 +1,12 @@
+{
+  "set_name": "fold5_seqid_leq_90",
+  "comparison_group": "fold5_seqid",
+  "fold": 5,
+  "sheet_name": "leq_90",
+  "seqid_threshold": 90,
+  "n_rows": 274,
+  "n_unique_sequences": 260,
+  "truth_csv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_seqid_leq_90/truth_standardized.csv",
+  "catpred_input_csv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_seqid_leq_90/catpred_input.csv",
+  "dlkcat_input_tsv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_seqid_leq_90/dlkcat_input.tsv"
+}

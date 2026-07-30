@@ -1,0 +1,22 @@
+name: catrange-esmc-gpu
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip>=23
+  - ipykernel
+  - numpy=1.26.*
+  - pandas=2.2.*
+  - tqdm
+  - joblib
+  - pytorch=2.4.*
+  - torchvision=0.19.*
+  - torchaudio=2.4.*
+  - pytorch-cuda=11.8
+  - pip:
+      # ESM-C local inference package. Kept separate from ChemBERTa to avoid
+      # transformers/tokenizer dependency conflicts observed in combined envs.
+      - esm @ git+https://github.com/evolutionaryscale/esm.git
