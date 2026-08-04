@@ -7,6 +7,5 @@ transformers==4.44.2
 tokenizers==0.19.1
 huggingface-hub==0.24.7
 safetensors==0.4.5
-# CatRange runtime uses the local ESM-C package from the repo checkout; install it from source.
-esm @ git+https://github.com/evolutionaryscale/esm.git
+esm==3.0.5
 torch==2.4.0

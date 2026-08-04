@@ -111,8 +111,6 @@ RUN --mount=type=cache,target=/opt/conda/pkgs,sharing=locked \
 
 FROM base AS env-catrange
 COPY docker-requirements/catrange_requirements.txt ./docker-requirements/
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/opt/conda/pkgs,sharing=locked \
     --mount=type=cache,id=webkinpred-pip-py310,target=/root/.cache/pip,sharing=locked \
     mamba create -n catrange_env python=3.10 -c conda-forge -y \
