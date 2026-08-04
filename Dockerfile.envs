@@ -109,15 +109,10 @@ RUN --mount=type=cache,target=/opt/conda/pkgs,sharing=locked \
     && conda run -n iecata_env pip install \
         -r docker-requirements/iecata_requirements.txt
 
-FROM base AS env-realkcat
-COPY docker-requirements/realkcat_requirements.txt ./docker-requirements/
-RUN --mount=type=cache,target=/opt/conda/pkgs,sharing=locked \
-    --mount=type=cache,id=webkinpred-pip-py312,target=/root/.cache/pip,sharing=locked \
-    mamba create -n realkcat_env python=3.9 -c conda-forge -y \
-    && conda run -n realkcat_env pip install -r docker-requirements/realkcat_requirements.txt
-
 FROM base AS env-catrange
 COPY docker-requirements/catrange_requirements.txt ./docker-requirements/
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/opt/conda/pkgs,sharing=locked \
     --mount=type=cache,id=webkinpred-pip-py310,target=/root/.cache/pip,sharing=locked \
     mamba create -n catrange_env python=3.10 -c conda-forge -y \
@@ -167,7 +162,6 @@ COPY --from=env-catpred    /opt/conda/envs/catpred_env   /opt/conda/envs/catpred
 COPY --from=env-mmisakm   /opt/conda/envs/mmisakm_env  /opt/conda/envs/mmisakm_env
 COPY --from=env-omniesi   /opt/conda/envs/omniesi_env  /opt/conda/envs/omniesi_env
 COPY --from=env-iecata    /opt/conda/envs/iecata_env   /opt/conda/envs/iecata_env
-COPY --from=env-realkcat   /opt/conda/envs/realkcat_env  /opt/conda/envs/realkcat_env
 COPY --from=env-catrange   /opt/conda/envs/catrange_env /opt/conda/envs/catrange_env
 COPY --from=env-pseq2sites /opt/conda/envs/pseq2sites    /opt/conda/envs/pseq2sites
 COPY --from=env-esm        /opt/conda/envs/esm           /opt/conda/envs/esm
