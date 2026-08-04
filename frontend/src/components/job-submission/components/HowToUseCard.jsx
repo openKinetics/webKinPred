@@ -10,7 +10,7 @@ const FORMAT_SPECS = [
   {
     key: 'single',
     name: 'Single Substrate',
-    methods: ['CataPro', 'CatPred (Km)', 'DLKcat', 'EITLEM', 'IECata', 'KinForm-H', 'KinForm-L', 'MMISA-KM', 'OmniESI', 'RealKcat', 'UniKP'],
+    methods: ['CataPro', 'CatPred (Km)', 'CatRange', 'DLKcat', 'EITLEM', 'IECata', 'KinForm-H', 'KinForm-L', 'MMISA-KM', 'OmniESI', 'UniKP'],
     columns: [
       { col: 'Protein Sequence', desc: 'full amino-acid sequence' },
       { col: 'Substrate',        desc: 'SMILES or InChI — one per row' },

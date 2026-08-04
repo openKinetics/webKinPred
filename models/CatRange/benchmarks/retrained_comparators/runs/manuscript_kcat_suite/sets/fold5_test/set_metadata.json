@@ -1,0 +1,12 @@
+{
+  "set_name": "fold5_test",
+  "comparison_group": "fold_test",
+  "fold": 5,
+  "sheet_name": "leq_100",
+  "seqid_threshold": 100,
+  "n_rows": 2353,
+  "n_unique_sequences": 2074,
+  "truth_csv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_test/truth_standardized.csv",
+  "catpred_input_csv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_test/catpred_input.csv",
+  "dlkcat_input_tsv": "/lustre/work/ssbio/aosinuga2/Python_work/CatPred_DLKcat_Benchmark/runs/manuscript_kcat_suite/sets/fold5_test/dlkcat_input.tsv"
+}

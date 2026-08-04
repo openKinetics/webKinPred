@@ -1,0 +1,49 @@
+# ============================================================================
+# Km prediction — ESM-2 embeddings
+# ============================================================================
+# Same Optuna-tuned hyperparameters; no deterministic_histogram
+# ============================================================================
+
+parameter:
+  name: km
+  n_classes: 6
+  bin_edges: [1.0e-14, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0e4]
+
+embedding:
+  model: esm2
+  feature_split: 1280
+
+data:
+  root_dir: data_robust_v1
+  dataset_version: data_split_curated_no_OOD_nodups
+  n_folds: 5
+  neg_split: [0.95, 0.025, 0.025]
+  holdout:
+    n_positive: 100
+    n_negative: 10
+    use_publication_neg_wt_indices: true   # false = random; true = hardcoded publication indices
+    neg_wt_indices: [4982, 2356, 2008, 4546, 3046, 578, 4098, 4539, 4439, 2452]  # ESM-2, no-OOD no-dups
+  smote:
+    enabled: true
+    k_neighbors: 5
+
+model:
+  n_estimators: 1920
+  max_depth: 11
+  learning_rate: 0.0021099437081941153
+  subsample: 1.0
+  colsample_bytree: 0.4604393961508079
+  reg_alpha: 1.1182596551965625
+  reg_lambda: 14.80330404900776
+  objective: "multi:softmax"
+  eval_metric: ["mlogloss"]
+  n_jobs: 1
+  verbosity: 0
+  early_stopping_rounds: 10
+  class_imbalance_factor: 0.1
+  hard_negative_mining:
+    enabled: true
+    boost_factor: 100.0
+    finetune_fraction: 0.2
+
+seed: 42

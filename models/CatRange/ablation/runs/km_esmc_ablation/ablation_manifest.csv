@@ -1,0 +1,4 @@
+parameter,feature_mode,source,note
+km,full,/work/ssbio/aosinuga2/Python_work/CatRange/outputs/km_esmc/results/km_esmc_fold_metrics.csv,Existing completed full CatRange CV baseline
+km,sequence,/work/ssbio/aosinuga2/Python_work/CatRange_Ablation_Study/runs/km_esmc_ablation/sequence/fold_metrics.csv,Retrained sequence-only ablation
+km,substrate,/work/ssbio/aosinuga2/Python_work/CatRange_Ablation_Study/runs/km_esmc_ablation/substrate/fold_metrics.csv,Retrained substrate/auxiliary-only ablation

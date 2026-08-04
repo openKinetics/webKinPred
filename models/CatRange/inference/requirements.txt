@@ -1,0 +1,11 @@
+# Use the conda environment files in ../envs/ instead of installing this
+# inference stack into one pip environment.
+#
+# ESM-C and ChemBERTa are intentionally split because their dependency stacks
+# have conflicted in a single environment:
+#
+#   conda env create -f ../envs/catrange-esmc-gpu.yml
+#   conda env create -f ../envs/catrange-chemberta-gpu.yml
+#   conda env create -f ../envs/catrange-notebooks-gpu.yml
+#
+# See ../envs/README.md for the supported workflow.

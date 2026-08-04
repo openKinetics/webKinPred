@@ -1,0 +1,15 @@
+{
+  "model_family": "CatRange",
+  "scope": "CatRange manuscript kinetic-regime classifier only",
+  "expected_files": [
+    "inference/models/kcat_esmc_FINAL.pkl",
+    "inference/models/km_esmc_FINAL.pkl",
+    "inference/models/kcat_esmc_FINAL_stats.pt",
+    "inference/models/km_esmc_FINAL_stats.pt"
+  ],
+  "notes": [
+    "The XGBoost model binaries are intentionally excluded from git because they exceed ordinary GitHub file-size limits.",
+    "Upload the binaries to the publication model host and update this manifest with the final download URLs."
+  ],
+  "downloads": {}
+}

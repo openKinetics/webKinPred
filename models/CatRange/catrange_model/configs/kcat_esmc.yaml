@@ -1,0 +1,52 @@
+# ============================================================================
+# kcat prediction — ESM-C embeddings (PRIMARY)
+# ============================================================================
+# Optuna-tuned hyperparameters (Trial 9, objective=0.6119)
+# Publication section "e" settings
+# ============================================================================
+
+parameter:
+  name: kcat
+  n_classes: 8
+  bin_edges: [0, 1.0e-8, 1.0e-2, 1.0e-1, 1.0e0, 1.0e1, 1.0e2, 1.0e3, 1.0e8]
+
+embedding:
+  model: esmc
+  feature_split: 1152          # first 1152D = ESM-C, rest = auxiliary
+
+data:
+  root_dir: data_robust_v1
+  dataset_version: data_split_curated_no_OOD_nodups_esmc
+  n_folds: 5
+  neg_split: [0.95, 0.025, 0.025]   # train / val / test
+  holdout:
+    n_positive: 100
+    n_negative: 10
+    use_publication_neg_wt_indices: true   # false = random; true = hardcoded publication indices
+    neg_wt_indices: [542, 3403, 794, 3136, 1361, 2069, 1023, 244, 561, 2130]  # ESM-C, no-OOD no-dups
+  smote:
+    enabled: true
+    k_neighbors: 5
+
+model:
+  # ---- Optuna-tuned XGBoost params (DO NOT change without re-tuning) ----
+  n_estimators: 1920
+  max_depth: 11
+  learning_rate: 0.0021099437081941153
+  subsample: 1.0
+  colsample_bytree: 0.4604393961508079
+  reg_alpha: 1.1182596551965625
+  reg_lambda: 14.80330404900776
+  objective: "multi:softmax"
+  eval_metric: ["mlogloss"]
+  n_jobs: 1
+  verbosity: 0
+  deterministic_histogram: true   # ESM-C only
+  early_stopping_rounds: 10
+  class_imbalance_factor: 0.1     # weight reduction for ALL neg samples
+  hard_negative_mining:
+    enabled: true
+    boost_factor: 100.0
+    finetune_fraction: 0.2
+
+seed: 42

@@ -26,8 +26,7 @@ _DATA_PATH_REL = {
     "OmniESI-embed": "media/sequence_info/omniesi_esm2",
     "OmniESI-weights": "cache/omniesi",
     "IECata": "models/IECata",
-    "RealKcat": "models/RealKcat",
-    "RealKcat_DATA": "models/RealKcat/model_weights",
+    "CatRange": "models/CatRange",
     "realkcat_esm2_last_mean": "media/sequence_info/esm2_layer_last_mean",
     "iecata_prot_t5_residues": "media/sequence_info/iecata_prot_t5_residues",
     "media": "media",
@@ -46,8 +45,7 @@ _PREDICTION_SCRIPT_REL = {
     "MMISA-KM": "models/MMISA-KM/upstream/script/prediction_script.py",
     "OmniESI": "models/OmniESI/batch_predict.py",
     "IECata": "models/IECata/prediction_script.py",
-    "RealKcat": "models/RealKcat/realkcat_predict.py",
-     
+    "CatRange": "models/CatRange/predict.py",
 }
 
 

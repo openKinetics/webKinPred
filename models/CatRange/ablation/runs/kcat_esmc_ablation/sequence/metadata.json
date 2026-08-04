@@ -1,0 +1,9 @@
+{
+  "feature_mode": "sequence",
+  "catrange_root": "/lustre/work/ssbio/aosinuga2/Python_work/CatRange",
+  "config": "/lustre/work/ssbio/aosinuga2/Python_work/CatRange/configs/kcat_esmc.yaml",
+  "split_dim": 1152,
+  "smote": true,
+  "hard_negative_mining": true,
+  "device": "cuda"
+}

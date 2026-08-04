@@ -1,0 +1,30 @@
+name: catrange-cpu-figures
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip>=23
+  - ipykernel
+  - jupyterlab
+  - notebook
+  - nbconvert
+  - numpy=1.26.*
+  - pandas=2.2.*
+  - scipy=1.11.*
+  - scikit-learn=1.3.*
+  - imbalanced-learn=0.11.*
+  - matplotlib=3.8.*
+  - seaborn=0.13.*
+  - networkx=3.2.*
+  - openpyxl=3.1.*
+  - xlsxwriter
+  - xlrd
+  - joblib=1.3.*
+  - tqdm
+  - pyyaml
+  - xgboost=2.1.*
+  - rdkit=2023.09.*
+  - pip:
+      - pacmap==0.6.2
+      - papermill==2.6.0

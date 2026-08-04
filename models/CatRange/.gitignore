@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store
+.pytest_cache/
+*.log
+.venv/
+envs/*/
+
+# CatRange XGBoost model binaries are hundreds of MB and should be released
+# through Zenodo/Hugging Face/GitHub Releases or another model host.
+inference/models/*.pkl
+inference/models/*fold*.pt
+catrange_model/outputs/
+catrange_model/logs/
+catrange_model/data/processed/
+catrange_model/data_robust_v1/
+catrange_model/data_robust_v1
+reproducibility_runs/
+
+# External benchmark caches/checkpoints are generated, very large, and
+# reproducible from the scripts plus manifests.
+benchmarks/retrained_comparators/**/catpred_esm2_cache/
+benchmarks/retrained_comparators/**/checkpoints/
+benchmarks/retrained_comparators/**/*.pt
+benchmarks/retrained_comparators/**/*.pth
+benchmarks/retrained_comparators/**/*.pkl
+benchmarks/retrained_comparators/**/*.joblib
+benchmarks/retrained_comparators/tmp*/
+benchmarks/retrained_comparators/vendor/
+
+# Local model/package build products.
+*.egg-info/
+build/
+dist/
+
+ignore/

@@ -40,7 +40,7 @@ Open Kinetics Predictor
      <article class="feature-card">
        <p class="feature-kicker">Compare</p>
        <h2>Use published engines</h2>
-       <p>Access KinForm, UniKP, DLKcat, TurNup, EITLEM, CataPro, CatPred, OmniESI, RealKcat, IECata, and MMISA-KM through one interface.</p>
+       <p>Access KinForm, UniKP, DLKcat, TurNup, EITLEM, CataPro, CatPred, OmniESI, CatRange, IECata, and MMISA-KM through one interface.</p>
      </article>
      <article class="feature-card">
        <p class="feature-kicker">Extend</p>
