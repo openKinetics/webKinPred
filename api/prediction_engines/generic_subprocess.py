@@ -48,7 +48,7 @@ def run_generic_subprocess_prediction(
     target: str,
     disable_gpu_precompute: bool = False,
     **kwargs,
-) -> tuple[list, dict[int, str]]:
+) -> tuple[list, dict[int, str], list[str] | None]:
     """
     Execute a method via the built-in generic subprocess engine.
 
@@ -107,7 +107,7 @@ def run_generic_subprocess_prediction(
     )
 
     if not valid_indices:
-        return predictions, invalid_reasons
+        return predictions, invalid_reasons, []
 
     python_path, script_path = _resolve_subprocess_paths(desc)
     env = _build_subprocess_env(desc)
@@ -206,7 +206,7 @@ def run_generic_subprocess_prediction(
         ) from e
 
     try:
-        pred_subset, invalid_subset = _read_output(desc.display_name, output_file)
+        pred_subset, invalid_subset, extra_info_subset = _read_output(desc.display_name, output_file)
     except PredictionError:
         _cleanup(input_file, output_file)
         raise
@@ -228,8 +228,20 @@ def run_generic_subprocess_prediction(
             seq_idx = valid_indices[local_idx]
             invalid_reasons.setdefault(seq_idx, reason)
 
+    if extra_info_subset is not None:
+        if len(extra_info_subset) != len(valid_rows):
+            extra_info_subset = [str(value) if value is not None else "" for value in extra_info_subset[: len(valid_rows)]]
+            if len(extra_info_subset) < len(valid_rows):
+                extra_info_subset.extend([""] * (len(valid_rows) - len(extra_info_subset)))
+        extra_out = [""] * len(sequences)
+        for local_idx, value in enumerate(extra_info_subset):
+            global_idx = valid_indices[local_idx]
+            extra_out[global_idx] = str(value) if value is not None else ""
+        _cleanup(input_file, output_file)
+        return predictions, invalid_reasons, extra_out
+
     _cleanup(input_file, output_file)
-    return predictions, invalid_reasons
+    return predictions, invalid_reasons, None
 
 
 def _initialise_job_progress(job: Job, total_rows: int, method_key: str, target: str) -> None:
@@ -461,7 +473,7 @@ def _attach_seq_ids_to_rows(
         row["seq_id"] = seq_id
 
 
-def _read_output(method_label: str, output_file: str) -> tuple[list[Any], dict[int, str]]:
+def _read_output(method_label: str, output_file: str) -> tuple[list[Any], dict[int, str], list[str] | None]:
     try:
         with open(output_file, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -472,12 +484,13 @@ def _read_output(method_label: str, output_file: str) -> tuple[list[Any], dict[i
         ) from e
 
     if isinstance(data, list):
-        return data, {}
+        return data, {}, None
 
     if isinstance(data, dict):
         preds = data.get("predictions")
         invalid = data.get("invalid_indices", [])
         invalid_reasons = data.get("invalid_reasons", {})
+        extra_info = data.get("extra_info")
 
         if not isinstance(preds, list):
             raise PredictionError(
@@ -500,7 +513,13 @@ def _read_output(method_label: str, output_file: str) -> tuple[list[Any], dict[i
                 reason_text = str(reason).strip()
                 if reason_text:
                     invalid_out[local_idx] = reason_text
-        return preds, invalid_out
+        if extra_info is None:
+            return preds, invalid_out, None
+        if not isinstance(extra_info, list):
+            raise PredictionError(
+                f"{method_label} output format is invalid: 'extra_info' must be a list when provided."
+            )
+        return preds, invalid_out, extra_info
 
     raise PredictionError(
         f"{method_label} output format is invalid. "
