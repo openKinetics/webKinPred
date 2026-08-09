@@ -20,13 +20,22 @@ from typing import Iterable
 import joblib
 import numpy as np
 import pandas as pd
-import torch
+
+try:
+    import torch
+except Exception:  # pragma: no cover - graceful fallback for missing torch runtime
+    torch = None
 
 
 BIN_EDGES = {
     "kcat": np.asarray([0, 1e-8, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e8], dtype=float),
     "km": np.asarray([1e-14, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e4], dtype=float),
 }
+
+
+def _require_runtime() -> None:
+    if torch is None:
+        raise RuntimeError("CatRange requires torch to be installed in the runtime environment")
 
 
 def _log_bin_centers(parameter: str) -> np.ndarray:
@@ -63,11 +72,22 @@ def _candidate_model_names(parameter: str) -> list[str]:
     ]
 
 
-def _resolve_model_path(models_dir: Path, parameter: str) -> Path:
+def _candidate_model_paths(models_dir: Path, parameter: str) -> list[Path]:
+    candidates: list[Path] = []
     for name in _candidate_model_names(parameter):
-        candidate = models_dir / name
+        candidates.append(models_dir / name)
+    nested_dir = models_dir / "model_weights"
+    if nested_dir.exists():
+        for name in _candidate_model_names(parameter):
+            candidates.append(nested_dir / name)
+    return candidates
+
+
+def _resolve_model_path(models_dir: Path, parameter: str) -> Path:
+    for candidate in _candidate_model_paths(models_dir, parameter):
         if candidate.exists():
             return candidate
+
     expected = ", ".join(_candidate_model_names(parameter))
     raise FileNotFoundError(
         f"Missing CatRange model artifact for {parameter!r} in {models_dir}. "
@@ -79,6 +99,7 @@ class CatRangeInference:
     """Run CatRange kcat/KM bin prediction from raw sequence and SMILES."""
 
     def __init__(self, models_dir: str | Path, device: str = "auto", verbose: bool = True):
+        _require_runtime()
         self.models_dir = Path(models_dir)
         _ensure_model_artifacts(self.models_dir)
         if device == "auto":
@@ -216,7 +237,7 @@ class CatRangeInference:
 def _ensure_model_artifacts(models_dir: Path) -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     for parameter in ("kcat", "km"):
-        if any((models_dir / name).exists() for name in _candidate_model_names(parameter)):
+        if any(path.exists() for path in _candidate_model_paths(models_dir, parameter)):
             continue
 
         archive_path = models_dir / "model_weights.zip"
@@ -227,7 +248,7 @@ def _ensure_model_artifacts(models_dir: Path) -> None:
             except zipfile.BadZipFile:
                 archive_path.unlink(missing_ok=True)
 
-        if not any((models_dir / name).exists() for name in _candidate_model_names(parameter)):
+        if not any(path.exists() for path in _candidate_model_paths(models_dir, parameter)):
             if not archive_path.exists():
                 url = "https://huggingface.co/ssbio/CatRange/resolve/main/model_weights.zip"
                 with urllib.request.urlopen(url, timeout=60) as response, open(archive_path, "wb") as fh:
@@ -240,7 +261,7 @@ def _ensure_model_artifacts(models_dir: Path) -> None:
                         f"CatRange model archive is not a valid zip file: {archive_path}"
                     ) from exc
 
-            if not any((models_dir / name).exists() for name in _candidate_model_names(parameter)):
+            if not any(path.exists() for path in _candidate_model_paths(models_dir, parameter)):
                 raise FileNotFoundError(
                     f"CatRange model artifact missing after extraction for {parameter!r}: {models_dir}"
                 )

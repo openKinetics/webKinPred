@@ -990,7 +990,7 @@ def _execute_target_batch(
         call_kwargs.update(extra_call_kwargs)
 
         if unit_sequences:
-            child_predictions, child_errors = _invoke_method_prediction(
+            child_predictions, child_errors, _ = _invoke_method_prediction(
                 desc=desc,
                 sequences=unit_sequences,
                 public_id=job.public_id,
@@ -1072,7 +1072,7 @@ def _execute_target_batch(
         call_kwargs.update(extra_call_kwargs)
 
         if child_sequences:
-            child_predictions, child_errors = _invoke_method_prediction(
+            child_predictions, child_errors, _ = _invoke_method_prediction(
                 desc=desc,
                 sequences=child_sequences,
                 public_id=job.public_id,
@@ -1239,7 +1239,7 @@ def _execute_native_target_batch(
     ]
 
     if processed_sequences:
-        subset, invalid_subset = _invoke_method_prediction(
+        subset, invalid_subset, extra_subset = _invoke_method_prediction(
             desc=desc,
             sequences=processed_sequences,
             public_id=job.public_id,
@@ -1265,6 +1265,8 @@ def _execute_native_target_batch(
             else:
                 predictions[reaction_index] = value
                 sources[reaction_index] = source
+            if extra_subset is not None:
+                extra[reaction_index] = str(extra_subset[local_index] or "")
 
         for local_index, reason in invalid_subset.items():
             if 0 <= local_index < len(valid_reaction_indices):
@@ -1711,17 +1713,19 @@ def _run_method_engine(
                     idx: "Prediction could not be made"
                     for idx in (invalid_result or [])
                 }
-            return _validate_method_result(desc, sequences, preds, invalid_reasons)
+            validated, invalid_reasons = _validate_method_result(desc, sequences, preds, invalid_reasons)
+            return validated, invalid_reasons, None
 
         if desc.subprocess is not None:
-            preds, invalid_reasons = run_generic_subprocess_prediction(
+            preds, invalid_reasons, extra_info = run_generic_subprocess_prediction(
                 desc=desc,
                 sequences=sequences,
                 public_id=public_id,
                 target=target,
                 **call_kwargs,
             )
-            return _validate_method_result(desc, sequences, preds, invalid_reasons)
+            validated, invalid_reasons = _validate_method_result(desc, sequences, preds, invalid_reasons)
+            return validated, invalid_reasons, extra_info
 
     raise PredictionError(
         f"{desc.display_name} is not configured with a prediction engine."
@@ -2016,7 +2020,7 @@ def _invoke_method_prediction_cached(
         predictions_made=n,
     )
 
-    return predictions, invalid
+    return predictions, invalid, None
 
 
 def _validate_method_result(
