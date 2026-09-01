@@ -1,0 +1,15 @@
+# Django/Celery launcher dependencies used by Dockerfile and Dockerfile.web.
+#
+# Model-specific ML stacks live in the conda environments built by
+# Dockerfile.envs. Keep torch out of this file so lightweight app images do not
+# pull CUDA wheels during production deploys.
+Django==5.1.15
+pandas==2.2.3
+rdkit==2024.9.6
+django-cors-headers
+celery
+redis
+django-redis
+gunicorn
+psycopg2-binary
+python-json-logger

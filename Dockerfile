@@ -11,10 +11,11 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/conda/bin:$PATH"
 
-# Django / app-level dependencies.
-COPY requirements.txt ./
+# Django / app-level dependencies. Model-specific ML stacks are provided by the
+# prebuilt conda environments in WEBKINPRED_ENVS_IMAGE.
+COPY requirements.app.txt ./
 RUN --mount=type=cache,id=webkinpred-pip-py313,target=/root/.cache/pip,sharing=locked \
-    pip install -r requirements.txt
+    pip install -r requirements.app.txt
 
 # Application code.
 COPY . .
