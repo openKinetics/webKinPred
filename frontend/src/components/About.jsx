@@ -17,6 +17,16 @@ const teamInstitutions = [
     members: ['Thomas Sauter', 'Hugues Escoffier'],
   },
   {
+    institution: 'Ratul Chowdhury Lab, Nanovaccine Institute, Department of Chemical & Biological Engineering, Iowa State University, Ames National Laboratory, Critical Mineral Innovation Hub',
+    location: 'Ames, IA, USA',
+    members: ['Supantha Dey', 'Vaishnavey SR', 'Ratul Chowdhury'],
+  },
+  {
+    institution: 'Systems and Synthetic Biology Laboratory, College of Engineering, University of Nebraska–Lincoln',
+    location: 'Lincoln, NE, USA',
+    members: ['Abraham Osinuga', 'Rajib Saha'],
+  },
+  {
     institution: 'Systems Biology, Department of Life Sciences, Chalmers University of Technology',
     location: 'Gothenburg, Sweden',
     members: ['Eduard Kerkhoven'],
@@ -253,7 +263,7 @@ const About = () => {
                   <span className="about-institution-marker" aria-hidden="true" />
                   <div>
                     <h3 className="about-institution-name">{entry.institution}</h3>
-                    <p className="about-institution-location">{entry.location}</p>
+                    {entry.location && <p className="about-institution-location">{entry.location}</p>}
                   </div>
                 </div>
                 <p className="about-member-list">{entry.members.join(', ')}</p>
