@@ -45,7 +45,7 @@ Example:
    MKTLLILAV...,CC(=O)O
 
 This is the native format for CataPro, DLKcat, EITLEM-Kinetics, IECata,
-KinForm-H, KinForm-L, MMISA-KM, OmniESI, OmniESI + O2DENet, RealKcat,
+KinForm-H, KinForm-L, MMISA-KM, OmniESI, OmniESI + O2DENet, CatRange,
 UniKP, and CatPred Km.
 
 Multi-substrate CSV
@@ -150,7 +150,7 @@ listed substrate to the method's single-substrate contract.
      - kcat, Km
      - ``Protein Sequence``, ``Substrate``
      - 1,000
-   * - RealKcat
+   * - CatRange
      - kcat, Km
      - ``Protein Sequence``, ``Substrate``
      - 1,022

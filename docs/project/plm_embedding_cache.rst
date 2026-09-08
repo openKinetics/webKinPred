@@ -191,7 +191,7 @@ deletes these files after the run, matching EITLEM's ephemeral ``esm1v``
 behaviour. This is intentionally separate from CatPred's
 checkpoint-specific pooled ESM2 cache.
 
-3.8 RealKcat
+3.8 CatRange
 ~~~~~~~~~~~~
 
 Engine and planner:

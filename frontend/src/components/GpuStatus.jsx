@@ -22,7 +22,7 @@ const BENCHMARK_DATA = [
     cachedTooltip: 'not implemented because no embeddings and contact map is already fast enough',
   },
   { method: 'CatPred',   uncachedCpu: '14 min 0 s',   uncachedGpu: '5 min 54 s', cached: '23 s'      },
-  { method: 'RealKcat',  uncachedCpu: '14 min 43 s',  uncachedGpu: '1 min 38 s', cached: '1 min 9 s'  },
+  { method: 'CatRange',  uncachedCpu: '14 min 43 s',  uncachedGpu: '1 min 38 s', cached: '1 min 9 s'  },
   {
     method: 'EITLEM',
     uncachedCpu: '18 min 13 s',
