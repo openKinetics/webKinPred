@@ -130,13 +130,42 @@ def snapshot_ready_ids(
     return out
 
 
+def probe_ready_ids(
+    cache_dir: Path,
+    seq_ids: Iterable[str],
+    *,
+    suffix: str,
+) -> set[str]:
+    """Check exactly the requested IDs with one stat per candidate path.
+
+    This is a targeted alternative to snapshot_ready_ids(): instead of scanning
+    (and stat-ing) every entry in the cache directory, it probes only the paths
+    we actually care about. On large, network-mounted cache directories (e.g.
+    sshfs/NFS with hundreds of thousands of files) a full iterdir()+is_file()
+    scan serialises into many thousands of round-trips and can take minutes to
+    hours under load, whereas this probes O(len(seq_ids)) paths.
+    """
+    ready: set[str] = set()
+    for seq_id in seq_ids:
+        seq_id = str(seq_id).strip()
+        if not seq_id:
+            continue
+        candidate = cache_dir / f"{seq_id}{suffix}"
+        try:
+            if candidate.is_file():
+                ready.add(seq_id)
+        except OSError:
+            continue
+    return ready
+
+
 def resolve_missing_ids(
     seq_ids: Iterable[str],
     *,
     cache_dir: Path,
     suffix: str,
 ) -> tuple[list[str], set[str]]:
-    """Resolve missing IDs via manifest first, then directory snapshot fallback.
+    """Resolve missing IDs via manifest first, then targeted per-ID probing.
 
     Returns:
       (missing_seq_ids_in_input_order, ready_seq_ids)
@@ -154,9 +183,14 @@ def resolve_missing_ids(
     manifest_entries = read_manifest_entries(cache_dir, suffix=suffix)
     ready = set(manifest_entries.keys()) & wanted
 
+    # For IDs the manifest does not vouch for, probe only those exact paths
+    # rather than scanning the whole (potentially enormous) cache directory.
+    # The manifest is frequently incomplete relative to on-disk files (writes
+    # from CPU fallbacks / legacy paths never update it), so this fallback
+    # fires often — it must stay O(unresolved), not O(dir size).
     unresolved = wanted - ready
     if unresolved:
-        ready |= snapshot_ready_ids(cache_dir, suffix=suffix, only_ids=unresolved)
+        ready |= probe_ready_ids(cache_dir, unresolved, suffix=suffix)
 
     missing = [seq_id for seq_id in ordered if seq_id not in ready]
     return missing, ready

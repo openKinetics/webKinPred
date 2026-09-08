@@ -41,6 +41,32 @@ class CacheIoTests(unittest.TestCase):
             self.assertEqual(missing, ["sid_1"])
             self.assertEqual(ready, set())
 
+    def test_on_disk_file_missing_from_manifest_is_resolved_via_probe(self):
+        # Files written outside the GPU service (CPU fallbacks / legacy paths)
+        # land on disk without a manifest entry. They must still resolve as
+        # ready via a targeted probe of the exact path.
+        with tempfile.TemporaryDirectory(prefix="cache_io_probe_") as tmp:
+            cache_dir = Path(tmp)
+            (cache_dir / "sid_present.npy").write_bytes(b"x")
+
+            missing, ready = resolve_missing_ids(
+                ["sid_present", "sid_absent"], cache_dir=cache_dir, suffix=".npy"
+            )
+            self.assertEqual(missing, ["sid_absent"])
+            self.assertEqual(ready, {"sid_present"})
+
+    def test_resolution_ignores_unrelated_entries_and_suffix(self):
+        with tempfile.TemporaryDirectory(prefix="cache_io_probe_") as tmp:
+            cache_dir = Path(tmp)
+            # Right stem, wrong suffix must not count as ready.
+            (cache_dir / "sid_1.pt").write_bytes(b"x")
+
+            missing, ready = resolve_missing_ids(
+                ["sid_1"], cache_dir=cache_dir, suffix=".npy"
+            )
+            self.assertEqual(missing, ["sid_1"])
+            self.assertEqual(ready, set())
+
 
 if __name__ == "__main__":
     unittest.main()
