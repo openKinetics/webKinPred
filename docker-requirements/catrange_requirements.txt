@@ -3,6 +3,7 @@ pandas==2.2.3
 tqdm==4.65.0
 joblib==1.5.1
 scikit-learn==1.5.2
+xgboost==2.1.4
 # ChemBERTa substrate embeddings + XGBoost classifier only. ESM-C protein
 # embeddings are computed in the shared `esmc` conda env (GPU offload / local
 # fallback), so `esm` (and its `biotite` dep) are intentionally NOT installed
