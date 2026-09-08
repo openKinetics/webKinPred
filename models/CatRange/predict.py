@@ -191,8 +191,16 @@ def predict_rows(rows: list[dict[str, Any]], target: str) -> tuple[list[Any], li
 
     # Protein: ESM-C from shared cache (GPU) or local esmc-env fallback.
     seq_embeddings = _load_protein_embeddings(rows, sequences)
-    # Substrate: ChemBERTa, computed here in catrange_env.
-    smiles_embeddings = np.stack([inference.embed_smiles(smiles) for smiles in substrates])
+
+    # Substrate: ChemBERTa, computed here in catrange_env. Emit per-row progress
+    # (parsed by subprocess_runner) so the job shows a live prediction bar.
+    total = len(substrates)
+    print(f"Progress: 0/{total}", flush=True)
+    smiles_vectors: list[np.ndarray] = []
+    for idx, smiles in enumerate(substrates):
+        smiles_vectors.append(inference.embed_smiles(smiles))
+        print(f"Progress: {idx + 1}/{total}", flush=True)
+    smiles_embeddings = np.stack(smiles_vectors)
 
     out = inference.predict_from_embeddings(seq_embeddings, smiles_embeddings, parameter=parameter)
     payload = _build_prediction_payload(out, target)
