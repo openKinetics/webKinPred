@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""Simple CatRange subprocess adapter for webKinPred.
+"""CatRange subprocess adapter for webKinPred.
 
-This wrapper is intentionally lightweight: it loads the local CatRange
-inference implementation, accepts the webKinPred JSON payload, and writes
-predictions back in the expected schema.
+Protein ESM-C embeddings are sourced from the shared platform cache
+(``media/sequence_info/catrange_esmc/{seq_id}.npy``), which is populated by
+the GPU embed service. When the cache is missing (GPU offline/unavailable),
+we compute the missing vectors locally by invoking the shared ``esmc`` conda
+env worker — ESM-C is never loaded inside catrange_env. ChemBERTa substrate
+embeddings and the XGBoost classifier run here in catrange_env.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +35,7 @@ try:
     from inference.catrange_inference import CatRangeInference
 except Exception as exc:  # pragma: no cover - runtime setup
     raise SystemExit(f"CatRange import failed: {exc}") from exc
+
 
 def _load_inference(models_dir: str | None = None):
     explicit_models_dir = models_dir or os.environ.get("CATRANGE_MODELS_DIR")
@@ -75,21 +84,117 @@ def _build_prediction_payload(frame: Any, target: str) -> dict[str, Any]:
     return {"predictions": predictions, "extra_info": extra_info, "invalid_indices": []}
 
 
+def _cache_dir() -> Path:
+    media_dir = (
+        os.environ.get("CATRANGE_MEDIA_DIR")
+        or os.environ.get("MEDIA_ROOT")
+        or "media"
+    )
+    return (Path(media_dir).expanduser() / "sequence_info" / "catrange_esmc").resolve()
+
+
+def _seq_id_for_row(row: dict[str, Any], sequence: str) -> str:
+    """Prefer the platform seqmap id (attached by the engine) so the cache is
+    shared with GPU precompute; fall back to a content hash for standalone runs.
+    """
+    seq_id = str(row.get("seq_id") or "").strip()
+    if seq_id:
+        return seq_id
+    return "sha1_" + hashlib.sha1(sequence.strip().upper().encode("utf-8")).hexdigest()
+
+
+def _run_local_esmc_fallback(missing: dict[str, str], cache_dir: Path) -> None:
+    """Compute missing ESM-C mean vectors via the shared esmc env worker."""
+    esmc_python = str(os.environ.get("CATRANGE_ESMC_PYTHON") or "").strip()
+    worker_script = (REPO_ROOT / "tools" / "gpu_embed_service" / "catrange_esmc_worker.py").resolve()
+    if not esmc_python:
+        raise RuntimeError(
+            "ESM-C embeddings are missing from the cache and CATRANGE_ESMC_PYTHON "
+            "is not configured for local fallback."
+        )
+    if not worker_script.exists():
+        raise RuntimeError(f"CatRange ESM-C worker not found: {worker_script}")
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", prefix="catrange_esmc_", delete=False, encoding="utf-8"
+    ) as fh:
+        json.dump(missing, fh)
+        seq_map_path = fh.name
+
+    try:
+        proc = subprocess.run(
+            [
+                esmc_python,
+                str(worker_script),
+                "--seq-id-to-seq-file",
+                seq_map_path,
+                "--cache-dir",
+                str(cache_dir),
+            ],
+            env=os.environ.copy(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"Local ESM-C fallback failed (rc={proc.returncode}):\n{proc.stdout}"
+            )
+    finally:
+        try:
+            os.unlink(seq_map_path)
+        except OSError:
+            pass
+
+
+def _load_protein_embeddings(rows: list[dict[str, Any]], sequences: list[str]) -> np.ndarray:
+    cache_dir = _cache_dir()
+    seq_ids = [_seq_id_for_row(row, seq) for row, seq in zip(rows, sequences)]
+
+    missing: dict[str, str] = {}
+    for seq_id, seq in zip(seq_ids, sequences):
+        if not (cache_dir / f"{seq_id}.npy").exists():
+            missing.setdefault(seq_id, seq)
+
+    if missing:
+        _run_local_esmc_fallback(missing, cache_dir)
+
+    embeddings: list[np.ndarray] = []
+    for seq_id in seq_ids:
+        path = cache_dir / f"{seq_id}.npy"
+        if not path.exists():
+            raise RuntimeError(f"ESM-C embedding still missing after fallback: {seq_id}")
+        vec = np.load(path)
+        if vec.ndim != 1:
+            raise ValueError(f"Expected 1D ESM-C mean vector for {seq_id}, got shape={vec.shape}")
+        embeddings.append(vec.astype(np.float32, copy=False))
+    return np.stack(embeddings)
+
+
 def predict_rows(rows: list[dict[str, Any]], target: str) -> tuple[list[Any], list[int], list[str]]:
     if not rows:
         return [], [], []
 
     parameter = "kcat" if target == "kcat" else "km"
     inference = _load_inference()
-    pairs = []
+
+    sequences: list[str] = []
+    substrates: list[str] = []
     for row in rows:
         sequence = str(row.get("sequence", "")).strip()
         substrate = str(row.get("substrates") or row.get("Substrate") or "").strip()
         if not sequence or not substrate:
             raise ValueError("Each row requires a non-empty sequence and substrate")
-        pairs.append((sequence, substrate))
+        sequences.append(sequence)
+        substrates.append(substrate)
 
-    out = inference.predict(pairs=pairs, parameter=parameter)
+    # Protein: ESM-C from shared cache (GPU) or local esmc-env fallback.
+    seq_embeddings = _load_protein_embeddings(rows, sequences)
+    # Substrate: ChemBERTa, computed here in catrange_env.
+    smiles_embeddings = np.stack([inference.embed_smiles(smiles) for smiles in substrates])
+
+    out = inference.predict_from_embeddings(seq_embeddings, smiles_embeddings, parameter=parameter)
     payload = _build_prediction_payload(out, target)
     return payload["predictions"], [], payload["extra_info"]
 

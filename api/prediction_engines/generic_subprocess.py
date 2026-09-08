@@ -38,7 +38,7 @@ from api.prediction_engines.subprocess_runner import run_prediction_subprocess
 from api.utils.convert_to_mol import convert_to_mol
 from webKinPred.settings import MEDIA_ROOT
 _log = logging.getLogger(__name__)
-_SEQ_ID_ATTACH_METHOD_KEYS = {"OmniESI", "OmniESI-O2DENet", "RealKcat", "IECata"}
+_SEQ_ID_ATTACH_METHOD_KEYS = {"OmniESI", "OmniESI-O2DENet", "RealKcat", "IECata", "CatRange"}
 
 
 def run_generic_subprocess_prediction(
@@ -423,6 +423,15 @@ def _build_subprocess_env(desc: MethodDescriptor) -> dict[str, str]:
 
     for env_var, value in cfg.extra_env.items():
         env[env_var] = str(value)
+
+    # CatRange computes ESM-C protein embeddings via the shared `esmc` env
+    # (local fallback when GPU precompute is unavailable). Inject its python
+    # here rather than in the descriptor to avoid importing runtime paths at
+    # method-registration time.
+    if str(getattr(desc, "key", "")).strip() == "CatRange":
+        esmc_python = PYTHON_PATHS.get("esmc")
+        if esmc_python:
+            env["CATRANGE_ESMC_PYTHON"] = esmc_python
 
     return env
 

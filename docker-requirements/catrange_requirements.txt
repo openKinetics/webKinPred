@@ -3,13 +3,12 @@ pandas==2.2.3
 tqdm==4.65.0
 joblib==1.5.1
 scikit-learn==1.5.2
+# ChemBERTa substrate embeddings + XGBoost classifier only. ESM-C protein
+# embeddings are computed in the shared `esmc` conda env (GPU offload / local
+# fallback), so `esm` (and its `biotite` dep) are intentionally NOT installed
+# here — that stack triggered "can't set attribute 'cls_token'" on load.
 transformers==4.47.1
 tokenizers==0.21.4
 huggingface-hub==0.36.2
 safetensors==0.5.3
-esm @ git+https://github.com/evolutionaryscale/esm.git@v3.1.6
 torch==2.4.1
-biotite==0.41.2
-
-# Keep the runtime stack compatible with the web server’s dedicated conda env
-# rather than relying on whatever happens to be available in the host shell.

@@ -25,12 +25,19 @@ descriptor = MethodDescriptor(
         "kcat": {"kinetics_type": "KCAT"},
         "Km": {"kinetics_type": "KM"},
     },
+    # ESM-C protein embeddings are computed via the shared `esmc` env (GPU
+    # offload with local CPU fallback), NOT inside catrange_env. ChemBERTa
+    # substrate embeddings stay in catrange_env. See models/CatRange/predict.py.
+    embeddings_used=["esmc"],
     subprocess=SubprocessEngineConfig(
         python_path_key="CatRange",
         script_key="CatRange",
         data_path_env={
             "CATRANGE_REPO_ROOT": "CatRange",
             "CATRANGE_MODELS_DIR": "CatRange",
+            "CATRANGE_MEDIA_DIR": "media",
         },
+        # CATRANGE_ESMC_PYTHON (shared esmc env, for the local embedding
+        # fallback) is injected by the engine from PYTHON_PATHS at run time.
     ),
 )

@@ -243,6 +243,14 @@ def expected_paths_by_seq(
             out[seq_id] = {str((base / f"{seq_id}.npy").resolve())}
         return out
 
+    if method_key == "CatRange":
+        # ESM-C 600M final-layer mean vectors (see catrange_esmc_worker.py).
+        # Distinct from KinForm's esmc_layer_24/32 hidden-state caches.
+        base = media_path / "sequence_info" / "catrange_esmc"
+        for seq_id in seq_ids:
+            out[seq_id] = {str((base / f"{seq_id}.npy").resolve())}
+        return out
+
     return {}
 
 
@@ -338,6 +346,8 @@ def _profile_for_method(method_key: str) -> tuple[str | None, bool, str | None]:
         return "realkcat_esm2_last_mean", True, None
     if method_key == "IECata":
         return "iecata_prot_t5_residues", True, None
+    if method_key == "CatRange":
+        return "catrange_esmc", True, None
     return None, False, "gpu_offload_not_applicable"
 
 
@@ -387,6 +397,11 @@ def _step_plans_for_profile(
         base = media_path / "sequence_info" / "iecata_prot_t5_residues"
         paths = {sid: {str((base / f"{sid}.npy").resolve())} for sid in seq_ids}
         return [_step_from_paths("iecata_prot_t5_residues", paths)]
+
+    if profile == "catrange_esmc":
+        base = media_path / "sequence_info" / "catrange_esmc"
+        paths = {sid: {str((base / f"{sid}.npy").resolve())} for sid in seq_ids}
+        return [_step_from_paths("catrange_esmc", paths)]
 
     if profile == "kinform_full":
         base = media_path / "sequence_info"

@@ -26,6 +26,7 @@ STEP_CHOICES = (
     "omniesi_esm2",
     "realkcat_esm2_last_mean",
     "iecata_prot_t5_residues",
+    "catrange_esmc",
 )
 
 
@@ -613,6 +614,35 @@ def _run_iecata_prot_t5_residues(env: dict[str, str], seq_map_json: Path) -> Non
         env,
     )
 
+def _run_catrange_esmc(env: dict[str, str], seq_map_json: Path) -> None:
+    esmc_python = (
+        os.environ.get("CATRANGE_EMBED_PYTHON")
+        or env.get("KINFORM_ESMC_PATH")
+        or _python_in_home_env("esmc")
+    )
+    worker_script = (
+        Path(env["GPU_REPO_ROOT"]) / "tools" / "gpu_embed_service" / "catrange_esmc_worker.py"
+    ).resolve()
+    _ensure_exists(worker_script, "catrange_esmc_worker.py")
+
+    cache_dir = (Path(env["KINFORM_MEDIA_PATH"]) / "sequence_info" / "catrange_esmc").resolve()
+    async_workers = _env_int("GPU_EMBED_CACHE_ASYNC_WORKERS", 8)
+
+    _run(
+        [
+            esmc_python,
+            str(worker_script),
+            "--seq-id-to-seq-file",
+            str(seq_map_json),
+            "--cache-dir",
+            str(cache_dir),
+            "--async-workers",
+            str(async_workers),
+        ],
+        env,
+    )
+
+
 def run_step(
     step: str,
     seq_ids: list[str],
@@ -668,6 +698,8 @@ def run_step(
             _run_realkcat_esm2_last_mean(env, seq_map_json)
         elif step == "iecata_prot_t5_residues":
             _run_iecata_prot_t5_residues(env, seq_map_json)
+        elif step == "catrange_esmc":
+            _run_catrange_esmc(env, seq_map_json)
         else:
             raise RuntimeError(f"Unsupported step: {step}")
     finally:
