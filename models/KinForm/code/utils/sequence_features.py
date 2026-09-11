@@ -60,6 +60,20 @@ def _fetch_cat_weights(seq_id: str,
     return probs[:L] if L <= 1024 else probs
 
 
+def _align_residue_to_binding_weights(
+    seq_id: str,
+    residue_embedding: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    if residue_embedding.shape[0] == weights.shape[0]:
+        return residue_embedding
+    if weights.shape[0] == 1024 and residue_embedding.shape[0] > 1024:
+        return _truncate_first_last(residue_embedding, keep=1024)
+    raise ValueError(
+        f"Weight length ({weights.shape[0]}) does not match residue length "
+        f"({residue_embedding.shape[0]}) for {seq_id}."
+    )
+
 
 def _weighted_mean(arr: np.ndarray, w: np.ndarray, normalize=True) -> np.ndarray:
     """Length‑L weights → weighted mean over axis‑0."""
@@ -348,7 +362,7 @@ def sequences_to_features(
             if part == "global":
                 vec = resid_emb.mean(axis=0)
             elif part == "binding":
-                vec = _weighted_mean(resid_emb, bs_weights)
+                vec = _weighted_mean(_align_residue_to_binding_weights(seq_id, resid_emb, bs_weights), bs_weights)
             elif part == "ec":
                 vec = _weighted_mean(resid_emb, ec_weights)
             elif part == "cat":
@@ -587,6 +601,8 @@ def sequences_to_feature_blocks(
                 for mdl, rep in emb_cache.items():
                     blk_name = f"{mdl}_{mode}"
                     normalize = mode != "cat"
+                    if mode == "binding":
+                        rep = _align_residue_to_binding_weights(seq_id, rep, w)
                     block_dict.setdefault(blk_name, []).append(pool(rep, mode, w, normalize=normalize))
 
     # ---- deterministic ordering -------------------------------------

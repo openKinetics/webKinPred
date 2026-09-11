@@ -69,6 +69,28 @@ def _fetch_weights(seq_id: str, df: pd.DataFrame, key_col: str, weights_col: str
     return np.fromiter((float(x) for x in row.iloc[0].split(",")), dtype=float)
 
 
+def _truncate_first_last_array(arr: np.ndarray, keep: int = 1024) -> np.ndarray:
+    if arr.shape[0] <= keep:
+        return arr
+    half = keep // 2
+    return np.concatenate([arr[:half], arr[-half:]], axis=0)
+
+
+def _align_residue_to_binding_weights(
+    seq_id: str,
+    residue_embedding: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    if residue_embedding.shape[0] == weights.shape[0]:
+        return residue_embedding
+    if weights.shape[0] == 1024 and residue_embedding.shape[0] > 1024:
+        return _truncate_first_last_array(residue_embedding, keep=1024)
+    raise ValueError(
+        f"Weight length ({weights.shape[0]}) does not match embedding length "
+        f"({residue_embedding.shape[0]}) for {seq_id}"
+    )
+
+
 def _weighted_mean(arr: np.ndarray, w: np.ndarray, normalize: bool = True) -> np.ndarray:
     """Length‑L weights → weighted mean over axis‑0."""
     w = np.asarray(w, dtype=float)
@@ -232,13 +254,9 @@ def get_prot_t5_embeddings(
 
                 if "weighted" in settings:
                     weights = _fetch_weights(key, weights_df, weights_key_col, weights_col)
-                    if len(weights) != residue_emb.shape[0]:
-                        raise ValueError(
-                            f"Weight length ({len(weights)}) != embedding length "
-                            f"({residue_emb.shape[0]}) for {key}"
-                        )
+                    weighted_residue_emb = _align_residue_to_binding_weights(key, residue_emb, weights)
                     np.save(paths["weighted"] / f"{key}.npy",
-                            _weighted_mean(residue_emb, weights, normalize=True))
+                            _weighted_mean(weighted_residue_emb, weights, normalize=True))
 
                 residue_path.unlink()
 
@@ -326,15 +344,10 @@ def get_prot_t5_embeddings(
                 if "weighted" in settings:
                     # Fetch weights for this sequence
                     weights = _fetch_weights(key, weights_df, weights_key_col, weights_col)
-                    
-                    # Ensure weights match the embedding length
-                    if len(weights) != L:
-                        raise ValueError(
-                            f"Weight length ({len(weights)}) does not match embedding length ({L}) for {key}"
-                        )
+                    weighted_residue_emb = _align_residue_to_binding_weights(key, residue_emb, weights)
                     
                     # Compute weighted mean
-                    weighted_vec = _weighted_mean(residue_emb, weights, normalize=True)
+                    weighted_vec = _weighted_mean(weighted_residue_emb, weights, normalize=True)
                     np.save(paths["weighted"] / f"{key}.npy", weighted_vec)
 
         # ------------------- memory hygiene per batch -------------------- #

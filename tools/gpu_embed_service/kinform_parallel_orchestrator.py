@@ -137,6 +137,24 @@ def _binding_score_path(media_path: Path, seq_id: str) -> Path:
     return media_path / "sequence_info" / "pseq2sites_scores" / f"{seq_id}.npy"
 
 
+def _truncate_first_last_array(arr: np.ndarray, keep: int = 1024) -> np.ndarray:
+    if arr.shape[0] <= keep:
+        return arr
+    half = keep // 2
+    return np.concatenate([arr[:half], arr[-half:]], axis=0)
+
+
+def _align_residue_to_binding_weights(
+    residue_embedding: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    if residue_embedding.shape[0] == weights.shape[0]:
+        return residue_embedding
+    if weights.shape[0] == 1024 and residue_embedding.shape[0] > 1024:
+        return _truncate_first_last_array(residue_embedding, keep=1024)
+    return residue_embedding
+
+
 def _read_binding_site_scores(
     binding_sites_path: Path,
     *,
@@ -240,6 +258,7 @@ def weighted_mean_from_residue(residue_embedding: np.ndarray, weights: np.ndarra
         raise ValueError(f"Expected 2D residue embedding array, got shape {residue_embedding.shape}")
     if weights.ndim != 1:
         raise ValueError(f"Expected 1D weights array, got shape {weights.shape}")
+    residue_embedding = _align_residue_to_binding_weights(residue_embedding, weights)
     if residue_embedding.shape[0] != weights.shape[0]:
         raise ValueError(
             f"Weight length ({weights.shape[0]}) != residue length ({residue_embedding.shape[0]})"
@@ -278,6 +297,9 @@ def weighted_mean_from_residue_gpu(
     w = torch.as_tensor(weights, dtype=torch.float32, device=device)
     if w.ndim != 1:
         raise ValueError(f"Expected 1D weights tensor, got shape {tuple(w.shape)}")
+    if residue_embedding.shape[0] != w.shape[0] and w.shape[0] == 1024 and residue_embedding.shape[0] > 1024:
+        half = 1024 // 2
+        residue_embedding = torch.cat((residue_embedding[:half], residue_embedding[-half:]), dim=0)
     if residue_embedding.shape[0] != w.shape[0]:
         raise ValueError(
             f"Weight length ({w.shape[0]}) != residue length ({residue_embedding.shape[0]})"

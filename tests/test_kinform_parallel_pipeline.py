@@ -53,6 +53,15 @@ class KinFormParallelHelpersTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             kpo.weighted_mean_from_residue(residue, weights)
 
+    def test_weighted_mean_truncates_long_residue_embedding_to_binding_window(self):
+        residue = np.arange(1025, dtype=np.float32).reshape(1025, 1)
+        weights = np.ones(1024, dtype=np.float64)
+
+        out = kpo.weighted_mean_from_residue(residue, weights)
+
+        expected_window = np.concatenate([residue[:512], residue[-512:]], axis=0)
+        np.testing.assert_allclose(out, expected_window.mean(axis=0), rtol=1e-5, atol=1e-5)
+
     def test_weighted_mean_zero_sum_falls_back_to_global_mean(self):
         residue = np.array([[1.0, 3.0], [5.0, 7.0]], dtype=np.float32)
         weights = np.array([0.0, 0.0], dtype=np.float64)
@@ -76,6 +85,16 @@ class KinFormParallelHelpersTests(unittest.TestCase):
             rows = pseq_stream._read_binding_site_rows(tsv)
             self.assertEqual(rows["sid_a"], "0.9,0.9")
             self.assertEqual(rows["sid_b"], "0.3,0.4")
+
+    def test_pseq_stream_inputs_use_first_last_binding_window(self):
+        sequence = "A" * 1025
+        features = np.arange(1025, dtype=np.float32).reshape(1025, 1)
+
+        out_sequence, out_features = pseq_stream._binding_site_model_inputs(sequence, features)
+
+        self.assertEqual(len(out_sequence), 1024)
+        expected_features = np.concatenate([features[:512], features[-512:]], axis=0)
+        np.testing.assert_array_equal(out_features, expected_features)
 
     def test_cleanup_removes_mean_only_residue_once_satisfied(self):
         with tempfile.TemporaryDirectory(prefix="kinform_residue_cleanup_") as tmp:

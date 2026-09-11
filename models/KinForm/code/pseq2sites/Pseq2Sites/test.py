@@ -54,7 +54,7 @@ def main():
     clean_ids, clean_seqs, clean_feats, full_seqs = [], [], [], []
 
     print("2. Make dataset ...")
-    max_len = config["prots"]["max_lengths"]
+    max_len = min(config["prots"]["max_lengths"], 1024)
     for prot_id, prot_seq, prot_feats in zip(IDs, sequences, protein_feats):
         full_seqs.append(prot_seq)  # always store full original sequence
         L = len(prot_seq)

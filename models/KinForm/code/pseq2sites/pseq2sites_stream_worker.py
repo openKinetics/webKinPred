@@ -25,6 +25,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from tools.gpu_embed_service.kinform_stream_ipc import StreamClient
 
+_BINDING_SITE_WINDOW = 1024
+
 
 def _read_binding_site_rows(path: Path) -> dict[str, str]:
     if not path.exists():
@@ -156,6 +158,33 @@ def _resolve_features(residue_dir: Path, seq_id: str, sequence: str) -> np.ndarr
     return np.concatenate(chain_features, axis=0).astype(np.float32, copy=False)
 
 
+def _truncate_first_last_array(arr: np.ndarray, keep: int = _BINDING_SITE_WINDOW) -> np.ndarray:
+    if arr.shape[0] <= keep:
+        return arr
+    half = keep // 2
+    return np.concatenate([arr[:half], arr[-half:]], axis=0).astype(np.float32, copy=False)
+
+
+def _truncate_first_last_sequence(sequence: str, keep: int = _BINDING_SITE_WINDOW) -> str:
+    residues = sequence.replace(",", "")
+    if len(residues) <= keep:
+        return sequence
+    half = keep // 2
+    return residues[:half] + residues[-half:]
+
+
+def _binding_site_model_inputs(
+    sequence: str,
+    features: np.ndarray,
+) -> tuple[str, np.ndarray]:
+    if features.shape[0] <= _BINDING_SITE_WINDOW:
+        return sequence, features
+    return (
+        _truncate_first_last_sequence(sequence, keep=_BINDING_SITE_WINDOW),
+        _truncate_first_last_array(features, keep=_BINDING_SITE_WINDOW),
+    )
+
+
 def _predict_binding_scores(
     *,
     trainiter,
@@ -170,8 +199,15 @@ def _predict_binding_scores(
     import torch
 
     seq_ids = list(seq_id_to_feats.keys())
-    feats = [seq_id_to_feats[sid] for sid in seq_ids]
-    seqs = [seq_id_to_seq[sid] for sid in seq_ids]
+    model_seqs: dict[str, str] = {}
+    model_feats: dict[str, np.ndarray] = {}
+    for sid in seq_ids:
+        seq, feats = _binding_site_model_inputs(seq_id_to_seq[sid], seq_id_to_feats[sid])
+        model_seqs[sid] = seq
+        model_feats[sid] = feats
+
+    feats = [model_feats[sid] for sid in seq_ids]
+    seqs = [model_seqs[sid] for sid in seq_ids]
     dataset = PocketDatasetCls(seq_ids, feats, seqs)
     loader = DataloaderFn(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
 
@@ -189,7 +225,7 @@ def _predict_binding_scores(
             probs = torch.sigmoid(pred_bs).detach().cpu().numpy()
             for item, score_arr in zip(batch, probs):
                 seq_id = str(item[0])
-                seq_len = int(seq_id_to_feats[seq_id].shape[0])
+                seq_len = int(model_feats[seq_id].shape[0])
                 values = ",".join(f"{float(x):.6f}" for x in score_arr[:seq_len])
                 pred_rows[seq_id] = values
     return pred_rows

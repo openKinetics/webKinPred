@@ -25,9 +25,6 @@ def _populate_initial(seq_dict, already_processed_ids):
         if sid not in missing_seq_ids:
             success_dict[sid] = True
             reason_dict[sid] = None
-        elif len(seq_dict[sid]) > 1499:
-            success_dict[sid] = False
-            reason_dict[sid] = "Sequence length exceeds 1499 residues."
         else:
             to_process.append((i, sid)) # append original index and seq_id
     return to_process, success_dict, reason_dict
