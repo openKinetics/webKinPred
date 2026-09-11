@@ -1,6 +1,6 @@
 // src/components/About.js
 import { useEffect, useState } from 'react';
-import { Check2, Clipboard, Envelope } from 'react-bootstrap-icons';
+import { Check2, Clipboard, Download, Envelope } from 'react-bootstrap-icons';
 import { useLocation } from 'react-router-dom';
 import apiClient from './appClient';
 import './ApiDocs/ApiDocs.css';
@@ -99,6 +99,13 @@ const PARAMETER_BREAKDOWN = [
 
 const numberFormatter = new Intl.NumberFormat('en-US');
 const ABOUT_STATS_STORAGE_KEY = 'about_stats_payload_v1';
+const CITATION_BIB_PATH = '/citations/openkineticspredictor.bib';
+const citationText = String.raw`@unpublished{alwer2026accessing,
+  author = {Alwer, Saleh and Escoffier, Hugues and Taha, Karim and Boorla, Veda and Yu, Han and Santra, Somtirtha and Wang, Zechen and Egwu, Chidi and Osinuga, Abraham and Dey, Supantha and Srinivasan Raghunath, Vaishnavey and Zare, Farid and McGoldrick, Jack and Weder, Jan-Niklas and Kerkhoven, Eduard and Luo, Xiaozhou and Maranas, Costas D. and Zheng, Liangzhen and Wittig, Ulrike and Chowdhury, Ratul and Saha, Rajib and T{\"o}pfer, Nadine and Sauter, Thomas and Fleming, Ronan M. T.},
+  title = {{Accessing Enzyme Kinetic Data and Prediction Methods at Scale}},
+  note = {Unpublished manuscript},
+  year = {2026}
+}`;
 
 const About = () => {
   const location = useLocation();
@@ -113,7 +120,6 @@ const About = () => {
       return null;
     }
   });
-  const citationText = 'OpenKineticsPredictor: open-source platform for kinetic parameter prediction. Citation details to be added.';
 
   useEffect(() => {
     let isMounted = true;
@@ -289,12 +295,22 @@ const About = () => {
           <article className="about-detail-card about-citation-card">
             <div className="about-detail-heading about-citation-heading">
               <h2>Citation</h2>
-              <button type="button" className="about-copy-button" onClick={copyCitation}>
-                {copied ? <Check2 aria-hidden="true" /> : <Clipboard aria-hidden="true" />}
-                <span>{copied ? 'Copied' : 'Copy'}</span>
-              </button>
+              <div className="about-citation-actions">
+                <button type="button" className="about-citation-button" onClick={copyCitation}>
+                  {copied ? <Check2 aria-hidden="true" /> : <Clipboard aria-hidden="true" />}
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+                <a
+                  className="about-citation-button"
+                  href={CITATION_BIB_PATH}
+                  download="openkineticspredictor.bib"
+                >
+                  <Download aria-hidden="true" />
+                  <span>Download</span>
+                </a>
+              </div>
             </div>
-            <p className="about-citation-text">{citationText}</p>
+            <pre className="about-citation-text">{citationText}</pre>
           </article>
         </section>
       </div>

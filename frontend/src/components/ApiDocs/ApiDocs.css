@@ -390,6 +390,14 @@
   margin-bottom: 0.85rem;
 }
 
+.about-citation-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 .about-detail-text {
   color: var(--about-muted);
   font-size: 0.94rem;
@@ -423,7 +431,7 @@
   flex: 0 0 auto;
 }
 
-.about-copy-button {
+.about-citation-button {
   align-items: center;
   background: var(--about-button-bg);
   border: 1px solid var(--about-button-bg);
@@ -436,12 +444,15 @@
   gap: 0.45rem;
   line-height: 1;
   padding: 0.58rem 0.72rem;
+  text-decoration: none;
 }
 
-.about-copy-button:hover,
-.about-copy-button:focus {
+.about-citation-button:hover,
+.about-citation-button:focus {
   background: var(--about-button-bg-hover);
   border-color: var(--about-button-bg-hover);
+  color: var(--about-button-text);
+  text-decoration: none;
 }
 
 .about-citation-text {
@@ -449,10 +460,14 @@
   border: 1px solid var(--about-border);
   border-radius: 8px;
   color: var(--about-muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
   font-size: 0.94rem;
   line-height: 1.65;
   margin: 0;
+  overflow-x: auto;
   padding: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (max-width: 575.98px) {
