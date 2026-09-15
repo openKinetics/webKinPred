@@ -13,6 +13,8 @@ const funders = [
   { name: 'Knut & Alice Wallenberg Foundation', grant: null },
   { name: 'EU Horizon 2020', grant: '#686070 & #814650' },
   { name: 'National Key R&D China', grant: '2025YFA0922700' },
+  { name: 'German Research Foundation (DFG)', grant: 'EXC-2048/1 · project ID 390686111' },
+  { name: 'DFG SFB 1644/1', grant: 'project no. 512328399' },
 ];
 
 function Footer() {

@@ -1,6 +1,6 @@
 // src/components/About.js
 import { useEffect, useState } from 'react';
-import { Check2, Clipboard, Download, Envelope } from 'react-bootstrap-icons';
+import { BoxArrowUpRight, Check2, Clipboard, Database, Download, Envelope } from 'react-bootstrap-icons';
 import { useLocation } from 'react-router-dom';
 import apiClient from './appClient';
 import './ApiDocs/ApiDocs.css';
@@ -213,6 +213,18 @@ const About = () => {
           <p className="about-hero-copy">
             We developed this platform to make kinetic parameter prediction methods more accessible in an open source setting, so it can continue to expand as more methods are published and introduced.
           </p>
+          <div className="about-hero-actions">
+            <a
+              className="about-data-portal-button"
+              href="https://data.openkinetics.org"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Database aria-hidden="true" />
+              <span>Open Data Portal</span>
+              <BoxArrowUpRight aria-hidden="true" className="about-data-portal-button__external" />
+            </a>
+          </div>
         </header>
 
         <section className="about-section about-metrics-section" aria-label="Platform usage metrics">
