@@ -24,7 +24,7 @@ function Footer() {
         <div className="footer-inner">
 
           {/* Brand */}
-          <p className="footer-brand mb-0">OpenKineticsPredictor</p>
+          <p className="footer-brand mb-0">OpenKinetics Predictor</p>
 
           {/* Funding badges */}
           <div className="funding-section">

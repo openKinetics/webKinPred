@@ -51,7 +51,7 @@ function Header() {
       <div className="topbar-brand-group">
         <Link className="brand" to="/">
           <Activity size={22} aria-hidden="true" />
-          <span>OpenKineticsPredictor</span>
+          <span>OpenKinetics Predictor</span>
         </Link>
         <nav className="product-links" aria-label="OpenKinetics products">
           <a href="https://data.openkinetics.org">Kinetic Data</a>

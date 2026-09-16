@@ -209,7 +209,7 @@ const About = () => {
     <div className="about-page">
       <div className="about-container container">
         <header className="about-header">
-          <h1>OpenKineticsPredictor</h1>
+          <h1>OpenKinetics Predictor</h1>
           <p className="about-hero-copy">
             We developed this platform to make kinetic parameter prediction methods more accessible in an open source setting, so it can continue to expand as more methods are published and introduced.
           </p>
