@@ -1,58 +1,92 @@
 
-/* Header Styles */
-.custom-navbar {
-  background: linear-gradient(45deg, #070614, #181531, #12121f);
-  border-bottom: 1px solid var(--neon-color);
-  box-shadow: 0 4px 6px -1px rgba(0, 214, 252, 0.1);
-  padding-top: 0px; /* Reduced padding */
-  padding-bottom: 5px; /* Reduced padding */
-  font-size: large;
-}
-
-.custom-navbar .navbar-brand {
-  color: var(--text-color);
-  font-family: 'Orbitron', sans-serif;
-  transition: text-shadow 0.3s ease;
-}
-
-.custom-navbar .navbar-brand:hover {
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
-}
-
-.custom-navbar .nav-link {
-  color: var(--text-color);
-  font-family: 'Roboto', sans-serif;
-  transition: all 0.3s ease;
-  position: relative;
-}
-
-.custom-navbar .nav-link:hover {
-  color: #ffffff;
-  text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
-  transform: translateY(-1px);
-}
-
-.custom-navbar .nav-link::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  width: 0;
-  background-color: rgba(255, 255, 255, 0.7);
-  transition: width 0.3s ease;
-}
-
-.custom-navbar .nav-link:hover::after {
-  width: 100%;
-}
-
-/* ── Navbar end controls (theme toggle + hamburger) ── */
-.navbar-end-controls {
+/* Header Styles — mirrors the OpenKinetics Data portal topbar */
+.topbar {
+  height: 64px;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 28px;
+  background: var(--card-background);
+  border-bottom: 1px solid var(--border-color-1);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.topbar .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-color);
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.topbar .brand:hover {
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.topbar-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.product-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border-color-1);
+  white-space: nowrap;
+}
+
+.product-links a {
+  padding: 6px 8px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.product-links a:hover,
+.product-links a:focus-visible {
+  background: var(--secondary-color);
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.navlinks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.navlinks a {
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.navlinks a.active,
+.navlinks a:hover {
+  color: var(--text-color);
+  background: var(--secondary-color);
+  text-decoration: none;
+}
+
+.topbar-end {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 /* ── Theme toggle button ── */

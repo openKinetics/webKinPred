@@ -13,6 +13,7 @@
   --secondary-color: #302b63;
   --accent-color: rgba(233, 233, 233, 0.5);/* Main accent color */
   --text-color: #ffffff;
+  --muted: rgba(255, 255, 255, 0.6); /* Secondary / de-emphasized text */
   --neon-color: rgba(233, 233, 233, 0.5); /* Slightly transparent for aesthetics */
   --background-gradient: linear-gradient(45deg, #0f0c29, #302b63, #24243e);
   /* Minimalist color palette for content */
@@ -30,6 +31,7 @@
   --secondary-color: #ede8ff;
   --accent-color: rgba(110, 90, 200, 0.22);
   --text-color: #1c1443;
+  --muted: rgba(28, 20, 67, 0.6);
   --neon-color: rgba(110, 90, 200, 0.22);
   --background-gradient: linear-gradient(135deg, #f5f2ff 0%, #ede8ff 50%, #f9f8ff 100%);
   --card-background: rgba(255, 255, 255, 0.92);

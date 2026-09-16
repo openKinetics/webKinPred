@@ -9,7 +9,7 @@ const funders = [
   { name: 'Swiss SERI', grant: '#23.00232' },
   { name: 'UKRI', grant: '#10083717 & #10080153' },
   { name: 'FNR', grant: 'PRIDE21/16763386/CANBIO2' },
-  { name: 'Novo Nordisk Foundation', grant: '#NNF10CC1016517' },
+  { name: 'Novo Nordisk Foundation', grant: '#NNF10CC1016517 & #NNF20CC0035580' },
   { name: 'Knut & Alice Wallenberg Foundation', grant: null },
   { name: 'EU Horizon 2020', grant: '#686070 & #814650' },
   { name: 'National Key R&D China', grant: '2025YFA0922700' },

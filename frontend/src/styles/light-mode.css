@@ -60,43 +60,10 @@
 
 /* ═══════════════════════════════════════════════════════════
    2. NAVBAR
+   The topbar is driven entirely by themed CSS variables
+   (--card-background, --secondary-color, --text-color, --muted,
+   --border-color-1), so no light-mode overrides are needed here.
    ═══════════════════════════════════════════════════════════ */
-[data-theme="light"] .custom-navbar {
-  background: linear-gradient(135deg, #fafaff 0%, #f2eeff 60%, #f9f8ff 100%);
-  border-bottom: 1px solid rgba(110, 90, 200, 0.16);
-  box-shadow: 0 2px 14px rgba(90, 70, 180, 0.08);
-}
-
-[data-theme="light"] .custom-navbar .navbar-brand {
-  color: #1c1443;
-}
-
-[data-theme="light"] .custom-navbar .navbar-brand:hover {
-  text-shadow: 0 0 10px rgba(110, 90, 200, 0.4);
-}
-
-[data-theme="light"] .custom-navbar .nav-link {
-  color: #3d3070;
-}
-
-[data-theme="light"] .custom-navbar .nav-link:hover {
-  color: #1c1443;
-  text-shadow: 0 0 6px rgba(110, 90, 200, 0.35);
-}
-
-[data-theme="light"] .custom-navbar .nav-link::after {
-  background-color: rgba(110, 90, 200, 0.65);
-}
-
-/* Bootstrap Navbar toggler (hamburger) */
-[data-theme="light"] .custom-navbar .navbar-toggler {
-  border-color: rgba(110, 90, 200, 0.3);
-  color: #3d3070;
-}
-
-[data-theme="light"] .custom-navbar .navbar-toggler-icon {
-  filter: invert(20%) sepia(50%) saturate(500%) hue-rotate(230deg);
-}
 
 /* ═══════════════════════════════════════════════════════════
    3. GPU STATUS BANNER

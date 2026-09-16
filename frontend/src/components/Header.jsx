@@ -1,7 +1,7 @@
-// Header.js
+// Header.jsx
 import React from 'react';
-import { Navbar, Container, Nav } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
+import { Activity } from 'react-bootstrap-icons';
 import '../styles/components/navbar.css';
 import { useTheme } from '../context/ThemeContext';
 
@@ -25,13 +25,16 @@ const MoonIcon = () => (
   </svg>
 );
 
-function ThemeToggle({ theme, toggleTheme, extraClass = '' }) {
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   return (
     <button
-      className={`theme-toggle-btn${extraClass ? ' ' + extraClass : ''}`}
+      type="button"
+      className="theme-toggle-btn"
       onClick={toggleTheme}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={label}
+      title={label}
     >
       <span className="theme-toggle-track">
         <span className="theme-toggle-thumb">
@@ -43,31 +46,28 @@ function ThemeToggle({ theme, toggleTheme, extraClass = '' }) {
 }
 
 function Header() {
-  const { theme, toggleTheme } = useTheme();
-
   return (
-    <Navbar expand="lg" className="custom-navbar">
-      <Container>
-        {/* Brand always on the left */}
-        <Navbar.Brand as={Link} to="/">OpenKineticsPredictor</Navbar.Brand>
-
-        {/* Collapse contains nav links (immediately after brand on desktop) */}
-        <Navbar.Collapse id="basic-navbar-nav">
-          <Nav>
-            <Nav.Link as={Link} to="/track-job">Track Job</Nav.Link>
-            <Nav.Link as={Link} to="/api-docs">API</Nav.Link>
-            <Nav.Link as={Link} to="/contribute">Contribute</Nav.Link>
-            <Nav.Link as={Link} to="/about">About</Nav.Link>
-          </Nav>
-          {/* Desktop-only toggle — far right inside collapse */}
-          <ThemeToggle theme={theme} toggleTheme={toggleTheme} extraClass="d-none d-lg-inline-flex ms-auto" />
-        </Navbar.Collapse>
-
-        {/* Mobile-only toggle — always visible before hamburger */}
-        <ThemeToggle theme={theme} toggleTheme={toggleTheme} extraClass="d-lg-none ms-auto" />
-        <Navbar.Toggle className="ms-2" aria-controls="basic-navbar-nav" />
-      </Container>
-    </Navbar>
+    <header className="topbar">
+      <div className="topbar-brand-group">
+        <Link className="brand" to="/">
+          <Activity size={22} aria-hidden="true" />
+          <span>OpenKineticsPredictor</span>
+        </Link>
+        <nav className="product-links" aria-label="OpenKinetics products">
+          <a href="https://data.openkinetics.org">Kinetic Data</a>
+          <a href="https://openkinetics.org/">OpenKinetics Index</a>
+        </nav>
+      </div>
+      <div className="topbar-end">
+        <nav className="navlinks" aria-label="Primary navigation">
+          <NavLink to="/track-job">Track Job</NavLink>
+          <NavLink to="/api-docs">API</NavLink>
+          <NavLink to="/contribute">Contribute</NavLink>
+          <NavLink to="/about">About</NavLink>
+        </nav>
+        <ThemeToggle />
+      </div>
+    </header>
   );
 }
 
