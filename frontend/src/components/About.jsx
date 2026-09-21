@@ -1,6 +1,6 @@
 // src/components/About.js
 import { useEffect, useState } from 'react';
-import { BoxArrowUpRight, Check2, Clipboard, Database, Download, Envelope } from 'react-bootstrap-icons';
+import { Check2, Clipboard, Download, Envelope, GeoAlt } from 'react-bootstrap-icons';
 import { useLocation } from 'react-router-dom';
 import apiClient from './appClient';
 import './ApiDocs/ApiDocs.css';
@@ -57,6 +57,32 @@ const teamInstitutions = [
     members: ['Nadine Töpfer', 'Jan-Niklas Weder', 'Karim Taha'],
   },
 ];
+
+const COUNTRY_FLAGS = {
+  Ireland: '🇮🇪',
+  Luxembourg: '🇱🇺',
+  USA: '🇺🇸',
+  Sweden: '🇸🇪',
+  China: '🇨🇳',
+  Singapore: '🇸🇬',
+  Germany: '🇩🇪',
+};
+
+const getCountryFlag = (location) => {
+  if (!location) return '';
+  const country = location.split(',').pop().trim();
+  return COUNTRY_FLAGS[country] ?? '';
+};
+
+// A member is the lab lead when the institution is named after them
+// (e.g. "Luo Laboratory" → Xiaozhou Luo). Non-eponymous institutions
+// simply get no emphasis.
+const getLastName = (name) => name.trim().split(/\s+/).pop();
+
+const isLeadMember = (member, institution) => {
+  const lastName = getLastName(member);
+  return lastName.length > 2 && institution.includes(lastName);
+};
 
 const METRIC_CARDS = [
   { key: 'jobs_completed', label: 'Jobs' },
@@ -213,18 +239,6 @@ const About = () => {
           <p className="about-hero-copy">
             We developed this platform to make kinetic parameter prediction methods more accessible in an open source setting, so it can continue to expand as more methods are published and introduced.
           </p>
-          <div className="about-hero-actions">
-            <a
-              className="about-data-portal-button"
-              href="https://data.openkinetics.org"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Database aria-hidden="true" />
-              <span>Open Data Portal</span>
-              <BoxArrowUpRight aria-hidden="true" className="about-data-portal-button__external" />
-            </a>
-          </div>
         </header>
 
         <section className="about-section about-metrics-section" aria-label="Platform usage metrics">
@@ -269,27 +283,6 @@ const About = () => {
           </div>
         </section>
 
-        <section className="about-section about-consortium-section" aria-labelledby="about-consortium-title">
-          <div className="about-section-heading">
-            <h2 id="about-consortium-title">Contributors</h2>
-          </div>
-
-          <div className="about-institution-grid">
-            {teamInstitutions.map((entry) => (
-              <article key={entry.institution} className="about-institution-card">
-                <div className="about-institution-heading">
-                  <span className="about-institution-marker" aria-hidden="true" />
-                  <div>
-                    <h3 className="about-institution-name">{entry.institution}</h3>
-                    {entry.location && <p className="about-institution-location">{entry.location}</p>}
-                  </div>
-                </div>
-                <p className="about-member-list">{entry.members.join(', ')}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
         <section className="about-section about-details-grid" aria-label="Contact and citation">
           <article id="contact" className="about-detail-card about-contact-card">
             <div className="about-detail-heading">
@@ -324,6 +317,49 @@ const About = () => {
             </div>
             <pre className="about-citation-text">{citationText}</pre>
           </article>
+        </section>
+
+        <section className="about-section about-consortium-section" aria-labelledby="about-consortium-title">
+          <div className="about-section-heading">
+            <h2 id="about-consortium-title">Contributors</h2>
+          </div>
+
+          <div className="about-institution-grid">
+            {teamInstitutions.map((entry) => {
+              const flag = getCountryFlag(entry.location);
+
+              return (
+                <article key={entry.institution} className="about-institution-card">
+                  <div className="about-institution-heading">
+                    {flag && (
+                      <span className="about-institution-flag" aria-hidden="true">{flag}</span>
+                    )}
+                    <div className="about-institution-heading-text">
+                      <h3 className="about-institution-name">{entry.institution}</h3>
+                      {entry.location && (
+                        <p className="about-institution-location">
+                          <GeoAlt aria-hidden="true" />
+                          <span>{entry.location}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="about-member-chips">
+                    {entry.members.map((member) => (
+                      <li
+                        key={member}
+                        className={`about-member-chip${
+                          isLeadMember(member, entry.institution) ? ' about-member-chip--lead' : ''
+                        }`}
+                      >
+                        {member}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              );
+            })}
+          </div>
         </section>
       </div>
     </div>
