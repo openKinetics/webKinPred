@@ -243,7 +243,7 @@ const About = () => {
 
         <section className="about-section about-metrics-section" aria-label="Platform usage metrics">
           <div className="about-section-heading">
-            <h2>Usage</h2>
+            <h2>Activity</h2>
           </div>
 
           <div className="about-metrics-grid">
