@@ -3,6 +3,7 @@ from api.methods.base import MethodDescriptor, SubprocessEngineConfig
 
 descriptor = MethodDescriptor(
     key="CatRange",
+    model_version="2",
     display_name="CatRange",
     authors=(
         "Karuna Anna Sajeevan, Abraham Osinuga, Arunraj B, Sakib Ferdous, "
