@@ -101,6 +101,10 @@ models/DLKcat/BayesianApproach/
 # KinForm trained models (mounted as volume)
 models/KinForm/results/
 
+# CatRange weights + standardization stats (mounted as volume; the .pkl
+# binaries are not tracked in git and only exist on the host/volume)
+models/CatRange/inference/models/
+
 # ── Test / dev scripts (not needed in image) ─────
 test_*.py
 test_*.csv

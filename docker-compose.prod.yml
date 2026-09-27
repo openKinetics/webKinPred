@@ -110,6 +110,7 @@ services:
       - ./models/CatPred:/app/models/CatPred:ro
       - ./models/RealKcat/model_weights:/app/models/RealKcat/model_weights:ro
       - ./models/IECata:/app/models/IECata:ro
+      - ./models/CatRange/inference/models:/app/models/CatRange/inference/models:ro
     environment:
       <<: *common-env
       WEBKINPRED_SERVICE: celery
@@ -156,6 +157,7 @@ services:
       - ./models/CatPred:/app/models/CatPred:ro
       - ./models/RealKcat/model_weights:/app/models/RealKcat/model_weights:ro
       - ./models/IECata:/app/models/IECata:ro
+      - ./models/CatRange/inference/models:/app/models/CatRange/inference/models:ro
     environment:
       <<: *common-env
       WEBKINPRED_SERVICE: celery-cache
