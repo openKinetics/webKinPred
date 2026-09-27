@@ -866,12 +866,7 @@ def _execute_multi_prediction(
             result["sources"][reaction_index] = reason
             result["extra"][reaction_index] = ""
 
-    results_df = build_prediction_result_frame(
-        df,
-        targets,
-        target_results,
-        {target: desc_by_target[target].key for target in targets},
-    )
+    results_df = build_prediction_result_frame(df, targets, target_results)
     out_path = _output_path(job.public_id)
     write_started = time.monotonic()
     results_df.to_csv(out_path, index=False)
