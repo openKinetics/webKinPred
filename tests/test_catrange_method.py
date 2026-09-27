@@ -28,6 +28,7 @@ def _load_catrange_predict_module():
             return models_dir / f"{parameter}_model_v1b.pkl"
 
     fake_inference_module.CatRangeInference = CatRangeInference
+    fake_inference_module.CatRangeInputError = type("CatRangeInputError", (ValueError,), {})
     fake_package = types.ModuleType("inference")
     fake_package.catrange_inference = fake_inference_module
     sys.modules["inference"] = fake_package

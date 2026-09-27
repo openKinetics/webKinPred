@@ -32,7 +32,7 @@ if str(CATRANGE_ROOT) not in sys.path:
     sys.path.insert(0, str(CATRANGE_ROOT))
 
 try:
-    from inference.catrange_inference import CatRangeInference
+    from inference.catrange_inference import CatRangeInference, CatRangeInputError
 except Exception as exc:  # pragma: no cover - runtime setup
     raise SystemExit(f"CatRange import failed: {exc}") from exc
 
@@ -178,33 +178,53 @@ def predict_rows(rows: list[dict[str, Any]], target: str) -> tuple[list[Any], li
 
     parameter = "kcat" if target == "kcat" else "km"
     inference = _load_inference()
-
-    sequences: list[str] = []
-    substrates: list[str] = []
-    for row in rows:
-        sequence = str(row.get("sequence", "")).strip()
-        substrate = str(row.get("substrates") or row.get("Substrate") or "").strip()
-        if not sequence or not substrate:
-            raise ValueError("Each row requires a non-empty sequence and substrate")
-        sequences.append(sequence)
-        substrates.append(substrate)
-
-    # Protein: ESM-C from shared cache (GPU) or local esmc-env fallback.
-    seq_embeddings = _load_protein_embeddings(rows, sequences)
+    # Configuration/model failures must abort the batch, even when every input
+    # row is unsupported. Only explicit input errors are isolated below.
+    inference._load_model(parameter)
+    inference._load_chemberta()
 
     # Substrate: ChemBERTa, computed here in catrange_env. Emit per-row progress
     # (parsed by subprocess_runner) so the job shows a live prediction bar.
-    total = len(substrates)
+    total = len(rows)
     print(f"Progress: 0/{total}", flush=True)
+    predictions: list[Any] = [None] * total
+    extra_info: list[str] = [""] * total
+    invalid_indices: list[int] = []
+    valid_indices: list[int] = []
+    sequences: list[str] = []
     smiles_vectors: list[np.ndarray] = []
-    for idx, smiles in enumerate(substrates):
-        smiles_vectors.append(inference.embed_smiles(smiles))
+    for idx, row in enumerate(rows):
+        sequence = str(row.get("sequence") or "").strip()
+        substrate = str(row.get("substrates") or row.get("Substrate") or "").strip()
+        try:
+            if not sequence or not substrate:
+                raise CatRangeInputError("Each row requires a non-empty sequence and substrate")
+            vector = inference.embed_smiles(substrate)
+        except CatRangeInputError as exc:
+            invalid_indices.append(idx)
+            extra_info[idx] = str(exc)
+        else:
+            valid_indices.append(idx)
+            sequences.append(sequence)
+            smiles_vectors.append(vector)
         print(f"Progress: {idx + 1}/{total}", flush=True)
+
+    if not valid_indices:
+        return predictions, invalid_indices, extra_info
+
+    # Keep protein/substrate pairs aligned after removing unsupported rows.
+    valid_rows = [rows[idx] for idx in valid_indices]
+    seq_embeddings = _load_protein_embeddings(valid_rows, sequences)
     smiles_embeddings = np.stack(smiles_vectors)
 
     out = inference.predict_from_embeddings(seq_embeddings, smiles_embeddings, parameter=parameter)
     payload = _build_prediction_payload(out, target)
-    return payload["predictions"], [], payload["extra_info"]
+    if len(payload["predictions"]) != len(valid_indices):
+        raise RuntimeError("CatRange returned an unexpected number of predictions")
+    for local_idx, row_idx in enumerate(valid_indices):
+        predictions[row_idx] = payload["predictions"][local_idx]
+        extra_info[row_idx] = payload["extra_info"][local_idx]
+    return predictions, invalid_indices, extra_info
 
 
 def main() -> None:
@@ -221,17 +241,16 @@ def main() -> None:
 
     try:
         predictions, invalid_indices, extra_info = predict_rows(rows, target)
-    except Exception as exc:  # pragma: no cover - runtime fallback
-        predictions = [None] * len(rows)
-        invalid_indices = list(range(len(rows)))
-        extra_info = [""] * len(rows)
+    except Exception as exc:  # pragma: no cover - runtime failure
         print(f"CatRange failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
     with open(args.output, "w", encoding="utf-8") as fh:
         json.dump(
             {
                 "predictions": predictions,
                 "invalid_indices": invalid_indices,
+                "invalid_reasons": {idx: extra_info[idx] for idx in invalid_indices},
                 "extra_info": extra_info,
             },
             fh,

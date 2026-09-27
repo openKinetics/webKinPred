@@ -40,6 +40,10 @@ from api.services.about_stats_service import (
     mark_about_stats_cache_stale,
     refresh_about_stats_cache,
 )
+from api.services.catrange_reporting import (
+    build_prediction_result_frame,
+    completed_reaction_count,
+)
 from api.services.gpu_precompute_status_service import clear_gpu_precompute_status
 from api.services.job_progress_service import (
     initialise_job_progress_stages,
@@ -862,22 +866,7 @@ def _execute_multi_prediction(
             result["sources"][reaction_index] = reason
             result["extra"][reaction_index] = ""
 
-    results_df = df.copy()
-    preferred_cols: list[str] = []
-    for target in targets:
-        result = target_results[target]
-        pred_col = result["output_col"]
-        source_col = f"Source {target}"
-        extra_col = f"Extra Info {target}"
-        results_df[pred_col] = result["preds"]
-        results_df[source_col] = result["sources"]
-        results_df[extra_col] = result["extra"]
-        preferred_cols.extend([pred_col, source_col, extra_col])
-
-    results_df = results_df[
-        preferred_cols
-        + [column for column in results_df.columns if column not in preferred_cols]
-    ]
+    results_df = build_prediction_result_frame(df, targets, target_results)
     out_path = _output_path(job.public_id)
     write_started = time.monotonic()
     results_df.to_csv(out_path, index=False)
@@ -927,15 +916,9 @@ def _execute_multi_prediction(
             miss_count=cache_stats["misses"],
         )
 
-    fully_predicted = pd.Series(True, index=results_df.index)
-    for target in targets:
-        pred_col = target_results[target]["output_col"]
-        fully_predicted = (
-            fully_predicted
-            & (results_df[pred_col] != "")
-            & results_df[pred_col].notna()
-        )
-    processed_reactions = int(fully_predicted.sum())
+    # Measured CatRange rows have no predicted range. Count the underlying
+    # completed values so presentation choices cannot change quota accounting.
+    processed_reactions = completed_reaction_count(targets, target_results)
     to_refund = max(0, int(job.requested_rows) - processed_reactions)
     Job.objects.filter(pk=job.pk).update(
         output_file=os.path.relpath(out_path, settings.MEDIA_ROOT),

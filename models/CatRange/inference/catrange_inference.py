@@ -33,6 +33,10 @@ BIN_EDGES = {
 }
 
 
+class CatRangeInputError(ValueError):
+    """An unsupported input row that does not invalidate neighboring rows."""
+
+
 def _require_runtime() -> None:
     if torch is None:
         raise RuntimeError("CatRange requires torch to be installed in the runtime environment")
@@ -67,20 +71,23 @@ def _candidate_model_names(parameter: str) -> list[str]:
     return [
         f"{parameter}_model_v1b.pkl",
         f"{parameter}_esmc_FINAL.pkl",
-        f"{parameter}_model.pkl",
-        f"{parameter}.pkl",
     ]
 
 
 def _candidate_model_paths(models_dir: Path, parameter: str) -> list[Path]:
-    candidates: list[Path] = []
-    for name in _candidate_model_names(parameter):
-        candidates.append(models_dir / name)
-    nested_dir = models_dir / "model_weights"
-    if nested_dir.exists():
-        for name in _candidate_model_names(parameter):
-            candidates.append(nested_dir / name)
-    return candidates
+    # OKP's existing CatRange setting points at models/CatRange. Also accept
+    # an explicit artifact directory, as used by standalone inference.
+    directories = (
+        models_dir,
+        models_dir / "model_weights",
+        models_dir / "inference" / "models",
+        models_dir / "inference" / "models" / "model_weights",
+    )
+    # Prefer the released ESM-C weights across all supported layouts. The
+    # archive's unversioned *_model.pkl files use ESM-2 (2048 features), which
+    # is incompatible with this pipeline's ESM-C + ChemBERTa features (1920).
+    return [directory / name for name in _candidate_model_names(parameter)
+            for directory in directories]
 
 
 def _resolve_model_path(models_dir: Path, parameter: str) -> Path:
@@ -93,6 +100,50 @@ def _resolve_model_path(models_dir: Path, parameter: str) -> Path:
         f"Missing CatRange model artifact for {parameter!r} in {models_dir}. "
         f"Expected one of: {expected}"
     )
+
+
+def _resolve_stats_path(models_dir: Path, model_path: Path, parameter: str) -> Path:
+    # Release archives may place weights in model_weights/, while the tracked
+    # training statistics live directly in inference/models/.
+    name = f"{parameter}_esmc_FINAL_stats.pt"
+    candidates = [
+        model_path.parent / name,
+        models_dir / name,
+        models_dir / "inference" / "models" / name,
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"Missing required CatRange standardization statistics for {parameter!r}. "
+        f"Searched: {', '.join(str(path) for path in candidates)}. "
+        "Use the statistics released with the selected model weights."
+    )
+
+
+def _validate_stats(stats: object, stats_path: Path) -> dict[str, float]:
+    if not isinstance(stats, dict):
+        raise ValueError(f"Invalid CatRange standardization statistics in {stats_path}: expected a dict")
+    validated: dict[str, float] = {}
+    for key in ("mean_1", "std_1", "mean_2", "std_2"):
+        if key not in stats:
+            raise ValueError(f"Invalid CatRange standardization statistics in {stats_path}: missing {key}")
+        try:
+            value = np.asarray(stats[key])
+            if value.ndim != 0 or value.dtype.kind not in "iuf":
+                raise ValueError("expected a numeric scalar")
+            number = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                f"Invalid CatRange standardization statistic {key} in {stats_path}: expected a numeric scalar"
+            ) from exc
+        if not np.isfinite(number) or (key.startswith("std_") and number <= 0):
+            raise ValueError(
+                f"Invalid CatRange standardization statistic {key} in {stats_path}: "
+                "means must be finite and standard deviations must be finite and positive"
+            )
+        validated[key] = number
+    return validated
 
 
 class CatRangeInference:
@@ -145,12 +196,13 @@ class CatRangeInference:
         if parameter in self._models:
             return
         model_path = _resolve_model_path(self.models_dir, parameter)
-        stats_path = self.models_dir / f"{parameter}_esmc_FINAL_stats.pt"
-        self._models[parameter] = joblib.load(model_path)
-        if stats_path.exists():
-            self._stats[parameter] = torch.load(stats_path, map_location="cpu", weights_only=False)
-        else:
-            self._stats[parameter] = {}
+        stats_path = _resolve_stats_path(self.models_dir, model_path, parameter)
+        stats = _validate_stats(
+            torch.load(stats_path, map_location="cpu", weights_only=False), stats_path
+        )
+        model = joblib.load(model_path)
+        self._stats[parameter] = stats
+        self._models[parameter] = model
 
     @torch.no_grad()
     def embed_sequence(self, sequence: str) -> np.ndarray:
@@ -167,10 +219,44 @@ class CatRangeInference:
     @torch.no_grad()
     def embed_smiles(self, smiles: str) -> np.ndarray:
         self._load_chemberta()
-        inputs = self._chem_tokenizer([str(smiles).strip()], return_tensors="pt", padding=True, truncation=False)
+        text = str(smiles).strip()
+        if not text:
+            raise CatRangeInputError("CatRange requires a non-empty substrate SMILES")
+        try:
+            inputs = self._chem_tokenizer(
+                [text], return_tensors="pt", padding=True, truncation=False
+            )
+        except (ValueError, IndexError) as exc:
+            raise CatRangeInputError(f"CatRange could not tokenize the substrate: {exc}") from exc
+        token_count = int(inputs["input_ids"].shape[-1])
+        token_limit = self._smiles_token_limit()
+        if token_count > token_limit:
+            raise CatRangeInputError(
+                f"Substrate is too long for CatRange's ChemBERTa encoder "
+                f"({token_count} tokens including special tokens; maximum {token_limit})"
+            )
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
         out = self._chem_model(**inputs)
-        return out.last_hidden_state[0].float().mean(dim=0).cpu().numpy().astype(np.float32)
+        vector = out.last_hidden_state[0].float().mean(dim=0).cpu().numpy().astype(np.float32)
+        if not np.isfinite(vector).all():
+            raise CatRangeInputError("CatRange produced a non-finite substrate embedding")
+        return vector
+
+    def _smiles_token_limit(self) -> int:
+        config = self._chem_model.config
+        limit = int(config.max_position_embeddings)
+        if config.model_type == "roberta":
+            # RoBERTa assigns non-padding positions starting at padding_idx+1.
+            # A 512-entry position table with padding_idx=1 supports 510 tokens,
+            # including the leading/trailing special tokens.
+            padding_idx = int(self._chem_model.embeddings.padding_idx)
+            limit -= padding_idx + 1
+        tokenizer_limit = self._chem_tokenizer.model_max_length
+        if tokenizer_limit is not None:
+            limit = min(limit, int(tokenizer_limit))
+        if limit <= 0:
+            raise RuntimeError("CatRange ChemBERTa has an invalid token-limit configuration")
+        return limit
 
     def embed_pairs(self, pairs: Iterable[tuple[str, str]]) -> tuple[np.ndarray, np.ndarray]:
         seq_embeddings = []
@@ -181,11 +267,11 @@ class CatRangeInference:
         return np.stack(seq_embeddings), np.stack(smiles_embeddings)
 
     def _standardize(self, parameter: str, seq_embeddings: np.ndarray, smiles_embeddings: np.ndarray) -> np.ndarray:
-        stats = self._stats.get(parameter, {})
-        mean_1 = float(stats.get("mean_1", 0.0))
-        std_1 = max(float(stats.get("std_1", 1.0)), 1e-8)
-        mean_2 = float(stats.get("mean_2", 0.0))
-        std_2 = max(float(stats.get("std_2", 1.0)), 1e-8)
+        stats = self._stats[parameter]
+        mean_1 = stats["mean_1"]
+        std_1 = stats["std_1"]
+        mean_2 = stats["mean_2"]
+        std_2 = stats["std_2"]
         seq = (seq_embeddings - mean_1) / std_1
         sub = (smiles_embeddings - mean_2) / std_2
         return np.concatenate([seq, sub], axis=1).astype(np.float32)
