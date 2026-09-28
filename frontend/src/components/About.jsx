@@ -126,11 +126,13 @@ const PARAMETER_BREAKDOWN = [
 const numberFormatter = new Intl.NumberFormat('en-US');
 const ABOUT_STATS_STORAGE_KEY = 'about_stats_payload_v1';
 const CITATION_BIB_PATH = '/citations/openkineticspredictor.bib';
-const citationText = String.raw`@unpublished{alwer2026accessing,
+const citationText = String.raw`@article{alwer2026accessing,
   author = {Alwer, Saleh and Escoffier, Hugues and Taha, Karim and Boorla, Veda and Yu, Han and Santra, Somtirtha and Wang, Zechen and Egwu, Chidi and Osinuga, Abraham and Dey, Supantha and Srinivasan Raghunath, Vaishnavey and Zare, Farid and McGoldrick, Jack and Weder, Jan-Niklas and Kerkhoven, Eduard and Luo, Xiaozhou and Maranas, Costas D. and Zheng, Liangzhen and Wittig, Ulrike and Chowdhury, Ratul and Saha, Rajib and T{\"o}pfer, Nadine and Sauter, Thomas and Fleming, Ronan M. T.},
   title = {{Accessing Enzyme Kinetic Data and Prediction Methods at Scale}},
-  note = {Unpublished manuscript},
-  year = {2026}
+  journal = {bioRxiv},
+  year = {2026},
+  doi = {10.64898/2026.09.25.751968},
+  url = {https://www.biorxiv.org/content/10.64898/2026.09.25.751968v1}
 }`;
 
 const About = () => {
