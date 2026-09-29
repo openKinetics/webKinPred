@@ -6,6 +6,8 @@ Utility for turning an experimental-lookup dict into the
 
 from typing import Any
 
+from api.services.catrange_reporting import catrange_range_label
+
 
 # ------------------------------------------------------------------
 # internal helpers
@@ -91,6 +93,9 @@ def build_extra_info(exp: dict, param_type: str, prediction: str = "", model_key
 
     # prediction value
     if prediction:
+        if model_key == "CatRange":
+            target = "Km" if param_type.lower() == "km" else "kcat"
+            prediction = catrange_range_label(target, prediction)
         parts.append(f"Prediction by {model_key} is {prediction}")
 
     return ". ".join(parts)

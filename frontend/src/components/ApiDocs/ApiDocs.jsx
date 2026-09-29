@@ -762,6 +762,15 @@ export default function ApiDocs() {
                 writing an intermediate file. Returns <strong>409 Conflict</strong> if
                 the job has not yet completed.
               </p>
+              <p className="endpoint-description">
+                CatRange returns predicted class ranges, e.g. <code>1 to 10 s^-1</code>,
+                in the existing prediction columns and Extra Info. These are range strings
+                in both CSV and JSON; clients should not parse them as numbers. Per-substrate
+                Km arrays contain range strings and retain <code>null</code> for failures.
+                Experimental values remain numeric and are identified by Source.
+                Predicted classes are not confidence intervals or guaranteed error bounds.
+                Previously completed jobs retain their saved output format.
+              </p>
               <p className="example-section-label">Request</p>
               <TabbedCode tabs={RESULT_REQ} />
               <p className="example-section-label">Response — <code>?format=json</code></p>
