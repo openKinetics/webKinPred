@@ -10,21 +10,25 @@ const teamInstitutions = [
     institution: 'Digital Metabolic Twin Center, University of Galway',
     location: 'Galway, Ireland',
     members: ['Saleh Alwer', 'Chidi Egwu', 'Farid Zare', 'Jack McGoldrick', 'Ronan Fleming'],
+    leads: ['Ronan Fleming'],
   },
   {
     institution: 'Faculty of Science, Technology and Medicine, University of Luxembourg',
     location: 'Belvaux, Luxembourg',
     members: ['Thomas Sauter', 'Hugues Escoffier'],
+    leads: ['Thomas Sauter'],
   },
   {
     institution: 'Ratul Chowdhury Lab, Nanovaccine Institute, Department of Chemical & Biological Engineering, Iowa State University, Ames National Laboratory, Critical Mineral Innovation Hub',
     location: 'Ames, IA, USA',
     members: ['Supantha Dey', 'Vaishnavey SR', 'Ratul Chowdhury'],
+    leads: ['Ratul Chowdhury'],
   },
   {
     institution: 'Systems and Synthetic Biology Laboratory, College of Engineering, University of Nebraska–Lincoln',
     location: 'Lincoln, NE, USA',
     members: ['Abraham Osinuga', 'Rajib Saha'],
+    leads: ['Rajib Saha'],
   },
   {
     institution: 'Systems Biology, Department of Life Sciences, Chalmers University of Technology',
@@ -35,16 +39,19 @@ const teamInstitutions = [
     institution: 'Luo Laboratory, Center for Synthetic Biochemistry, Shenzhen Institute of Advanced Technology, Chinese Academy of Sciences',
     location: 'Shenzhen, China',
     members: ['Han Yu', 'Xiaozhou Luo'],
+    leads: ['Xiaozhou Luo'],
   },
   {
     institution: 'Maranas Group, Department of Chemical Engineering, The Pennsylvania State University',
     location: 'University Park, PA, USA',
     members: ['Costas D. Maranas', 'Veda Boorla', 'Somtirtha Santra'],
+    leads: ['Costas D. Maranas'],
   },
   {
     institution: 'Shanghai Zelixir Biotech Co. Ltd',
     location: 'Shanghai, China',
     members: ['Liangzhen Zheng'],
+    leads: ['Liangzhen Zheng'],
   },
   {
     institution: 'College of Computing and Data Science, Nanyang Technological University',
@@ -55,6 +62,7 @@ const teamInstitutions = [
     institution: 'Töpfer Lab, Institute for Plant Sciences, University of Cologne',
     location: 'Cologne, Germany',
     members: ['Nadine Töpfer', 'Jan-Niklas Weder', 'Karim Taha'],
+    leads: ['Nadine Töpfer'],
   },
 ];
 
@@ -72,16 +80,6 @@ const getCountryFlag = (location) => {
   if (!location) return '';
   const country = location.split(',').pop().trim();
   return COUNTRY_FLAGS[country] ?? '';
-};
-
-// A member is the lab lead when the institution is named after them
-// (e.g. "Luo Laboratory" → Xiaozhou Luo). Non-eponymous institutions
-// simply get no emphasis.
-const getLastName = (name) => name.trim().split(/\s+/).pop();
-
-const isLeadMember = (member, institution) => {
-  const lastName = getLastName(member);
-  return lastName.length > 2 && institution.includes(lastName);
 };
 
 const METRIC_CARDS = [
@@ -351,7 +349,7 @@ const About = () => {
                       <li
                         key={member}
                         className={`about-member-chip${
-                          isLeadMember(member, entry.institution) ? ' about-member-chip--lead' : ''
+                          entry.leads?.includes(member) ? ' about-member-chip--lead' : ''
                         }`}
                       >
                         {member}
