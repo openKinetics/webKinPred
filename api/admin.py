@@ -1,8 +1,18 @@
-# api/admin.py
+from db_models.seqmap_models import Sequence
 from django import forms
 from django.contrib import admin
-from django.utils.html import format_html
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.html import format_html
+
+from api.utils.quotas import (
+    _key,
+    get_all_user_quota_subjects,
+    get_quota_usage,
+    get_user_quota_daily_limit,
+    get_user_quota_subject,
+)
+
 from .models import (
     ApiKey,
     ApiUser,
@@ -12,14 +22,24 @@ from .models import (
     ReconXkgAllowedKey,
     SimilarityStore,
 )
-from api.utils.quotas import (
-    _key,
-    get_all_user_quota_subjects,
-    get_quota_usage,
-    get_user_quota_daily_limit,
-    get_user_quota_subject,
-)
-from db_models.seqmap_models import Sequence
+
+
+def _format_duration(total_seconds):
+    """Format a duration as a compact, readable value for the admin list."""
+    total_seconds = max(0, int(total_seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    return " ".join(parts)
 
 
 @admin.register(ApiUser)
@@ -155,8 +175,11 @@ class JobAdmin(admin.ModelAdmin):
         "prediction_type",
         "kcat_method",
         "km_method",
+        "kcat_km_method_display",
         "canonicalize_substrates",
         "status",
+        "elapsed_time",
+        "time_in_queue",
         "submission_time",
         "requested_rows",
         "download_links",
@@ -166,6 +189,7 @@ class JobAdmin(admin.ModelAdmin):
         "prediction_type",
         "kcat_method",
         "km_method",
+        "kcat_km_method",
         "canonicalize_substrates",
         "submission_time",
     ]
@@ -178,6 +202,26 @@ class JobAdmin(admin.ModelAdmin):
             user_url = reverse("admin:api_apiuser_change", args=[obj.user.pk])
             return format_html('<a href="{}">{}</a>', user_url, obj.user.ip_address)
         return obj.ip_address
+
+    @admin.display(description="kcat/Km method", ordering="kcat_km_method")
+    def kcat_km_method_display(self, obj):
+        return obj.kcat_km_method
+
+    @admin.display(description="Time elapsed")
+    def elapsed_time(self, obj):
+        if obj.status not in {"Processing", "Completed"} or not obj.start_time:
+            return "—"
+
+        end_time = obj.completion_time if obj.status == "Completed" else timezone.now()
+        if end_time is None:
+            return "—"
+        return _format_duration((end_time - obj.start_time).total_seconds())
+
+    @admin.display(description="Time in queue")
+    def time_in_queue(self, obj):
+        if obj.status != "Pending":
+            return "—"
+        return _format_duration((timezone.now() - obj.submission_time).total_seconds())
 
     @admin.display(description="Downloads")
     def download_links(self, obj):
