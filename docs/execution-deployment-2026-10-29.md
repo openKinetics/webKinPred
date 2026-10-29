@@ -146,8 +146,10 @@ PostgreSQL databases and streams `media/jobs` to the existing S3 destination wit
 512 MiB memory and half a CPU of allowance. Every object is downloaded and
 checksum-verified before publishing the completion manifest. No full local media
 archive is created and existing backups are not automatically deleted. The
-initial live run and its completion evidence are recorded separately in the
-private cutover directory.
+initial live run completed successfully: all five objects passed full download
+and checksum verification in 8 minutes 39 seconds, with approximately 384.5 MiB
+peak memory and no swap. Its completion evidence is retained in the private
+cutover directory.
 
 Prometheus scrapes the authenticated metrics endpoint; nine alert rules and an
 18-panel Grafana dashboard are active. Monitoring binds to production loopback
