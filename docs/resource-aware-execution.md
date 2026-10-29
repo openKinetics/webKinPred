@@ -343,3 +343,28 @@ one healthy hour after the latest executor recovery or explicit
 `canary_healthy_since` timestamp. An outage cannot satisfy the observation hour.
 Elapsed time beyond an unrenewed attempt lease is resource waiting rather than
 active execution.
+
+### Scheduled backups after the database migration
+
+The legacy SQLite backup cron must be replaced during cutover. The execution
+backup service runs `tools/executor/backup.py` with a private JSON configuration
+at `/etc/webkinpred/backup.json`. It requires the dedicated database container,
+role, three active database names, media root, scratch directory, minimum free
+bytes, existing S3 prefix, AWS user and AWS binary path. The AWS user's existing
+credential chain is used; credentials do not enter source control.
+
+Install the provided `webkinpred-backup.service` and timer after preserving the
+legacy script and cron. The service caps CPU at half a core and memory at 512 MiB.
+Database dumps use bounded scratch space; authoritative `media/jobs` streams to
+S3 without creating a full local archive. Shared embedding caches remain
+regenerable. Archives larger than the validated 128 GiB streaming envelope hold
+the backup for operator review. Every object is downloaded and checksum-verified;
+the completion manifest is written last. Restore only prefixes with a verified
+`manifest.json` and `complete: true`. No existing backup is automatically deleted.
+
+Restore the three custom-format dumps into dedicated PostgreSQL databases,
+restore `jobs.tar.gz` under the media root, restore the private deployment/model
+configuration from the retained cutover evidence, then reconcile stopped attempts
+before enabling admissions. Do not restore an old snapshot over jobs accepted
+since that snapshot. The cutover evidence also retains the independent PostgreSQL
+restoration rehearsal.

@@ -1,0 +1,20 @@
+[Unit]
+Description=Verified WebKinPred PostgreSQL and job-media backup
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=8h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/webkinpred-execution/backup.py /etc/webkinpred/backup.json
+UMask=0077
+CPUQuota=50%
+MemoryHigh=384M
+MemoryMax=512M
+Nice=19
+IOWeight=10
+PrivateTmp=true
+TimeoutStartSec=4h
+Restart=on-failure
+RestartSec=30min
