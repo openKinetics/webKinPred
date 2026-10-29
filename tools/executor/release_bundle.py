@@ -42,6 +42,7 @@ def create(root, destination):
     files.extend(
         root / name
         for name in (
+            ".dockerignore",
             "manage.py",
             "deploy.sh",
             "requirements.app.txt",
