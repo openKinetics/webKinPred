@@ -1,162 +1,167 @@
-# Resource-aware execution deployment record
+# Resource-aware execution deployment — 29 October 2026
 
-This record describes the deployment in progress on 29 October 2026. Public
-submissions remain paused until the canary passes. Status and completed-result
-downloads remain available. This is not a completed rollout acceptance report. Deployments use versioned
-source bundles with file checksums and pinned image digests. The implementation
-is now committed in Git; original dirty remote checkouts and model files are
-preserved rather than overwritten with `git pull`.
+The production interface is open and all unfinished imported requests are
+unpaused under the new scheduler. This rollout reused the existing model
+execution environments; `Dockerfile.envs` was not rebuilt. Application and
+supervisor fixes use small source layers on retained runtime images.
 
-## Deployed architecture
+Production and GPU deployments use committed source bundles with file checksums,
+source labels and immutable image IDs. The deployed application/supervisor source
+is commit `74965f0`; scheduled backup operations were added in `c941484`.
+Original dirty remote checkouts, deployment-specific model files and rollback
+images remain preserved. Deployment does not require overwriting those checkouts
+with a pull. Exact private configurations, image IDs and manifests are under
+`webkinpred-execution-staging` on each host.
 
-Production runs the dedicated PostgreSQL 17 instance, Django backend, durable
-controller, short Celery control worker, executor agent, artifact gateway,
-Prometheus and Grafana. The GPU host has an executor agent, artifact gateway,
-and durable compatibility proxy for the embedding service. Both hosts can run
-CPU prediction containers; embeddings require the assigned GPU. Existing model
-environments were reused. Application fixes use thin layers on preserved images.
+## Running services and admission limits
 
-The legacy prediction/cache workers and beat remain stopped. The old GPU
-executor's systemd service is disabled. Unrelated applications remain running.
-The original Redis broker database 0 is frozen migration evidence. Database 3
-carries the versioned control queue. PostgreSQL owns prediction scheduling, so
-Redis message counts are not expected to equal the number of unfinished jobs.
+Production runs dedicated PostgreSQL 17, Django, the durable controller, a short
+Celery control worker, an executor, an artifact gateway, Prometheus and Grafana.
+The GPU host runs its executor, artifact gateway and durable embedding-service
+compatibility proxy. Both hosts execute CPU prediction stages. Protein and neural
+molecular embeddings require the assigned GPU; shortages wait instead of falling
+back to local CPU embedding computation. Completed artifacts transfer by checksum
+to production for final result publication.
 
-## Preservation and cutover evidence
+| Budget | Production | GPU host |
+|---|---:|---:|
+| Allocated logical CPUs | 3 | 16 |
+| Attempt RAM reservations | 10 GiB | 96 GiB |
+| CPU attempt ceiling | 3 | 8 |
+| GPU allocation ceiling | — | 5 |
+| RAM headroom | 4 GiB | 16 GiB |
+| Disk headroom | 15 GiB | 50 GiB |
 
-* 10,324 original jobs were migrated with their public identifiers and related
-  data. All original fields were compared; unfinished progress counters were
-  deliberately reset for restart.
-* 4,999 unfinished requests have one immutable specification each. Import was
-  repeated successfully to establish idempotency. Quotas were not charged again.
-* The 5,002 frozen broker messages were reconciled to jobs, including duplicate
-  and terminal-message dispositions. The active/reserved requests were captured
-  before stopping the old workers. No purge/resubmission command was used.
-* 488,585 sequence identifiers, 244,549 prediction-cache rows and 7,843 similarity
-  records were preserved. Input checksums and request coverage were rechecked for
-  all 4,999 imported requests.
-* The previously processing job (identified in the private canary manifest) retains its identifier and was included
-  in the restart canary.
-* Final SQLite/Redis backups were verified off production, including actual
-  SQLite restoration and cold Redis restoration. Fresh custom-format PostgreSQL
-  backups were also checksum-verified and independently restored on the development host.
+These are upper bounds. Current availability, other workloads, unspent
+reservations, input-transfer space, pressure signals, profile limits and the
+validated GPU-combination allowlist can reduce admissions. GPU headroom is at
+least 2 GiB or 10% of the device, whichever is larger. There are 24 advertised
+production profiles, 62 GPU-host profiles and 73 validated GPU combinations.
 
-Private evidence is under `webkinpred-execution-staging/cutover19` on production,
-with the original off-host copy under `production-backup/cutover19` on the GPU
-host. Credentials, database dumps, user inputs and request exports must remain
-outside source control.
+Actual residency was observed for two CPU attempts on production, four CPU
+attempts on the GPU host, and two simultaneous GPU embeddings. Parallel proof
+checks require observed resource use and subsequently committed successful
+attempts. No OOM, CPU-resource failure or reservation-envelope breach occurred in
+the recorded parallel ramp. Other applications and unrelated GPU workloads remain
+running.
 
-## Canary and availability
+The legacy prediction/cache workers and beat are disabled. Redis database 0
+retains the original broker evidence; database 3 carries the versioned short
+control queue. PostgreSQL owns scheduling and recovery. Broker-message counts
+and unfinished-job counts describe different records and need not be equal.
 
-The 100-job canary began at `2026-10-29T10:07:54.206058+00:00`. It covers every
-queued method, long inputs, multiple targets and the interrupted job. Initial
-limits are one CPU attempt per host and one GPU allocation; 4,899 other jobs
-remain paused. The gate requires 100 completed jobs and at least one hour of
-observation before increasing admissions or reopening submissions.
+## Preservation and verification
 
-The GPU host became unreachable at approximately 10:20 UTC. Both local and
-production checks report its Tailscale peer offline; SSH, embedding and artifact
-ports are unreachable. Connectivity returned at approximately 13:12 UTC. Outstanding reservations were
-retained until the executor reconciled. A pre-launch transfer lease that remained
-stuck after reconnecting exposed a recovery defect; the supervisor now drains
-such transfers and confirms absence before releasing their reservations. Completed artifacts are not invalidated, and GPU-dependent
-work does not fall back to CPU embedding computation. At the subsequent check,
-57 GPU-host attempts had completed and no imported job had status `Failed`.
+The private `cutover19/final-audit39.json` records the final audit at
+`2026-10-29T16:36:49Z`:
 
-Production admissions were drained temporarily for additional isolated CPU
-profiling and have resumed for the canary. Disk headroom increased from approximately 15 GiB to 24 GiB by
-hard-linking identical files within inactive rehearsal/profiling copies.
-All paths and file contents were preserved during deduplication; authoritative
-media and model trees were excluded. Subsequently, 28,945 files from inactive
-rehearsal/profiling copies were archived on the GPU host and verified against
-the complete manifest before those production copies were removed. The manifests
-and reclamation record are retained.
+* All 10,324 original job IDs, owners, submission times and immutable job metadata
+  match the frozen source. Original completed-job identities remain unchanged.
+* All 4,999 unfinished source requests have exactly one immutable execution
+  specification. Original targets, methods, experimental overrides and options
+  match their reconciled requests. All source input checksums were rechecked.
+* All 5,002 source broker messages retain their exact envelope checksums and
+  positions. Duplicates and terminal messages have explicit reconciliation
+  dispositions. No queue purge or delete/recreate resubmission was used.
+* All 4,999 legacy quota reservations have zero new charge. Ledger balances match
+  their entries; refunds use the original reservation day.
+* At the audit, 186 imported jobs were completed, 14 processing and 4,799 pending.
+  No imported job was failed, no stage held and no attempt uncertain. These counts
+  continue to change as the backlog runs.
+* The interrupted source job retained its public ID and completed its restarted
+  prediction chunk. Genuine boundary chunks and all 22 queued method/target
+  combinations completed prediction stages during validation.
+* A fresh CataPro HTTP submission completed in approximately 36.94 seconds. Both
+  protein and molecular encoders ran on the GPU, the prediction ran on the GPU
+  host, and production published the result. The downloaded CSV matched the
+  authoritative file; API and interface status contracts passed. Quota was
+  charged once. The synthetic probe credential was revoked after verification.
+* The full isolated suite passes 394 tests and three subtests, including real
+  PostgreSQL/Docker execution, OOM recovery, atomic admission, ownership fencing,
+  idempotency, migration, quotas, artifact transfers and API contracts.
 
-The canary exposed an all-invalid-input OmniESI bug: the generic adapter returned
-an empty annotation list, which the orchestration indexed as though it contained
-one entry per row. The fix returns absent annotations; invalid rows retain their
-existing warnings and no model is loaded. Four regression cases cover both
-OmniESI variants and two chunk sizes. Patched prediction images are reprofiled
-before advertising their new fingerprints. All four replacement CatPred/CatRange
-profiles on production have now passed three fresh and five warm runs. The next
-batch covers the other prediction heads on production; the first OmniESI `Km`
-run matched the saved CPU baseline and took approximately 554 seconds for the
-128-row boundary fixture. That profiling batch stopped safely at the disk-headroom guard. Two additional
-OmniESI-family CPU profiles completed all required runs before the stop. All
-eight replacement GPU-host prediction profiles subsequently passed three fresh
-and five warm runs against their saved CPU results.
-A guarded activation script waits for calibration to stop, imports only complete
-validated profiles, restarts the drained production supervisor, and resumes only
-the existing CPU canary. It cannot reopen public submissions or lift GPU limits.
+GPU numerical comparisons were explicitly waived by the user. CPU prediction
+compatibility, representation identity, positional context, output shape/dtype/
+finiteness and resource measurements remain required. Replacement profiles use
+three fresh and five warm runs before activation.
 
-## Verification completed during this continuation
+## Measured serial and concurrent stage throughput
 
-* 372 tests and three subtests pass against isolated PostgreSQL, including real
-  Docker execution/OOM recovery, atomic admission, ownership fencing, migration,
-  quota, artifact and API contracts. Test output:
-  `/tmp/webkinpred-full-tests29.txt` on the development host.
-* Offline-artifact admission waits without starting a container, incrementing
-  failures or invalidating a verified location. Tests cover recovery through a
-  returning peer and through a verified local copy. A partial local transfer
-  does not make the stage eligible. A page of 513 stages waiting for offline
-  artifacts cannot hide younger work whose inputs are reachable.
-* The production control image containing that check is
-  `sha256:eb3f3ef5ab1ead8cb82ff45d60a1463398c2fc44e2142d8ff31bfcaed9d950fb`.
-  Backend and frontend health checks pass with submissions paused.
-* Bidirectional artifact transfer was verified before the outage using checksums.
-  Existing completed downloads were checked against their saved checksums.
-* Prometheus successfully scrapes the authenticated control endpoint. Nine alert
-  rules are loaded; host-unavailable and uncertain-ownership alerts detect the
-  real outage. Grafana's provisioned dashboard has 18 panels. Services bind only
-  to production loopback ports 9093 and 3002 respectively.
+The following medians compare the same stage probes over three repetitions,
+including process startup and publication. They do not predict whole-job speedups.
+External shared-GPU activity was recorded and retained in the raw measurements.
 
-GPU embedding numerical comparisons were waived explicitly by the user.
-Shape/dtype/finiteness, positional context, CPU prediction compatibility,
-resource envelopes and recovery remain required. A completed artifact transfer
-also requires a fresh successful ownership renewal before compute may launch;
-controller disconnection and stale ownership both prevent that launch. Initial profiling measurements
-are documented separately; whole-platform throughput must be measured after the
-canary and must not be inferred from free VRAM alone.
+| Stage | Concurrent allocations | Serial seconds | Concurrent seconds | Throughput ratio |
+|---|---:|---:|---:|---:|
+| UniKP ProtT5 | 3 | 62.98 | 31.29 | 2.01× |
+| EITLEM protein encoder | 4 | 82.09 | 29.79 | 2.76× |
+| OmniESI protein encoder | 3 | 53.08 | 27.80 | 1.91× |
+| TurNup protein encoder | 4 | 98.52 | 33.76 | 2.92× |
+| UniKP molecular encoder | 5 | 23.74 | 8.81 | 2.69× |
+| KinForm molecular encoder | 5 | 15.88 | 5.59 | 2.84× |
+| CataPro molecular encoder | 5 | 18.82 | 6.97 | 2.70× |
 
-## Remaining release gates
+The selected caps come from those measurements. More processes were slower in
+some configurations, so available VRAM alone does not determine concurrency.
+Raw reports and combination registries remain on the GPU staging host under
+`probes/concurrency12`, `concurrency16` and `concurrency18`.
 
-Activate the newly validated GPU profiles, retry the remaining diagnosed
-OmniESI stage, complete the 100-job canary and
-one-hour healthy observation after connectivity and profile recovery, then
-increase admissions only to measured configurations.
-Before reopening submissions, set the new-request pause policy appropriately
-and rerun `execution_readiness --phase reopen`. Retain rollback images and
-migration evidence for 30 days; do not prune images or restart legacy consumers.
+## Recovery and rollout observations
 
-A single parent requiring more than the current 4,096 expanded-unit planning
-envelope remains an explicit hold; the imported backlog's maximum expansion is
-two and was checked to fit. Unversioned legacy embedding files remain preserved
-but are regenerated when their representation identity cannot be verified.
+The operator accepted 27 initial completed jobs as sufficient to move to actual
+parallel execution. Reopening used the explicit `--parallel-ramp` acceptance
+policy with recorded authorization and successful observed parallel execution.
+It did not wait for 100 jobs at single-allocation limits. The default 100-job/hour
+policy remains available for deployments without that authorization.
 
-## Authorized parallel ramp
+A GPU-host outage from approximately 10:20 to 13:12 UTC exercised fencing and
+reconciliation. Completed artifacts survived. A stuck pre-launch transfer lease
+was corrected so abandoned transfers are drained and confirmed absent before
+reservations are released. Compute requires a fresh successful ownership renewal.
 
-The operator accepted the first 27 completed jobs as the baseline and requested
-actual concurrency rather than waiting for 100 jobs at single-allocation limits.
-The next ramp uses two CPU attempts per host and two GPU allocations, with the
-same aggregate resource budgets and measured combination allowlist. The explicit
-`execution_readiness --phase reopen --parallel-ramp` gate requires that recorded
-authorization, at least 27 completed imported jobs, and three telemetry samples
-showing simultaneous resident attempts on each CPU host and on the GPU. Every
-observed proof attempt must subsequently commit successfully. Reservation or
-attempt-envelope breaches and resource failures block that gate. The default
-100-job/hour gate remains available for deployments without this authorization.
+A missing assembly image caused a recoverable hold. The unchanged assembler was
+reprofiled in a retained runtime: three fresh and five warm 10,000-row runs all
+produced byte-identical CSV to the serial baseline. Approved runtime images now
+have running, isolated keepers so pruning cannot remove them between attempts.
 
-A missing assembly image caused final assembly to enter a recoverable hold.
-The unchanged assembler was measured in the retained web runtime with three
-fresh and five warm runs of the 10,000-row fixture; all CSV files matched the
-original serial fixture byte for byte. Its new measured profile replaces the
-missing runtime. Running, isolated image keepers now retain approved runtimes
-between attempts. Model environments were not rebuilt. Temporary scheduling
-deferrals of 1,534 unstarted stages were restored from their saved journal.
+Backlog testing also corrected queue-page starvation and excessive admission
+queries. Fitting CPU/GPU work is selected before the bounded scan while preserving
+an older GPU request's fairness barrier. Eligible GPU waiting excludes dependency
+waiting. Existing verified local embeddings no longer require redundant network
+acknowledgements. Temporary canary deferrals of 1,534 stages were restored before
+resuming the full backlog.
 
-CPU overlap on both hosts was observed in the ramp. A scheduler correction
-counts eligible GPU admission waiting rather than time since stage creation;
-dependency waiting must not immediately trigger a drain that prevents measured
-GPU pairs. The correction retains the ten-minute fairness barrier for genuinely
-waiting eligible GPU work. Final parallel-GPU acceptance and reopening evidence
-will be recorded separately after the corresponding attempts complete.
+## Backups and operations
+
+Frozen SQLite/Redis backups were verified off production, including actual
+restoration. Custom PostgreSQL backups were independently restored on the
+development host. Original sequence identifiers, including collision suffixes,
+remain unchanged. Inactive rehearsal copies were archived and checksum-verified
+before reclaiming production space; inputs, final results and model files were
+excluded from that reclamation.
+
+The legacy SQLite backup cron was preserved and replaced with
+`webkinpred-backup.timer`, daily at 04:10 UTC. Its service backs up the three live
+PostgreSQL databases and streams `media/jobs` to the existing S3 destination with
+512 MiB memory and half a CPU of allowance. Every object is downloaded and
+checksum-verified before publishing the completion manifest. No full local media
+archive is created and existing backups are not automatically deleted. The
+initial live run and its completion evidence are recorded separately in the
+private cutover directory.
+
+Prometheus scrapes the authenticated metrics endpoint; nine alert rules and an
+18-panel Grafana dashboard are active. Monitoring binds to production loopback
+ports 9093 and 3002. Routine deployments use the guarded execution deployment
+script, one-shot migrations, pinned images, nginx reload and no automatic image
+pruning. Original legacy consumers remain disabled.
+
+Use `execution_admin` to pause submissions, pause/resume/drain a host, explain a
+stage, retry held work or disable a profile. Preserve rollback images and cutover
+evidence for 30 days. After accepting new requests, prefer reducing concurrency
+or disabling a profile; never restore a frozen old snapshot over new jobs.
+
+Requests outside measured envelopes enter an operator-visible hold. In particular,
+very large per-parent expansions beyond the current 4,096-unit planning envelope
+require further partitioning/profiling; the imported backlog's maximum expansion
+is two. Unversioned legacy embedding caches remain preserved and are regenerated
+when their representation identity cannot be verified.
