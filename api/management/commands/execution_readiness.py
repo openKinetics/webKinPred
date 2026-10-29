@@ -33,6 +33,14 @@ def parallel_ramp_errors(evidence, attempts):
             if at < start:
                 continue
             for host in sample["hosts"]:
+                # The collector may read a heartbeat after a short attempt has
+                # finished. Residency belongs to that heartbeat's observation,
+                # not to the later time the collector wrote its JSON line.
+                observed_at = datetime.fromisoformat(host.get("heartbeat") or sample["at"])
+                if observed_at < start or not timedelta(0) <= at - observed_at <= timedelta(
+                    seconds=10
+                ):
+                    continue
                 rows = host["attempts"]
                 for key in ("cpu", "ram", "disk"):
                     if sum(a["resources"].get(key, 0) for a in rows) > host["budgets"][key]:
@@ -61,13 +69,13 @@ def parallel_ramp_errors(evidence, attempts):
                         if ident in attempts
                         and attempts[ident].state == "completed"
                         and attempts[ident].host_id == host["host"]
-                        and attempts[ident].started_at <= at
-                        and attempts[ident].finished_at >= at
+                        and attempts[ident].started_at <= observed_at
+                        and attempts[ident].finished_at >= observed_at
                         and attempts[ident].resources
                         == next(row["resources"] for row in rows if row["id"] == ident)
                     ]
                     if len(successful) >= 2:
-                        pairs[key].append(at)
+                        pairs[key].append(observed_at)
     for key, observed in pairs.items():
         if len(set(observed)) < 3:
             errors.add("Insufficient successful simultaneous execution samples: " + key)

@@ -216,7 +216,9 @@ def test_turnup_retry_profile_controls_the_actual_encoder_batch(tmp_path, monkey
     assert os.environ["TURNUP_EMBED_BATCH_SIZE"] == "2"
 
 
-@pytest.mark.parametrize("fault", [None, "uncommitted", "no_gpu_residency", "budget", "unapproved"])
+@pytest.mark.parametrize(
+    "fault", [None, "uncommitted", "no_gpu_residency", "budget", "unapproved", "delayed", "stale"]
+)
 def test_parallel_ramp_requires_successful_actual_residency_and_bounded_reservations(
     tmp_path, fault
 ):
@@ -267,11 +269,19 @@ def test_parallel_ramp_requires_successful_actual_residency_and_bounded_reservat
         hosts[1]["budgets"]["ram"] = 30
     elif fault == "unapproved":
         evidence["rollout_authorization"] = ""
-    path.write_text(
-        "".join(
-            json.dumps({"at": (now + timedelta(seconds=i)).isoformat(), "hosts": hosts}) + "\n"
-            for i in range(3)
-        )
-    )
+    if fault == "delayed":
+        for attempt in attempts.values():
+            attempt.finished_at = now + timedelta(seconds=3)
+    lines = []
+    for i in range(3):
+        observed = now + timedelta(seconds=i)
+        if fault in {"delayed", "stale"}:
+            for host in hosts:
+                host["heartbeat"] = (
+                    observed - timedelta(seconds=20 if fault == "stale" else 0)
+                ).isoformat()
+        collected = observed + timedelta(seconds=5 if fault == "delayed" else 0)
+        lines.append(json.dumps({"at": collected.isoformat(), "hosts": hosts}) + "\n")
+    path.write_text("".join(lines))
     errors = parallel_ramp_errors(evidence, attempts)
-    assert bool(errors) == bool(fault)
+    assert bool(errors) == (fault not in {None, "delayed"})
