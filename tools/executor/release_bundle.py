@@ -56,6 +56,7 @@ def create(root, destination):
             "docs/resource-aware-execution.md",
             "docs/execution-profiling-2026-10-28.md",
             "docs/execution-deployment-2026-10-29.md",
+            "docs/execution-resource-profiles-2026-10-29.md",
         )
     )
     files.extend(p for p in (root / "deploy/execution").rglob("*") if p.is_file())

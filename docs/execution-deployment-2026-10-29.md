@@ -36,7 +36,9 @@ These are upper bounds. Current availability, other workloads, unspent
 reservations, input-transfer space, pressure signals, profile limits and the
 validated GPU-combination allowlist can reduce admissions. GPU headroom is at
 least 2 GiB or 10% of the device, whichever is larger. There are 24 advertised
-production profiles, 62 GPU-host profiles and 73 validated GPU combinations.
+production profiles, 62 GPU-host profiles and 73 validated GPU combinations. The
+[measured resource table](execution-resource-profiles-2026-10-29.md) lists their
+CPU/RAM/VRAM/disk envelopes and supported shapes.
 
 Actual residency was observed for two CPU attempts on production, four CPU
 attempts on the GPU host, and two simultaneous GPU embeddings. Parallel proof
