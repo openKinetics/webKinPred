@@ -25,6 +25,11 @@ from tools.executor.checkpoints import partial_manifest, remember, restore
 LABEL = "org.webkinpred.executor"
 
 
+def file_stamp(path):
+    info = path.stat()
+    return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+
+
 def directory_bytes(root):
     total = 0
     for directory, _, files in os.walk(root, followlinks=False):
@@ -50,6 +55,52 @@ class Agent:
         self.last_contact = time.monotonic()
         self.last_cleanup = 0
         self.transfers = ThreadPoolExecutor(max_workers=4, thread_name_prefix="artifact-transfer")
+
+    def verify_runtime_files(self, threads=1):
+        """Cache verified digests against inode, size, mtime and ctime, never mtime alone."""
+        path = self.root / "model-validation.json"
+        try:
+            cache = json.loads(path.read_text())
+            previous = cache.get("files", {}) if cache.get("version") == 1 else {}
+        except (OSError, ValueError, AttributeError):
+            previous = {}
+        if not isinstance(previous, dict):
+            previous = {}
+        files = self.config.get("runtime_files", {})
+        stamps = {name: file_stamp(Path(name)) for name in files}
+        required = {}
+        for name, checksum in files.items():
+            cached = previous.get(name, {})
+            if not isinstance(cached, dict):
+                cached = {}
+            if cached.get("stamp") != stamps[name] or cached.get("sha256") != checksum:
+                required.setdefault(tuple(stamps[name]), name)
+
+        def verify(item):
+            stamp, name = item
+            checksum = sha256_file(Path(name))
+            if tuple(file_stamp(Path(name))) != stamp:
+                raise ValueError("Runtime/model changed during verification")
+            return stamp, checksum
+
+        with ThreadPoolExecutor(max_workers=max(1, min(int(threads), 8))) as pool:
+            measured = dict(pool.map(verify, required.items()))
+        for name, checksum in files.items():
+            if tuple(stamps[name]) in measured and measured[tuple(stamps[name])] != checksum:
+                raise ValueError("Runtime/model checksum mismatch; executor remains offline")
+            if file_stamp(Path(name)) != stamps[name]:
+                raise ValueError("Runtime/model changed during verification")
+        atomic_json(
+            path,
+            {
+                "version": 1,
+                "files": {
+                    name: {"stamp": stamps[name], "sha256": checksum}
+                    for name, checksum in files.items()
+                },
+            },
+        )
+        return stamps
 
     def request(self, operation, data=None, attempt=None):
         base = self.config["control_url"].rstrip("/") + "/internal/v2/executors/" + self.host
@@ -582,8 +633,6 @@ class Agent:
         return outcome
 
     def run(self):
-        from api.execution.artifacts import sha256_file
-
         from tools.executor.runtime_identity import identity
 
         # Startup may coincide with a controller outage. Never wait for it (or
@@ -595,13 +644,7 @@ class Agent:
 
         if self.config["capabilities"].get("profiles") and not self.config.get("runtime_files"):
             raise ValueError("Profile activation requires pinned runtime and model files")
-        for path, checksum in self.config.get("runtime_files", {}).items():
-            if sha256_file(Path(path)) != checksum:
-                raise ValueError("Runtime/model checksum mismatch; executor remains offline")
-        stamps = {
-            path: (Path(path).stat().st_size, Path(path).stat().st_mtime_ns)
-            for path in self.config.get("runtime_files", {})
-        }
+        stamps = self.verify_runtime_files()
         for image in self.config["images"]:
             self.docker("image", "inspect", image)
         while True:
@@ -618,10 +661,7 @@ class Agent:
             try:
                 if identity(self.config.get("gpu_uuid", ""))["fingerprint"] != runtime[
                     "fingerprint"
-                ] or any(
-                    (Path(path).stat().st_size, Path(path).stat().st_mtime_ns) != stamp
-                    for path, stamp in stamps.items()
-                ):
+                ] or any(file_stamp(Path(path)) != stamp for path, stamp in stamps.items()):
                     self.config["capabilities"]["profiles"] = []
                 self.tick_jobs()
                 telemetry = self.observe()
@@ -726,8 +766,21 @@ class Agent:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=Path)
+    parser.add_argument("--verify-runtime-files", action="store_true")
+    parser.add_argument("--verification-threads", type=int, default=1)
     args = parser.parse_args()
-    Agent(json.loads(args.config.read_text())).run()
+    agent = Agent(json.loads(args.config.read_text()))
+    if args.verify_runtime_files:
+        try:
+            print(
+                json.dumps(
+                    {"files_verified": len(agent.verify_runtime_files(args.verification_threads))}
+                )
+            )
+        finally:
+            agent.transfers.shutdown(wait=True)
+    else:
+        agent.run()
 
 
 if __name__ == "__main__":

@@ -263,6 +263,66 @@ def test_expired_transfer_reconciles_after_drain_and_retries_lost_response(tmp_p
         agent.transfers.shutdown(wait=True)
 
 
+def test_runtime_digest_cache_deduplicates_hardlinks_and_rechecks_preserved_mtime(
+    tmp_path, monkeypatch
+):
+    import os
+
+    from tools.executor import agent as executor
+
+    first = tmp_path / "weights.bin"
+    first.write_bytes(b"original")
+    second = tmp_path / "alias.bin"
+    os.link(first, second)
+    expected = executor.sha256_file(first)
+    agent = executor.Agent(
+        {
+            "root": str(tmp_path / "agent"),
+            "host_id": "test",
+            "runtime_files": {str(first): expected, str(second): expected},
+        }
+    )
+    original = executor.sha256_file
+    calls = []
+
+    def measure(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(executor, "sha256_file", measure)
+    try:
+        agent.verify_runtime_files(threads=2)
+        agent.verify_runtime_files(threads=2)
+        assert len(calls) == 1
+        saved = first.stat()
+        first.write_bytes(b"modified")
+        os.utime(first, ns=(saved.st_atime_ns, saved.st_mtime_ns))
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            agent.verify_runtime_files()
+    finally:
+        agent.transfers.shutdown(wait=True)
+
+
+def test_corrupt_runtime_digest_cache_reverts_to_full_verification(tmp_path):
+    from tools.executor import agent as executor
+
+    model = tmp_path / "weights.bin"
+    model.write_bytes(b"original")
+    agent = executor.Agent(
+        {
+            "root": str(tmp_path / "agent"),
+            "host_id": "test",
+            "runtime_files": {str(model): executor.sha256_file(model)},
+        }
+    )
+    (agent.root / "model-validation.json").write_text("incomplete cache")
+    try:
+        assert str(model) in agent.verify_runtime_files()
+        assert json.loads((agent.root / "model-validation.json").read_text())["version"] == 1
+    finally:
+        agent.transfers.shutdown(wait=True)
+
+
 def test_capacity_lost_during_transfer_prevents_model_launch(tmp_path):
     from api.execution.errors import RecoverableExecutionError
     from tools.executor.agent import Agent
