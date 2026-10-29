@@ -123,3 +123,15 @@ def test_ui_status_adds_approximation_without_changing_strict_queue_contract():
         assert get_queue_position(job) is None
     assert data["queue_position"] is None
     assert data["queue_estimate"]["position"] == 2
+
+
+def test_very_large_backlogs_use_bounded_memory_and_database_rank_for_the_tail(monkeypatch):
+    monkeypatch.setattr(status, "_QUEUE_SNAPSHOT_LIMIT", 2)
+    now = timezone.now()
+    jobs = [queued("large" + str(i), now)[0] for i in range(4)]
+    estimate = status.queue_estimate(jobs[-1], "waiting_gpu")
+    assert len(status._queue_snapshot["jobs"]) == 2
+    assert estimate["position"] == 4 and estimate["waiting_jobs"] == 4
+    new, _ = queued("newtail", now + timedelta(seconds=1))
+    estimate = status.queue_estimate(new, "waiting_gpu")
+    assert estimate["position"] == 5 and estimate["waiting_jobs"] == 5

@@ -383,4 +383,6 @@ The existing strict `queue_position`/`queuePosition` fields remain nullable.
 The display snapshot is cached in each web process for at most ten seconds to
 avoid scanning the backlog on every status poll. New submissions receive their
 insertion rank until the next refresh. This cache does not reserve resources,
-alter scheduling or require Redis to be available.
+alter scheduling or require Redis to be available. The snapshot holds at most
+20,000 entries; ranks beyond that prefix use database counts to keep web-process
+memory bounded for larger backlogs.

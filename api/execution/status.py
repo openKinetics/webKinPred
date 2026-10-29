@@ -13,6 +13,20 @@ from api.execution.models import ExecutionAttempt, ExecutionSpec, WorkStage
 
 _queue_snapshot = None
 _queue_snapshot_lock = threading.Lock()
+_QUEUE_SNAPSHOT_LIMIT = 20_000
+
+
+def waiting_jobs():
+    held = WorkStage.objects.filter(execution_id=OuterRef("pk")).filter(
+        Q(state="held") | Q(waiting_reason="profiling_required")
+    )
+    return (
+        ExecutionSpec.objects.filter(
+            paused=False, job__status="Pending", job__start_time__isnull=True
+        )
+        .annotate(needs_attention=Exists(held))
+        .filter(needs_attention=False)
+    )
 
 
 def waiting_queue_snapshot():
@@ -26,23 +40,20 @@ def waiting_queue_snapshot():
             and _queue_snapshot["expires"] > time.monotonic()
         ):
             return _queue_snapshot
-        held = WorkStage.objects.filter(execution_id=OuterRef("pk")).filter(
-            Q(state="held") | Q(waiting_reason="profiling_required")
-        )
         jobs = tuple(
-            ExecutionSpec.objects.filter(
-                paused=False, job__status="Pending", job__start_time__isnull=True
-            )
-            .annotate(needs_attention=Exists(held))
-            .filter(needs_attention=False)
+            waiting_jobs()
             .order_by("job__submission_time", "job_id")
-            .values_list("job__submission_time", "job_id")
+            .values_list("job__submission_time", "job_id")[: _QUEUE_SNAPSHOT_LIMIT + 1]
         )
+        truncated = len(jobs) > _QUEUE_SNAPSHOT_LIMIT
+        total = waiting_jobs().count() if truncated else len(jobs)
         _queue_snapshot = {
             "database": database,
             "expires": time.monotonic() + 10,
             "updated_at": timezone.now().isoformat(),
-            "jobs": jobs,
+            "jobs": jobs[:_QUEUE_SNAPSHOT_LIMIT],
+            "total": total,
+            "truncated": truncated,
         }
         return _queue_snapshot
 
@@ -55,10 +66,21 @@ def queue_estimate(job, state):
     jobs = snapshot["jobs"]
     ahead = bisect_left(jobs, key)
     present = ahead < len(jobs) and jobs[ahead] == key
+    if snapshot["truncated"] and key > jobs[-1]:
+        ahead = (
+            waiting_jobs()
+            .filter(
+                Q(job__submission_time__lt=job.submission_time)
+                | Q(job__submission_time=job.submission_time, job_id__lt=job.pk)
+            )
+            .count()
+        )
     return {
         "position": ahead + 1,
         "jobs_ahead": ahead,
-        "waiting_jobs": len(jobs) + (0 if present else 1),
+        "waiting_jobs": max(snapshot["total"], ahead + 1)
+        if snapshot["truncated"]
+        else len(jobs) + (0 if present else 1),
         "approximate": True,
         "basis": "submission_order",
         "updated_at": snapshot["updated_at"],
