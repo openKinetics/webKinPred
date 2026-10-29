@@ -770,3 +770,36 @@ def test_docker_create_failure_preserves_missing_image_evidence(tmp_path):
         assert "secret-" not in agent.error_details(error, {"token": "secret-owner"})["message"]
     finally:
         agent.transfers.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_verified_local_inputs_do_not_repeat_location_writes(tmp_path, registered):
+    import hashlib
+    import io
+
+    from tools.executor.agent import Agent
+
+    agent = Agent({"root": str(tmp_path), "host_id": "test"})
+    data = b"immutable embedding"
+    checksum = hashlib.sha256(data).hexdigest()
+    agent.store.publish(io.BytesIO(data), checksum, len(data))
+    work = tmp_path / "attempts" / "test"
+    (work / "media").mkdir(parents=True)
+    artifact = {
+        "id": "a" * 64,
+        "path": "embedding.npy",
+        "checksum": checksum,
+        "size": len(data),
+        "hosts": ["test"] if registered else [],
+    }
+    writes = []
+    agent.artifact_location = lambda *args: writes.append(args)
+    try:
+        result = agent.materialize(
+            {"id": "test", "kind": "predict", "stage_id": "stage", "artifacts": [artifact]}, work
+        )
+        assert (work / "media/embedding.npy").read_bytes() == data
+        assert len(writes) == (0 if registered else 1)
+        assert result["local_cache_hits"] == 1
+    finally:
+        agent.transfers.shutdown(wait=True)

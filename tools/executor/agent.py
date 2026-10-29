@@ -212,6 +212,7 @@ class Agent:
         started = time.monotonic()
         transferred_bytes, local_cache_hits = 0, 0
         for artifact in request["artifacts"]:
+            local_location_invalidated = False
             destination = work / "media" / safe_relative(artifact["path"])
             destination.parent.mkdir(parents=True, exist_ok=True)
             blob = self.store.path(artifact["checksum"])
@@ -225,6 +226,7 @@ class Agent:
                 for host in artifact["hosts"]:
                     if host == self.host:
                         self.artifact_location(request, artifact, host, False)
+                        local_location_invalidated = True
                         missing = True
                         continue
                     peer = self.config.get("peers", {}).get(host)
@@ -255,7 +257,11 @@ class Agent:
                     raise ConnectionError("Required artifact transfer unavailable") from error
             else:
                 local_cache_hits += 1
-            self.artifact_location(request, artifact, self.host, True)
+            # Existing verified locations need no network write after the
+            # local size/checksum check. Prediction stages can consume hundreds
+            # of embeddings already produced on this host.
+            if self.host not in artifact["hosts"] or local_location_invalidated:
+                self.artifact_location(request, artifact, self.host, True)
             # Private copies prevent legacy writers from changing immutable cache files.
             shutil.copyfile(blob, destination)
         restore(self.root, request, work)

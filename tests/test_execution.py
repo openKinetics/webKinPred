@@ -626,3 +626,85 @@ def test_saturated_claim_has_bounded_queries_and_does_not_rewrite_waiting_stages
             assert control.claim(host.pk) is None
     assert len(captured) <= 12
     assert not any(query["sql"].startswith("UPDATE") for query in captured)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("blocked_gpu", [False, True])
+def test_513_resource_blocked_stages_cannot_hide_fitting_cpu_work(ready_work, blocked_gpu):
+    host, stages = ready_work
+    blocked, small = stages
+    profile = blocked.profile
+    profile.resources = {
+        "cpu": 1,
+        "ram": GIB if blocked_gpu else 20 * GIB,
+        "disk": GIB,
+        "vram": 2 * GIB if blocked_gpu else 0,
+    }
+    profile.save()
+    fitting = ResourceProfile.objects.create(
+        id="small",
+        fingerprint="s" * 64,
+        image=profile.image,
+        stage_kind="predict",
+        validated=True,
+        resources={"cpu": 1, "ram": GIB, "disk": GIB, "vram": 0},
+    )
+    small.profile = fitting
+    small.save()
+    WorkStage.objects.bulk_create(
+        [
+            WorkStage(
+                execution=blocked.execution,
+                key="blocked-" + str(i),
+                kind="predict",
+                profile=profile,
+            )
+            for i in range(513)
+        ]
+    )
+    host.budgets.update(ram=8 * GIB, cpu=8, disk=16 * GIB, gpu_slots=2)
+    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=16 * GIB)
+    host.capabilities["profiles"] += [fitting.fingerprint]
+    host.save()
+    if blocked_gpu:
+        from api.execution.models import ExecutionSpec
+
+        owner = ExecutionSpec.objects.create(
+            specification={}, checksum="a" * 64, input_checksum="b" * 64, paused=False
+        )
+        active = WorkStage.objects.create(execution=owner, key="active", state="running")
+        ExecutionAttempt.objects.create(
+            stage=active,
+            host=host,
+            resources={"cpu": 1, "ram": GIB, "disk": GIB, "vram": 2 * GIB},
+            profile_fingerprint="g" * 64,
+            lease_until=timezone.now() + timedelta(seconds=30),
+        )
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        result = control.claim(host.pk)
+    assert result["stage_id"] == str(small.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_attempt_input_manifest_prefetches_verified_locations(ready_work):
+    from api.execution.models import Artifact, ArtifactDependency, ArtifactLocation
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, stages = ready_work
+    for i in range(32):
+        artifact = Artifact.objects.create(
+            id=f"{i:064x}", identity={"i": i}, checksum="b" * 64, size=1
+        )
+        ArtifactDependency.objects.create(stage=stages[0], artifact=artifact, path=f"input{i}.npy")
+        ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        request = control.claim(host.pk)
+    attempt = ExecutionAttempt.objects.select_related(
+        "stage__profile", "stage__execution__job"
+    ).get(pk=request["id"])
+    with CaptureQueriesContext(connection) as captured:
+        manifest = control.serialize_attempt(attempt)
+    assert len(manifest["artifacts"]) == 32
+    assert all(row["hosts"] == [host.pk] for row in manifest["artifacts"])
+    assert len(captured) <= 3

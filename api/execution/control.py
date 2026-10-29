@@ -228,13 +228,15 @@ def claim(host_id: str):
     # Apply host eligibility and completed dependencies before the bounded
     # scan. Thousands of blocked or other-host stages must not hide fitting
     # work beyond the first page, or consume its row locks.
-    advertised = ResourceProfile.objects.filter(
-        validated=True,
-        suspended=False,
-        fingerprint__in=host.capabilities.get("profiles", []),
+    advertised = list(
+        ResourceProfile.objects.filter(
+            validated=True,
+            suspended=False,
+            fingerprint__in=host.capabilities.get("profiles", []),
+        )
     )
     eligible = Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
-    for kind, method in advertised.values_list("stage_kind", "method").distinct():
+    for kind, method in {(p.stage_kind, p.method) for p in advertised}:
         eligible |= Q(kind=kind, method=method)
     blocked = WorkStage.dependencies.through.objects.filter(
         from_workstage_id=OuterRef("pk")
@@ -276,6 +278,38 @@ def claim(host_id: str):
             "created_at",
         )
     )
+    # A page full of resource-blocked GPU work must not hide CPU work or a
+    # compatible GPU pair beyond that page. Keep the oldest candidate of each
+    # class for its waiting reason/fairness barrier, and preselect fitting
+    # profiles before applying the bounded scan.
+    cpu_stage = Q(profile__resources__vram__isnull=True) | Q(profile__resources__vram__lte=0)
+    oldest = [
+        candidates.filter(rule).values_list("pk", flat=True).first()
+        for rule in (cpu_stage, Q(profile__resources__vram__gt=0))
+    ]
+    fitting = []
+    for p in advertised:
+        resources = {k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}
+        if admit(
+            resources, active, host.budgets, host.telemetry, gpu=bool(resources.get("vram"))
+        ).fits and _gpu_profile_allowed(p, active, host):
+            fitting.append(p)
+    capacity = Q(pk__in=[pk for pk in oldest if pk is not None]) | Q(
+        profile_id__in=[p.pk for p in fitting]
+    )
+    for p in fitting:
+        if not p.resources.get("vram"):
+            identity = p.settings.get("model_identity")
+            same_identity = Q(profile__settings__model_identity=identity)
+            if identity is None:
+                same_identity |= Q(profile__settings__model_identity__isnull=True)
+            capacity |= (
+                cpu_stage
+                & same_identity
+                & Q(kind=p.stage_kind, method=p.method)
+                & ~Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
+            )
+    candidates = candidates.filter(capacity)
     gpu_barrier = False
     for stage in candidates[:512].iterator(chunk_size=16):
         if stage.execution.job_id and stage.execution.job.status in {"Completed", "Failed"}:
@@ -432,18 +466,22 @@ def serialize_attempt(attempt):
     stage = attempt.stage
     profile = stage.profile
     artifacts = []
-    for dependency in stage.artifacts.select_related("artifact"):
+    from django.db.models import Prefetch
+
+    for dependency in stage.artifacts.select_related("artifact").prefetch_related(
+        Prefetch(
+            "artifact__locations",
+            queryset=ArtifactLocation.objects.filter(ready=True),
+            to_attr="verified_locations",
+        )
+    ):
         artifacts.append(
             {
                 "id": dependency.artifact_id,
                 "checksum": dependency.artifact.checksum,
                 "size": dependency.artifact.size,
                 "path": dependency.path,
-                "hosts": list(
-                    dependency.artifact.locations.filter(ready=True).values_list(
-                        "host_id", flat=True
-                    )
-                ),
+                "hosts": [location.host_id for location in dependency.artifact.verified_locations],
             }
         )
     for output in stage.payload.get("outputs", []):
