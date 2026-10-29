@@ -1,9 +1,68 @@
 from __future__ import annotations
 
+import threading
+import time
+from bisect import bisect_left
+
 from django.conf import settings
+from django.db import connection
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from api.execution.models import ExecutionAttempt, ExecutionSpec, WorkStage
+
+_queue_snapshot = None
+_queue_snapshot_lock = threading.Lock()
+
+
+def waiting_queue_snapshot():
+    """A short-lived display hint; execution ownership stays in PostgreSQL."""
+    global _queue_snapshot
+    database = (connection.alias, connection.settings_dict["NAME"])
+    with _queue_snapshot_lock:
+        if (
+            _queue_snapshot is not None
+            and _queue_snapshot["database"] == database
+            and _queue_snapshot["expires"] > time.monotonic()
+        ):
+            return _queue_snapshot
+        held = WorkStage.objects.filter(execution_id=OuterRef("pk")).filter(
+            Q(state="held") | Q(waiting_reason="profiling_required")
+        )
+        jobs = tuple(
+            ExecutionSpec.objects.filter(
+                paused=False, job__status="Pending", job__start_time__isnull=True
+            )
+            .annotate(needs_attention=Exists(held))
+            .filter(needs_attention=False)
+            .order_by("job__submission_time", "job_id")
+            .values_list("job__submission_time", "job_id")
+        )
+        _queue_snapshot = {
+            "database": database,
+            "expires": time.monotonic() + 10,
+            "updated_at": timezone.now().isoformat(),
+            "jobs": jobs,
+        }
+        return _queue_snapshot
+
+
+def queue_estimate(job, state):
+    if job.status != "Pending" or job.start_time or state not in {"waiting_cpu", "waiting_gpu"}:
+        return None
+    snapshot = waiting_queue_snapshot()
+    key = (job.submission_time, job.pk)
+    jobs = snapshot["jobs"]
+    ahead = bisect_left(jobs, key)
+    present = ahead < len(jobs) and jobs[ahead] == key
+    return {
+        "position": ahead + 1,
+        "jobs_ahead": ahead,
+        "waiting_jobs": len(jobs) + (0 if present else 1),
+        "approximate": True,
+        "basis": "submission_order",
+        "updated_at": snapshot["updated_at"],
+    }
 
 
 def execution_status(job):
@@ -57,6 +116,7 @@ def execution_status(job):
     elapsed = max(0, ((job.completion_time or now) - execution.created_at).total_seconds())
     return {
         "execution_state": state,
+        "queue_estimate": queue_estimate(job, state),
         "waiting_reason": {
             "paused": "maintenance",
             "needs_attention": "operator_attention",

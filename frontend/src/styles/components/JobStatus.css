@@ -409,6 +409,19 @@
   color: #ffffff;
 }
 
+.trk__pending-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.trk__pending-note {
+  color: #bdb6d6;
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
 /* ── Prediction section wrapper ─────────────────────────────────────────── */
 .trk__section {
   display: flex;

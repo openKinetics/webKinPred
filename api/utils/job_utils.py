@@ -399,8 +399,8 @@ def create_rate_limit_headers(daily_limit: int, remaining: int, ttl: int) -> Dic
 
 def get_queue_position(job) -> Optional[int]:
     """
-    Return the 1-based queue position for a Pending job.
-    Returns None if the job is not Pending.
+    Return a legacy FIFO position for a Pending job.
+    Concurrent execution supplies a separate approximate queue_estimate instead.
     """
     from api.models import Job as JobModel
 

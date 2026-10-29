@@ -540,17 +540,29 @@ function JobStatus() {
                 </div>
               )}
               {/* ── Pending: bouncing dots + queue position ── */}
-              {jobStatus?.status === 'Pending' && (
-                <div className="trk__pending">
+              {jobStatus?.status === 'Pending' && !['paused', 'needs_attention'].includes(jobStatus.execution_state) && (
+                <div className="trk__pending" role="status" aria-live="polite">
                   <div className="trk__pending-dots">
                     <span /><span /><span />
                   </div>
-                  <span className="trk__pending-txt">
-                    {queuePosition != null
-                      ? <><strong className="trk__pending-pos">#{queuePosition}</strong>&ensp;in queue</>
-                      : 'Queued — waiting to start'
-                    }
-                  </span>
+                  <div className="trk__pending-content">
+                    <span className="trk__pending-txt">
+                      {jobStatus.queue_estimate?.position != null
+                        ? <><strong className="trk__pending-pos">Approx. #{jobStatus.queue_estimate.position.toLocaleString()}</strong>&ensp;in queue</>
+                        : queuePosition != null
+                          ? <><strong className="trk__pending-pos">#{queuePosition.toLocaleString()}</strong>&ensp;in queue</>
+                          : 'Queued — waiting to start'
+                      }
+                    </span>
+                    {jobStatus.queue_estimate && (
+                      <span className="trk__pending-note">
+                        {jobStatus.queue_estimate.jobs_ahead === 0
+                          ? 'Next by submission time.'
+                          : `${jobStatus.queue_estimate.jobs_ahead.toLocaleString()} older ${jobStatus.queue_estimate.jobs_ahead === 1 ? 'job is' : 'jobs are'} waiting.`}
+                        {' '}Jobs run in parallel, so start order may vary.
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 

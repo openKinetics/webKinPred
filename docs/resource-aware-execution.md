@@ -368,3 +368,19 @@ configuration from the retained cutover evidence, then reconcile stopped attempt
 before enabling admissions. Do not restore an old snapshot over jobs accepted
 since that snapshot. The cutover evidence also retains the independent PostgreSQL
 restoration rehearsal.
+
+### Queue information in the status interface
+
+Pending jobs that have not started receive a `queue_estimate` with `position`,
+`jobs_ahead`, `waiting_jobs`, `approximate: true`, `basis: submission_order` and
+`updated_at`. The interface displays “Approx. #N in queue” and explains that jobs
+run in parallel, so start order can vary. This rank counts older unstarted jobs;
+paused jobs, explicit holds and work waiting for profiling are excluded. It is a
+submission-order hint, rather than a prediction of resource eligibility or time
+until start. Started, paused, held and terminal jobs have no start-queue estimate.
+The existing strict `queue_position`/`queuePosition` fields remain nullable.
+
+The display snapshot is cached in each web process for at most ten seconds to
+avoid scanning the backlog on every status poll. New submissions receive their
+insertion rank until the next refresh. This cache does not reserve resources,
+alter scheduling or require Redis to be available.
