@@ -105,6 +105,8 @@ def _seq_id_for_row(row: dict[str, Any], sequence: str) -> str:
 
 def _run_local_esmc_fallback(missing: dict[str, str], cache_dir: Path) -> None:
     """Compute missing ESM-C mean vectors via the shared esmc env worker."""
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     esmc_python = str(os.environ.get("CATRANGE_ESMC_PYTHON") or "").strip()
     worker_script = (REPO_ROOT / "tools" / "gpu_embed_service" / "catrange_esmc_worker.py").resolve()
     if not esmc_python:

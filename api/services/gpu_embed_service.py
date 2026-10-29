@@ -245,6 +245,13 @@ def run_gpu_precompute_if_available(
     env: dict | None,
     disabled: bool = False,
 ) -> GpuPrecomputeResult:
+    from api.execution.context import current
+    from api.execution.errors import MissingEmbedding
+    if current.get() is not None:
+        plan = build_embedding_plan(method_key=method_key, target=target, sequences=valid_sequences, env=env or {})
+        if plan.need_computation:
+            raise MissingEmbedding(f"Missing verified embeddings for {method_key}/{target}")
+        return GpuPrecomputeResult(False, False, True, False, "verified_stage_artifacts")
     fail_closed = _env_bool("GPU_EMBED_FAIL_CLOSED", default=False)
 
     def _record(result: GpuPrecomputeResult) -> None:

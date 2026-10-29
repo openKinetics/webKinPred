@@ -234,6 +234,8 @@ def _torch_load_compat(path: str | Path, *, map_location: Any) -> Any:
     except TypeError:
         return torch.load(str(path), map_location=map_location)
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         if "weights_only" in str(exc):
             return torch.load(str(path), map_location=map_location)
         raise
@@ -259,6 +261,8 @@ def _load_shared_embedding(seq_id: str | None) -> torch.Tensor | None:
             tensor = tensor.unsqueeze(0)
         return tensor
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         logger.warning("Embedding cache read failed for seq_id=%r: %s", seq_id, exc)
         return None
 
@@ -281,6 +285,8 @@ def _save_shared_embedding(seq_id: str | None, embedding: torch.Tensor) -> None:
             tensor_to_save = tensor_to_save.squeeze(0)
         torch.save(tensor_to_save, cache_path)
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         logger.warning("Embedding cache write failed for seq_id=%r: %s", seq_id, exc)
 
 
@@ -298,6 +304,8 @@ def _cleanup_shared_embeddings(seq_ids: list[str], *, cleanup_enabled: bool) -> 
 
         remove_manifest_entries(OMNIESI_EMBED_CACHE_DIR, cleanup_ids)
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         logger.warning("Embedding manifest cleanup failed: %s", exc)
 
 
@@ -330,6 +338,8 @@ _ESM_MODEL_CACHE: dict[torch.device, Any] = {}
 
 def _get_esm_model(dev: torch.device) -> Any:
     """Lazy-load and cache the ESM embedding model for the given device."""
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     if dev not in _ESM_MODEL_CACHE:
         from scripts.embedding import ESM_model  # lazy — cached in sys.modules
         model = ESM_model()
@@ -491,6 +501,10 @@ def prepare_inputs(
         return v_d, v_p, v_d_mask, v_p_mask
 
     except Exception as exc:
+
+        from tools.executor.policy import propagate_resource_error
+
+        propagate_resource_error(exc)
         logger.debug("prepare_inputs failed for smiles=%r: %s", smiles[:40], exc)
         return None
 
@@ -707,6 +721,8 @@ def predict_kinetic_parameter_ensemble(
                     output = m(v_d, v_p, v_d_mask, v_p_mask)
                     log_values.append(float(output[-1].cpu().numpy().flatten()[0]))
                 except Exception as exc:
+                    from tools.executor.policy import propagate_resource_error
+                    propagate_resource_error(exc)
                     logger.warning(
                         "Row %d seed %d inference failed: %s",
                         local_idx, available_seeds[seed_idx], exc,
@@ -828,5 +844,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         print(f"[OmniESI] FATAL: {exc}", file=sys.stderr, flush=True)
         raise

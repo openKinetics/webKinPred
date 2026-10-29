@@ -37,6 +37,9 @@ def _torch_load_compat(path, map_location=None):
 
 
 def smiles_transformer(Smiles):
+    from tools.executor.policy import cache_only, molecular_vectors
+    if cache_only():
+        return molecular_vectors("KinForm", Smiles)
     pad_index = 0
     unk_index = 1
     eos_index = 2

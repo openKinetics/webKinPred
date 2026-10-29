@@ -104,7 +104,9 @@ def main() -> int:
     import esm
     import torch
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from tools.executor.policy import require_cuda
+    require_cuda(torch)
+    device = torch.device("cuda")
     print(f"OmniESI ESM2: computing {len(missing_ids)} missing embedding(s) on {device}.")
 
     model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()

@@ -41,6 +41,8 @@ def embeddings_exist(seq_ids: List[str]) -> Dict[str, List[bool]]:
     return bool_lists
 
 def _compute_esm2(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     seq_ids = list(seq_dict.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "prot_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -115,6 +117,8 @@ def _compute_t5(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, st
     return computed_dict, reasons_dict
 
 def _compute_esmc(seq_dict: Dict[str, str]) -> Tuple[Dict[str, bool], Dict[str, str]]:
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     seq_ids = list(seq_dict.keys())
     script_path = ROOT / "code" / "protein_embeddings" / "prot_embeddings.py"
     with tempfile.TemporaryDirectory() as tmpdir:

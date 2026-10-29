@@ -10,8 +10,7 @@ Pipeline (mirrors webkinpred_adapter._prepare_seq_pooled_cache):
   1. Discover all model.pt checkpoint files under
      <checkpoint_root>/<parameter>/.
   2. Load ESM2 once and compute a per-residue representation for every
-     sequence that is missing at least one cached file.  ESM2 runs on GPU
-     when torch.cuda.is_available(), otherwise falls back to CPU.
+     sequence that is missing at least one cached file. CUDA is required.
   3. For each checkpoint model:
        a. Load the model onto the same device.
        b. Run seq_embedder → rotary embeds → multi-head attention →
@@ -186,6 +185,8 @@ def _compute_esm_reprs_batched(
     """
     from catpred.data import esm_utils
 
+    if esm_utils.PROTEIN_EMBED_USE_CPU:
+        raise RuntimeError("GPU_UNAVAILABLE: CatPred embedding requires CUDA execution")
     esm_utils.init_esm()
     model, batch_converter = esm_utils.GLOBAL_VARIABLES["model"]
     use_cpu = bool(esm_utils.PROTEIN_EMBED_USE_CPU)
@@ -264,6 +265,9 @@ def _cache_path(cache_root: Path, parameter: str, model_key: str, seq_id: str) -
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    from tools.executor.policy import require_cuda
+
+    require_cuda(torch)
     parser = argparse.ArgumentParser(
         description="Precompute CatPred attentively-pooled embeddings on GPU."
     )
@@ -308,7 +312,7 @@ def main() -> None:
         print("No sequences provided — nothing to do.")
         return
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     print(f"CatPred embedding precompute: device={device}, parameter={parameter}, "
           f"sequences={len(seq_id_to_seq)}")
 

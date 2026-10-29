@@ -77,10 +77,14 @@ def main() -> int:
         return 0
 
     import torch
+
+    from tools.executor.policy import require_cuda
+
+    require_cuda(torch)
     from esm.models.esmc import ESMC
     from esm.sdk.api import ESMProtein, LogitsConfig
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     print(f"CatRange ESM-C: computing {len(missing_ids)} missing embedding(s) on {device}.")
 
     model = ESMC.from_pretrained("esmc_600m").to(device)

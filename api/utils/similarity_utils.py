@@ -24,6 +24,13 @@ def _mmseqs_cmd(*args: str) -> list:
     When CONDA_PATH is None mmseqs is expected to be on PATH directly:
         mmseqs <args…>
     """
+    if (
+        os.environ.get("WEBKINPRED_EXECUTION_POLICY") == "gpu-only"
+        and args
+        and args[0] in {"search", "convertalis"}
+        and "--threads" not in args
+    ):
+        args = (*args, "--threads", str(max(1, int(os.environ.get("OMP_NUM_THREADS", "1")))))
     if CONDA_PATH:
         return [CONDA_PATH, "run", "-n", "mmseqs2_env", "mmseqs", *args]
     return ["mmseqs", *args]

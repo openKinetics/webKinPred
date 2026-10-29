@@ -178,6 +178,8 @@ def get_prott5_embeddings(
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     if missing_by_seq_id:
+        from tools.executor.policy import require_cached
+        require_cached(False, "ProtT5 means")
         tokenizer = T5Tokenizer.from_pretrained(
             str(prott5_model_path),
             do_lower_case=False,
@@ -222,6 +224,9 @@ def get_molt5_embeddings(
     device: torch.device,
     batch_size: int = 32,
 ) -> np.ndarray:
+    from tools.executor.policy import cache_only, molecular_vectors
+    if cache_only():
+        return molecular_vectors("CataPro", smiles_list)
     if not smiles_list:
         return np.zeros((0, 768), dtype=np.float32)
 
@@ -242,7 +247,7 @@ def get_molt5_embeddings(
     model = T5EncoderModel.from_pretrained(
         str(model_path),
         local_files_only=True,
-        torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
+        torch_dtype=torch.float16 if device.type == "cuda" and os.environ.get("WEBKINPRED_MOLECULAR_FP32") != "1" else torch.float32,
     ).to(device)
     model.eval()
 
@@ -486,7 +491,7 @@ def run_from_payload(payload: dict) -> dict:
 
     if not seqmap_cli.exists():
         raise RuntimeError(f"seqmap CLI not found: {seqmap_cli}")
-    if not seqmap_db.exists():
+    if not os.environ.get("SEQMAP_MANIFEST_PATH") and not seqmap_db.exists():
         raise RuntimeError(f"seqmap DB not found: {seqmap_db}")
 
     kinetics_type = _kinetics_type_from_payload(payload)
@@ -566,5 +571,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         print(f"[CataPro] ERROR: {exc}", file=sys.stderr, flush=True)
         raise

@@ -95,6 +95,8 @@ def _torch_load_compat(path, map_location=None):
 def load_esm_model():
     """Load ESM model once and return it."""
     # Determine model path based on environment variables
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     if os.environ.get("EITLEM_MEDIA_PATH"):
         # Docker environment
         model_location = "/app/models/EITLEM/Weights/esm1v/esm1v_t33_650M_UR90S_1.pt"
@@ -300,6 +302,10 @@ def main():
                 gc.collect()
 
             except Exception as e:
+
+                from tools.executor.policy import propagate_resource_error
+
+                propagate_resource_error(e)
                 print(f"Error processing sample {idx}: {e}")
                 predictions.append(None)  # Use None for failed predictions
 

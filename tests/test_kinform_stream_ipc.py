@@ -51,7 +51,11 @@ class KinFormStreamIPCTests(unittest.TestCase):
             srv.listen(1)
 
             def _server():
+                # The direct connectivity probe closes without sending a frame.
+                probe, _ = srv.accept()
+                probe.close()
                 conn, _ = srv.accept()
+                conn.settimeout(3)
                 try:
                     header, payload = recv_frame(conn)
                     self.assertEqual(header["type"], "PING")
@@ -70,6 +74,7 @@ class KinFormStreamIPCTests(unittest.TestCase):
             direct.close()
 
             client = StreamClient(str(sock_path))
+            client.connect().settimeout(3)
             client.send({"type": "PING"}, b"abc")
             header, payload = client.recv()
             self.assertEqual(header["type"], "PONG")

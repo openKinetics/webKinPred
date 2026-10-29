@@ -5,6 +5,14 @@ from utils.stats import cmd_stats
 
 
 def main():
+    import os, json, sys
+    if os.environ.get("SEQMAP_MANIFEST_PATH") and "batch-get-or-create" in sys.argv:
+        mapping = json.loads(open(os.environ["SEQMAP_MANIFEST_PATH"]).read())
+        for line in sys.stdin:
+            sequence = line.strip()
+            if sequence:
+                print(mapping[sequence])
+        return
     p = argparse.ArgumentParser(description="Sequence ↔ ID resolver backed by SQLite (WAL).")
     p.add_argument("--db", default=DEFAULT_DB, help=f"Path to SQLite DB (default: {DEFAULT_DB})")
     sub = p.add_subparsers(dest="cmd", required=True)

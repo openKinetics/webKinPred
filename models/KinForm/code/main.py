@@ -421,6 +421,8 @@ def train(task: str, cfg_name: str, model_dir: Path, train_test_split: float = 1
 
 def predict(task: str, cfg_name: str, model_dir: Path, csv_out: Path, data_path: Path | None = None) -> None:
     model = joblib.load(model_dir / "model.joblib")
+    from tools.executor.policy import limit_estimator
+    model = limit_estimator(model)
     seqs, smis, y_true_log = get_dataset(task, data_path)
     no_ytrue = y_true_log is None
     cfg = CONFIG_MAP[cfg_name]

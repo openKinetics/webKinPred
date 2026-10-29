@@ -1,0 +1,15 @@
+# Release layer over the exact deployed web/worker image. This deliberately does
+# not execute Dockerfile.envs or modify any model-specific conda environment.
+ARG EXECUTION_BASE_IMAGE
+FROM ${EXECUTION_BASE_IMAGE}
+WORKDIR /app
+RUN pip install --no-cache-dir 'psycopg2-binary==2.9.13' 'psutil==7.2.2'
+COPY api ./api
+COPY tools ./tools
+COPY webKinPred ./webKinPred
+COPY db_models ./db_models
+COPY manage.py ./manage.py
+# These patches also need applying to the isolated model mount, if configured.
+COPY patches/models/ ./models/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+HEALTHCHECK NONE

@@ -27,6 +27,7 @@ import json
 from typing import Any
 
 import pandas as pd
+from django.conf import settings
 from api.models import Job
 from api.services.embedding_progress_service import get_embedding_progress
 from api.services.gpu_embed_service import get_gpu_status
@@ -576,6 +577,8 @@ def api_job_status(request, public_id):
         "queuePosition": get_queue_position(job),
         "progress": progress,
     }
+    from api.execution.status import execution_status
+    data.update(execution_status(job))
 
     try:
         stage_summary = get_progress_summary(job)
@@ -595,7 +598,7 @@ def api_job_status(request, public_id):
     progress["completedStageCount"] = stage_summary["completed_stage_count"]
     progress["totalStageCount"] = stage_summary["total_stage_count"]
 
-    embedding_progress = get_embedding_progress(job.public_id)
+    embedding_progress = None if settings.EXECUTION_V2_ENABLED else get_embedding_progress(job.public_id)
     if not embedding_progress:
         try:
             embedding_progress = get_active_stage_embedding(job)
@@ -621,7 +624,7 @@ def api_job_status(request, public_id):
         }
 
     try:
-        gpu_precompute = get_gpu_precompute_status(job.public_id)
+        gpu_precompute = None if settings.EXECUTION_V2_ENABLED else get_gpu_precompute_status(job.public_id)
     except Exception:
         gpu_precompute = None
     if gpu_precompute:

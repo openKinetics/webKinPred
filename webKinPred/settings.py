@@ -45,6 +45,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "api.execution.middleware.ExecutionMaintenanceMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "api.observability.middleware.RequestIDMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -304,3 +305,7 @@ LOGGING = {
         },
     },
 }
+
+# Apply execution configuration after all environment-specific overrides.
+from .execution_settings import configure as _configure_execution
+_configure_execution(globals())

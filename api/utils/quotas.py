@@ -103,10 +103,15 @@ def get_quota_usage(subject: str, daily_limit: int | None = None) -> dict:
     If ``daily_limit`` is not provided, the function falls back to the
     IP-based ApiUser lookup for backward compatibility.
     """
-    r = get_redis_connection("default")
-    key = _key(subject)
-    current_usage = r.get(key)
-    current_usage = int(current_usage) if current_usage else 0
+    from django.conf import settings
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.models import QuotaDay
+        current_usage = QuotaDay.objects.filter(subject=subject, day=datetime.now(timezone.utc).date()).values_list("used", flat=True).first() or 0
+    else:
+        r = get_redis_connection("default")
+        key = _key(subject)
+        current_usage = r.get(key)
+        current_usage = int(current_usage) if current_usage else 0
 
     if daily_limit is None:
         daily_limit = get_user_daily_limit(subject)
@@ -143,6 +148,11 @@ def reserve_or_reject(subject: str, requested: int, daily_limit: int | None = No
             if daily_limit <= 0:
                 return False, 0, _seconds_until_midnight_utc()
 
+    from django.conf import settings
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.quota import reserve
+        allowed, remaining = reserve(subject, requested, daily_limit)
+        return allowed, remaining, _seconds_until_midnight_utc()
     r = get_redis_connection("default")
     key = _key(subject)
     ttl = _seconds_until_midnight_utc()

@@ -64,7 +64,7 @@ class TargetInputDispatchTests(unittest.TestCase):
     def test_catpred_km_expands_and_returns_ordered_arrays(self):
         with patch(
             "api.tasks._invoke_method_prediction",
-            return_value=([1.0, 2.0, 3.0], {}),
+            return_value=([1.0, 2.0, 3.0], {}, {}),
         ) as invoke:
             result = _execute_target_batch(target="Km", **self.common)
 
@@ -89,7 +89,7 @@ class TargetInputDispatchTests(unittest.TestCase):
         }
         with patch(
             "api.tasks._invoke_method_prediction",
-            return_value=([1.0, 4.0, 3.0, 2.0], {}),
+            return_value=([1.0, 4.0, 3.0, 2.0], {}, {}),
         ) as invoke:
             result = _execute_target_batch(target="Km", **common)
 
@@ -115,7 +115,7 @@ class TargetInputDispatchTests(unittest.TestCase):
         }
         with patch(
             "api.tasks._invoke_method_prediction",
-            return_value=([2.0, 5.0], {}),
+            return_value=([2.0, 5.0], {}, {}),
         ) as invoke:
             result = _execute_target_batch(target="kcat", **common)
 

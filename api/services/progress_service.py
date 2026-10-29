@@ -30,6 +30,10 @@ def get_pid_key(session_id: str) -> str:
 
 
 def push_line(session_id: str, line: str):
+    from api.execution.context import current
+    if current.get() is not None:
+        current.get().emit("log", {"line": line[:2000]})
+        return
     if not session_id:
         return
     line = line.rstrip("\n")
@@ -89,6 +93,9 @@ def cancel_session(session_id: str):
 
 
 def is_cancelled(session_id: str) -> bool:
+    from api.execution.context import current
+    if current.get() is not None:
+        return False  # Cancellation is owned by the attempt supervisor.
     return bool(redis_conn.exists(get_cancel_key(session_id)))
 
 

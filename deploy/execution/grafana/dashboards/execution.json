@@ -1,0 +1,409 @@
+{
+  "uid": "webkinpred-execution",
+  "title": "webKinPred durable execution",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Jobs completed per hour",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_jobs_completed_last_hour",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Prediction units completed per hour",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_prediction_units_completed_last_hour",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Work stages by waiting reason",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (method,kind,state,waiting_reason) (webkinpred_execution_stages)",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Oldest unfinished job age",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_oldest_job_age_seconds",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "RAM reservations and observations",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_reserved{resource=\"ram\"} or webkinpred_execution_observed{resource=\"ram\"} or webkinpred_execution_budget{resource=\"ram\"}",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "CPU reservations and observations",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_reserved{resource=\"cpu\"} or webkinpred_execution_observed{resource=\"cpu\"} or webkinpred_execution_budget{resource=\"cpu\"}",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "VRAM reservations and observations",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_reserved{resource=\"vram\"} or webkinpred_execution_observed{resource=\"vram\"}",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Free GPU memory and GPU utilization",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_host_vram_free or webkinpred_execution_host_gpu_utilization",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Free disk and retained artifact bytes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_host_disk_free or webkinpred_execution_artifact_bytes",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Resource retries and OOM events",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(webkinpred_execution_retries) or webkinpred_execution_oom_attempts",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Held, unprofiled and uncertain work",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(webkinpred_execution_stages{state=\"held\"}) or webkinpred_execution_unprofiled_stages or webkinpred_execution_uncertain_attempts",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Executor heartbeat age",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_host_heartbeat_age_seconds",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Control-plane request latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_duration_seconds{job=\"webkinpred-execution\"}",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Database metrics query time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_scrape_duration_seconds",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Control-plane availability",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"webkinpred-execution\"}",
+          "legendFormat": "{{host}} {{method}} {{resource}} {{state}} {{waiting_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Artifact transfer duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_transfer_seconds_last_hour",
+          "legendFormat": "{{host}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Transferred bytes and local cache hit ratio",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_transferred_bytes_last_hour or webkinpred_execution_cache_hit_ratio_last_hour",
+          "legendFormat": "{{host}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Unattributed GPU memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "execution-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "webkinpred_execution_unattributed_vram",
+          "legendFormat": "{{host}}"
+        }
+      ]
+    }
+  ]
+}

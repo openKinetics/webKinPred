@@ -209,7 +209,7 @@ class CacheWrapperTests(unittest.TestCase):
         def fake_engine(desc, sequences, public_id, target, **kwargs):
             substrates = kwargs.get("substrates", [])
             self.engine_calls.append(list(substrates))
-            return [float(len(str(s))) for s in substrates], {}
+            return [float(len(str(s))) for s in substrates], {}, None
 
         self._patches = [
             ("api.services.prediction_store", "get_many", fake_get_many),
@@ -236,7 +236,7 @@ class CacheWrapperTests(unittest.TestCase):
         desc = _FakeDesc(col_to_kwarg={"Substrate": "substrates"}, target_kwargs={"kcat": {}})
         sequences = sequences or ["MAAA"] * len(substrates)
         stats = {"hits": 0, "misses": 0, "units": 0}
-        preds, invalid = self.tasks._invoke_method_prediction(
+        preds, invalid, _extra = self.tasks._invoke_method_prediction(
             desc,
             sequences,
             "job1",
@@ -293,7 +293,7 @@ class CacheWrapperTests(unittest.TestCase):
 
         def invalid_engine(desc, sequences, public_id, target, **kwargs):
             self.engine_calls.append(list(sequences))
-            return [None] * len(sequences), {index: reason for index in range(len(sequences))}
+            return [None] * len(sequences), {index: reason for index in range(len(sequences))}, None
 
         self.tasks._run_method_engine = invalid_engine
         predictions, invalid, stats = self._invoke(["CCO"], sequences=["MAAX"])
@@ -315,7 +315,7 @@ class CacheWrapperTests(unittest.TestCase):
 
         def failed_engine(desc, sequences, public_id, target, **kwargs):
             self.engine_calls.append(list(sequences))
-            return [None] * len(sequences), {0: reason}
+            return [None] * len(sequences), {0: reason}, None
 
         self.tasks._run_method_engine = failed_engine
         _predictions, invalid, _stats = self._invoke(["CCO"])
@@ -333,7 +333,7 @@ class CacheWrapperTests(unittest.TestCase):
 
         def blank_engine(desc, sequences, public_id, target, **kwargs):
             self.engine_calls.append(list(sequences))
-            return [None] * len(sequences), {}
+            return [None] * len(sequences), {}, None
 
         self.tasks._run_method_engine = blank_engine
         predictions, invalid, stats = self._invoke(["CCO"])
@@ -370,7 +370,7 @@ class CacheWrapperTests(unittest.TestCase):
         prediction_store.get_many = lambda _keys: self.fail("cache-only mode read the store")
         self.engine_calls.clear()
         try:
-            predictions, invalid = self.tasks._invoke_method_prediction(
+            predictions, invalid, _extra = self.tasks._invoke_method_prediction(
                 desc,
                 ["MAAA", "MAAA"],
                 "job1",
@@ -422,7 +422,7 @@ class CacheWrapperTests(unittest.TestCase):
             True,
         )
         self.engine_calls.clear()
-        predictions, invalid = self.tasks._invoke_method_prediction(
+        predictions, invalid, _extra = self.tasks._invoke_method_prediction(
             desc,
             ["MAAA"],
             "job1",

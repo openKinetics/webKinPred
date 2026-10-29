@@ -1,0 +1,21 @@
+# Use the host's existing read-only model environments. Debian 12's loader
+# supports older published PyTorch libraries that request an executable stack;
+# newer glibc loaders reject those libraries before model initialization.
+ARG EXECUTOR_IMAGE
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm
+FROM ${EXECUTOR_IMAGE} AS supervisor
+FROM ${PYTHON_IMAGE}
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=supervisor /usr/bin/docker /usr/bin/docker
+COPY requirements.app.txt requirements.executor.txt ./
+RUN pip install --no-cache-dir -r requirements.executor.txt psycopg2-binary==2.9.13
+COPY api ./api
+COPY tools ./tools
+COPY webKinPred ./webKinPred
+COPY db_models ./db_models
+COPY manage.py ./manage.py
+COPY patches/models/ ./models/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+HEALTHCHECK NONE

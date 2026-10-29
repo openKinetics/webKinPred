@@ -243,6 +243,11 @@ def build_unit_keys(
             substrate_canon=substrate_canon,
             products_canon=products_canon,
         )
+        from api.execution.context import current
+        context = current.get()
+        if context is not None and context.cache_namespace:
+            keys[index] = sha256_text(json.dumps([keys[index], context.cache_namespace,
+                context.unit_context.get(str(index))], sort_keys=True))
         components[index] = (sequence_sha, substrate_canon, products_canon)
 
     return keys, components, params_fp
@@ -295,6 +300,9 @@ def get_many(keys: Iterable[str]) -> dict[str, float | CachedFailure]:
     Malformed rows are ignored. Reads are chunked to stay within SQLite's host-
     parameter limit. Best-effort: any error returns an empty dict.
     """
+    from api.execution.context import current
+    if current.get() is not None:
+        return {key: current.get().cache[key] for key in keys if key in current.get().cache}
     from api.models import PredictionStore
 
     unique_keys = list({k for k in keys if k})
@@ -334,6 +342,12 @@ def upsert_many(rows: Sequence[dict[str, Any]]) -> int:
     Uses one ``INSERT ... ON CONFLICT(lookup_key) DO UPDATE`` statement so
     concurrent jobs that resolve the same miss converge on one outcome.
     """
+    from api.execution.context import current
+    if current.get() is not None:
+        # Only finite successful values cross the execution boundary automatically.
+        accepted = [row for row in rows if coerce_value(row.get("value")) is not None and not row.get("failure_reason")]
+        current.get().cache_writes.extend(accepted)
+        return len(accepted)
     from api.models import PredictionStore
 
     if not rows:
@@ -448,6 +462,11 @@ def get_similarity_many(
     by raw sequence for the hits only. ``(None, None)`` is a negative cache hit
     that should render as blank similarity cells.
     """
+    from api.execution.context import current
+    if current.get() is not None:
+        return {seq: current.get().similarity_cache[similarity_key(sha, dataset_label)]
+                for seq, sha in sequence_sha_by_seq.items()
+                if similarity_key(sha, dataset_label) in current.get().similarity_cache}
     from api.models import SimilarityStore
 
     if not sequence_sha_by_seq:
@@ -487,6 +506,11 @@ def upsert_similarity_many(
     ``entries`` is a list of (sequence, sequence_sha256, mean, max). ``None``
     mean/max values intentionally cache blank output cells. Best-effort.
     """
+    from api.execution.context import current
+    if current.get() is not None:
+        good = [entry for entry in entries if entry[2] is not None and entry[3] is not None]
+        current.get().similarity_writes.extend([[dataset_label, *entry] for entry in good])
+        return len(good)
     from api.models import SimilarityStore
 
     if not entries:

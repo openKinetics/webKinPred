@@ -511,3 +511,8 @@ def get_active_stage_embedding(job: Job) -> dict[str, Any] | None:
     if not embedding:
         return None
     return embedding
+
+# Isolated stage runners emit events; they never reset shared job progress.
+from api.execution.context import contextual_progress as _contextual_progress
+for _name in ('initialise_job_progress_stages', 'mark_stage_running', 'mark_stage_completed', 'mark_stage_failed', 'mark_running_stage_failed', 'reset_stage_prediction_metrics', 'increment_stage_validation', 'set_stage_prediction_total', 'set_stage_prediction_progress', 'set_stage_prediction_snapshot', 'set_stage_embedding_progress', 'set_stage_embedding_state'):
+    globals()[_name] = _contextual_progress(globals()[_name])

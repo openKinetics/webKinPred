@@ -2268,6 +2268,11 @@ def run_kinform_parallel_pipeline(
     seq_id_to_seq: dict[str, str],
     job_id: str | None = None,
 ) -> None:
+    if env.get("WEBKINPRED_EXECUTION_POLICY") == "gpu-only":
+        raise RuntimeError(
+            "Compound KinForm workers require a validated gang reservation; "
+            "use the durable file-backed stage graph"
+        )
     stream_enabled = _env_bool("KINFORM_PARALLEL_STREAM_ENABLE", False)
     stream_allow_fallback = _env_bool("KINFORM_PARALLEL_STREAM_ALLOW_LEGACY_FALLBACK", True)
 

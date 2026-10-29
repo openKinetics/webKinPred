@@ -31,6 +31,9 @@ from api.utils.validation_utils import (
     validate_products_column,
 )
 from django.http import JsonResponse
+from contextlib import nullcontext
+from functools import wraps
+from django.db import transaction
 
 _log = logging.getLogger(__name__)
 
@@ -63,6 +66,16 @@ def process_job_submission(
     return process_job_submission_from_params(params, file, ip_address)
 
 
+def _submission_transaction(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        from django.conf import settings
+        with transaction.atomic() if settings.EXECUTION_V2_ENABLED else nullcontext():
+            return function(*args, **kwargs)
+    return wrapped
+
+
+@_submission_transaction
 def process_job_submission_from_params(
     params: Dict[str, Any],
     file,
@@ -103,7 +116,7 @@ def process_job_submission_from_params(
         On failure: (JsonResponse with error, None)
     """
     # --- Validate parameters ---------------------------------------------------
-
+    from django.conf import settings
     param_error = validate_prediction_parameters(
         params["targets"],
         params["methods"],
@@ -114,6 +127,17 @@ def process_job_submission_from_params(
     seq_handling_error = validate_sequence_handling_option(params["handle_long_sequences"])
     if seq_handling_error:
         return JsonResponse({"error": seq_handling_error}, status=400), None
+
+    if settings.EXECUTION_V2_ENABLED:
+        if params.get("disable_gpu_precompute"):
+            return JsonResponse({"error": "GPU embeddings are required"}, status=400), None
+        if any(
+            params["methods"][target] not in settings.EXECUTION_MODEL_VERSIONS
+            for target in params["targets"]
+        ):
+            response = JsonResponse({"error": "Execution configuration is being prepared"}, status=503)
+            response["Retry-After"] = "300"
+            return response, None
 
     # --- Parse and validate the CSV --------------------------------------------
 
@@ -204,6 +228,10 @@ def process_job_submission_from_params(
         user,
         quota_subject=quota_subject,
     )
+    from django.conf import settings
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.quota import bind
+        bind(job)
     # New jobs can affect About-page totals once processed; mark cache stale.
     mark_about_stats_cache_stale()
 
@@ -334,6 +362,13 @@ def dispatch_prediction_task(
         params: Job parameters
         experimental_results: Pre-fetched experimental results or None
     """
+    from django.conf import settings
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.dispatch import submit
+        submit(public_id, params["targets"], params["methods"], experimental_results,
+               params.get("canonicalize_substrates", True), params.get("include_similarity_columns", True),
+               params.get("disable_gpu_precompute", False), params.get("recon_xkg", False))
+        return
     targets = params["targets"]
     methods = params["methods"]
     canonicalize_substrates = params.get("canonicalize_substrates", True)
@@ -379,6 +414,9 @@ def dispatch_recon_xkg_cache_task(
     include_similarity_columns = params.get("include_similarity_columns", True)
     disable_gpu_precompute = params.get("disable_gpu_precompute", False)
 
+    from django.conf import settings
+    if settings.EXECUTION_V2_ENABLED:
+        return dispatch_prediction_task(public_id, params, experimental_results)
     result = run_recon_xkg_cache_prediction.apply_async(
         args=[
             public_id,

@@ -78,8 +78,11 @@ def require_api_key(view_func):
             )
 
         # Record the most recent use of this key (non-blocking — best effort).
-        api_key.last_used = timezone.now()
-        api_key.save(update_fields=["last_used"])
+        from api.execution.middleware import maintenance_active
+
+        if not maintenance_active():
+            api_key.last_used = timezone.now()
+            api_key.save(update_fields=["last_used"])
 
         # Attach authenticated context for downstream handlers.
         from api.utils.quotas import (

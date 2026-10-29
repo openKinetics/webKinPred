@@ -52,7 +52,7 @@ def split_sequence(sequence, ngram):
     for i in range(len(sequence) - ngram + 1):
         try:
             words.append(word_dict[sequence[i : i + ngram]])
-        except:
+        except KeyError:
             word_dict[sequence[i : i + ngram]] = 0
             words.append(word_dict[sequence[i : i + ngram]])
 
@@ -121,7 +121,7 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
                 # fingerprints.append(fingerprint_dict.get(fingerprint))
                 try:
                     fingerprints.append(fingerprint_dict[fingerprint])
-                except:
+                except KeyError:
                     fingerprint_dict[fingerprint] = 0
                     fingerprints.append(fingerprint_dict[fingerprint])
 
@@ -137,7 +137,7 @@ def extract_fingerprints(atoms, i_jbond_dict, radius):
                     # edge = edge_dict.get((both_side, edge))
                     try:
                         edge = edge_dict[(both_side, edge)]
-                    except:
+                    except KeyError:
                         edge_dict[(both_side, edge)] = 0
                         edge = edge_dict[(both_side, edge)]
 
@@ -189,7 +189,10 @@ def get_smiles(name):
         # redis_cli.set(name, smiles, ex=None)
 
         # print smiles
-    except:
+    except Exception as error:
+        from tools.executor.policy import propagate_resource_error
+
+        propagate_resource_error(error)
         smiles = None
 
     # name_smiles[name] = smiles
@@ -316,7 +319,10 @@ def main():
                     print("Warning: No SMILES found for", name)
                     line_item = [name, smiles, sequence, Kcat_value]
                     outfile.write("\t".join(line_item) + "\n")
-            except:
+            except Exception as error:
+                from tools.executor.policy import propagate_resource_error
+
+                propagate_resource_error(error)
                 Kcat_value = "None"
                 line_item = [name, smiles, sequence, Kcat_value]
                 outfile.write("\t".join(line_item) + "\n")

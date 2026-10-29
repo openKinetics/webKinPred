@@ -69,6 +69,9 @@ else:
 
 def load_smiles_model():
     """Load SMILES model once and return components."""
+    from tools.executor.policy import cache_only
+    if cache_only():
+        return None, None
     vocab = WordVocab.load_vocab(VOCAB_PATH)
     trfm = TrfmSeq2seq(len(vocab), 256, len(vocab), 4)
     trfm.load_state_dict(
@@ -89,6 +92,9 @@ def _torch_load_compat(path, map_location=None):
 
 def smiles_to_vec(Smiles, vocab, trfm):
     """Convert SMILES to vectors using pre-loaded models."""
+    from tools.executor.policy import cache_only, molecular_vectors
+    if cache_only():
+        return molecular_vectors("UniKP", Smiles)
     pad_index = 0
     unk_index = 1
     eos_index = 2
@@ -124,6 +130,8 @@ def smiles_to_vec(Smiles, vocab, trfm):
 
 def load_t5_model():
     """Load T5 model once and return components."""
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     print("Loading T5 model...")
     gc.collect()
     if torch.cuda.is_available():
@@ -152,6 +160,8 @@ def load_t5_model():
         print("T5 model loaded and moved to device.")
         return tokenizer, model, device
     except Exception as e:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(e)
         raise RuntimeError(f"Failed to load T5 model: {e}")
 
 
@@ -326,6 +336,8 @@ def main(input_path, output_path, task_type):
         )
     with open(model_path, "rb") as f:
         model = pickle.load(f)
+    from tools.executor.policy import limit_estimator
+    model = limit_estimator(model)
 
     if total_predictions:
         # Sequence vectors are loaded/computed once for all rows.
@@ -352,6 +364,8 @@ def main(input_path, output_path, task_type):
                 )
                 predictions[start:end] = batch_preds.tolist()
             except Exception as batch_error:
+                from tools.executor.policy import propagate_resource_error
+                propagate_resource_error(batch_error)
                 print(f"Batch {start + 1}-{end} failed: {batch_error}")
                 # Keep per-row fallback so one bad sample does not fail the whole job.
                 for row_idx in range(start, end):
@@ -365,6 +379,8 @@ def main(input_path, output_path, task_type):
                         )
                         predictions[row_idx] = float(single_pred[0])
                     except Exception as row_error:
+                        from tools.executor.policy import propagate_resource_error
+                        propagate_resource_error(row_error)
                         print(f"Error processing sample {row_idx}: {row_error}")
                         predictions[row_idx] = None
 

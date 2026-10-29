@@ -97,11 +97,15 @@ def substrate_as_smiles(representation, canonicalize=True):
         if mol is None:
             return None
         return Chem.MolToSmiles(mol, canonical=canonicalize)
-    except Exception:
+    except Exception as error:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(error)
         return None
 
 
 def load_prott5():
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     from transformers import T5EncoderModel, T5Tokenizer
 
     local_path = str(os.environ.get("IECATA_PROTT5_LOCAL_PATH", "")).strip()
@@ -185,6 +189,9 @@ def ensure_cached_embedding(
 
 def cleanup_cached_embeddings(embed_dir: str, seq_ids: set[str]) -> None:
     """Delete ephemeral IECata residue embeddings and manifest entries."""
+    from tools.executor.policy import cache_only
+    if cache_only():
+        return
     if not embed_dir or not seq_ids:
         return
 
@@ -360,7 +367,9 @@ def main():
                     npy = ensure_cached_embedding(
                         sequence, seq_id, EMBED_DIR, tokenizer, prott5_model
                     )
-                except Exception:
+                except Exception as error:
+                    from tools.executor.policy import propagate_resource_error
+                    propagate_resource_error(error)
                     invalid_indices.append(idx)
                     continue
 
@@ -383,7 +392,9 @@ def main():
                 orig_idx = index_map[i]
                 try:
                     predictions[orig_idx] = float(log_val)
-                except Exception:
+                except Exception as error:
+                    from tools.executor.policy import propagate_resource_error
+                    propagate_resource_error(error)
                     predictions[orig_idx] = None
                     if orig_idx not in invalid_indices:
                         invalid_indices.append(orig_idx)

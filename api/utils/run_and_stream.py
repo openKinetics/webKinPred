@@ -24,6 +24,8 @@ def run_and_stream(
     push_line(session_id, san_line)
 
     pid_key = get_pid_key(session_id)
+    from api.execution.context import current
+    isolated = current.get() is not None
     proc = None
     rc: int | None = None
     try:
@@ -39,7 +41,8 @@ def run_and_stream(
             preexec_fn=os.setsid,
         )
         # Store the PID in Redis with a 15-minute expiry as a safety net
-        redis_conn.set(pid_key, proc.pid, ex=900)
+        if not isolated:
+            redis_conn.set(pid_key, proc.pid, ex=900)
         if proc.stdout is not None:
             for raw in proc.stdout:
                 raw = raw.rstrip("\n")
@@ -59,7 +62,8 @@ def run_and_stream(
                     "pid": proc.pid,
                 },
             )
-            redis_conn.delete(pid_key)
+            if not isolated:
+                redis_conn.delete(pid_key)
 
     if is_cancelled(session_id):
         _log.info(

@@ -404,7 +404,7 @@ def get_queue_position(job) -> Optional[int]:
     """
     from api.models import Job as JobModel
 
-    if job.status != "Pending":
+    if settings.EXECUTION_V2_ENABLED or job.status != "Pending":
         return None
     ahead = JobModel.objects.filter(
         status="Pending",
@@ -457,6 +457,8 @@ def create_job_status_response_data(job) -> Dict[str, Any]:
         "total_predictions": job.total_predictions,
         "predictions_made": job.predictions_made,
     }
+    from api.execution.status import execution_status
+    data.update(execution_status(job))
     try:
         stage_summary = get_progress_summary(job)
     except Exception:
@@ -471,7 +473,7 @@ def create_job_status_response_data(job) -> Dict[str, Any]:
     data["completed_stage_count"] = stage_summary["completed_stage_count"]
     data["total_stage_count"] = stage_summary["total_stage_count"]
 
-    embedding_progress = get_embedding_progress(job.public_id)
+    embedding_progress = None if settings.EXECUTION_V2_ENABLED else get_embedding_progress(job.public_id)
     if not embedding_progress:
         try:
             embedding_progress = get_active_stage_embedding(job)

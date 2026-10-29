@@ -38,6 +38,9 @@ from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 import torch
+import sys as _execution_sys
+_execution_sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from tools.executor.policy import require_cuda
 from tqdm import tqdm
 from transformers import T5EncoderModel, T5Tokenizer
 
@@ -128,13 +131,7 @@ def _save_array_atomic(path: Path, arr: np.ndarray) -> None:
 
 
 def _require_cuda_if_requested(context: str) -> None:
-    raw = str(os.environ.get("KINFORM_REQUIRE_CUDA", "")).strip().lower()
-    require_cuda = raw in {"1", "true", "yes", "on"}
-    if require_cuda and not torch.cuda.is_available():
-        raise RuntimeError(
-            f"CUDA is required for {context} (KINFORM_REQUIRE_CUDA=1), "
-            "but no CUDA device is available."
-        )
+    require_cuda(torch)
 
 
 # --------------------------------------------------------------------------- #

@@ -91,6 +91,11 @@ def normalise_sequences_for_method(method_key: str, sequences: Iterable[str]) ->
 
 
 def resolve_seq_ids_via_cli(sequences: list[str], tools_path: Path, media_path: Path) -> list[str]:
+    import os
+    import json
+    if os.environ.get("SEQMAP_MANIFEST_PATH"):
+        mapping = json.loads(Path(os.environ["SEQMAP_MANIFEST_PATH"]).read_text())
+        return [mapping[sequence] for sequence in sequences]
     seqmap_cli = tools_path / "seqmap" / "main.py"
     seqmap_db = media_path / "sequence_info" / "seqmap.sqlite3"
     if not seqmap_cli.exists():

@@ -503,14 +503,42 @@ function JobStatus() {
                   {queueTime && computeTime && <div className="trk__timing-div" />}
                   {computeTime && (
                     <div className="trk__clock">
-                      <div className="trk__clock-lbl">Compute Time</div>
+                      <div className="trk__clock-lbl">{jobStatus.execution_state ? 'Processing Elapsed' : 'Compute Time'}</div>
                       <div className="trk__clock-val">{computeTime}</div>
-                      <div className="trk__clock-sub">Active processing time on server</div>
+                      <div className="trk__clock-sub">{jobStatus.execution_state ? 'Time since processing began' : 'Active processing time on server'}</div>
                     </div>
                   )}
                 </div>
               )}
 
+              {typeof jobStatus?.active_execution_seconds === 'number' && (
+                <div className="trk__timing">
+                  <div className="trk__clock">
+                    <div className="trk__clock-lbl">Active Execution</div>
+                    <div className="trk__clock-val">{formatDuration(moment.duration(jobStatus.active_execution_seconds * 1000))}</div>
+                    <div className="trk__clock-sub">Time spent executing work</div>
+                  </div>
+                  <div className="trk__timing-div" />
+                  <div className="trk__clock">
+                    <div className="trk__clock-lbl">Resource Wait</div>
+                    <div className="trk__clock-val">{formatDuration(moment.duration((jobStatus.resource_wait_seconds ?? 0) * 1000))}</div>
+                    <div className="trk__clock-sub">Time waiting for available capacity</div>
+                  </div>
+                </div>
+              )}
+
+              {jobStatus?.execution_state && !['completed', 'failed'].includes(jobStatus.execution_state) && (
+                <div className="trk__pending" role="status" aria-live="polite">
+                  <span className="trk__pending-text">{{
+                    waiting_gpu: 'Waiting for GPU capacity',
+                    waiting_cpu: 'Waiting for processing capacity',
+                    paused: 'Processing is paused for maintenance',
+                    retrying: 'Recovering interrupted work; completed results are preserved',
+                    needs_attention: 'Processing is held for operator attention; your job is preserved',
+                    running: 'Processing your job',
+                  }[jobStatus.execution_state] || 'Waiting for available resources'}</span>
+                </div>
+              )}
               {/* ── Pending: bouncing dots + queue position ── */}
               {jobStatus?.status === 'Pending' && (
                 <div className="trk__pending">

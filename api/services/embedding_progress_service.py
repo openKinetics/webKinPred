@@ -172,6 +172,9 @@ def start_embedding_tracking(
     Returns True when tracking was started or initialized (including immediate
     done state), False when tracking is not applicable or setup failed.
     """
+    from api.execution.context import current
+    if current.get() is not None:
+        return False
     if not valid_sequences:
         clear_embedding_progress(job_public_id)
         _sync_stage_embedding_state(
@@ -249,6 +252,9 @@ def start_embedding_tracking(
 
 
 def stop_embedding_tracking(job_public_id: str, final_state: str = "done") -> None:
+    from api.execution.context import current
+    if current.get() is not None:
+        return False
     with _TRACKERS_LOCK:
         tracker = _TRACKERS.pop(job_public_id, None)
     if tracker is not None:

@@ -17,7 +17,8 @@ Run with:
 
 import ast
 
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from api.models import Job
@@ -55,6 +56,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if settings.EXECUTION_V2_ENABLED:
+            raise CommandError(
+                "Durable execution preserves job identities and request options. "
+                "Use execution_admin retry/resume; legacy queue purge is disabled."
+            )
         dry_run = options["dry_run"]
         specific_ids = options.get("ids")
 

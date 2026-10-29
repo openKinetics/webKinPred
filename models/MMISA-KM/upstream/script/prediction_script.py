@@ -300,6 +300,10 @@ def _predict_rows(rows: list[dict[str, Any]]) -> tuple[list[Any], list[int]]:
     try:
         model = _load_model(device)
     except Exception as exc:
+        if os.environ.get("WEBKINPRED_EXECUTION_POLICY") == "gpu-only":
+            raise
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         logger.error("Model load failed — marking all rows invalid: %s", exc)
         invalid_indices = list(range(n_total))
         print(f"Progress: {n_total}/{n_total}", flush=True)
@@ -350,6 +354,8 @@ def _predict_rows(rows: list[dict[str, Any]]) -> tuple[list[Any], list[int]]:
             predictions[idx] = float(10.0 ** pred_log)
 
         except Exception as exc:
+            from tools.executor.policy import propagate_resource_error
+            propagate_resource_error(exc)
             logger.warning("Row %d failed: %s", idx, exc)
             invalid_indices.append(idx)
             predictions[idx] = None
@@ -401,5 +407,7 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         print(f"[MMISA-KM] FATAL: {exc}", file=sys.stderr, flush=True)
         raise

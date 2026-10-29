@@ -149,10 +149,12 @@ def _validate_stats(stats: object, stats_path: Path) -> dict[str, float]:
 class CatRangeInference:
     """Run CatRange kcat/KM bin prediction from raw sequence and SMILES."""
 
-    def __init__(self, models_dir: str | Path, device: str = "auto", verbose: bool = True):
+    def __init__(self, models_dir: str | Path, device: str = "auto", verbose: bool = True,
+                 *, encoder_only: bool = False):
         _require_runtime()
         self.models_dir = Path(models_dir)
-        _ensure_model_artifacts(self.models_dir)
+        if not encoder_only:
+            _ensure_model_artifacts(self.models_dir)
         if device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -181,12 +183,15 @@ class CatRangeInference:
         self._esmc.eval()
 
     def _load_chemberta(self) -> None:
+        from tools.executor.policy import cache_only
+        if cache_only():
+            return
         if self._chem_model is not None:
             return
         self._log("Loading ChemBERTa...")
         from transformers import AutoModel, AutoTokenizer
 
-        repo = "seyonec/PubChem10M_SMILES_BPE_450k"
+        repo = os.environ.get("CATRANGE_CHEMBERTA_PATH", "seyonec/PubChem10M_SMILES_BPE_450k")
         self._chem_tokenizer = AutoTokenizer.from_pretrained(repo)
         self._chem_model = AutoModel.from_pretrained(repo).to(self.device)
         self._chem_model.eval()
@@ -201,6 +206,8 @@ class CatRangeInference:
             torch.load(stats_path, map_location="cpu", weights_only=False), stats_path
         )
         model = joblib.load(model_path)
+        from tools.executor.policy import limit_estimator
+        model = limit_estimator(model)
         self._stats[parameter] = stats
         self._models[parameter] = model
 
@@ -218,6 +225,12 @@ class CatRangeInference:
 
     @torch.no_grad()
     def embed_smiles(self, smiles: str) -> np.ndarray:
+        from tools.executor.policy import cache_only, molecular_vectors, DeterministicEmbeddingInputError
+        if cache_only():
+            try:
+                return molecular_vectors("CatRange", [smiles])[0]
+            except DeterministicEmbeddingInputError as exc:
+                raise CatRangeInputError(str(exc)) from exc
         self._load_chemberta()
         text = str(smiles).strip()
         if not text:

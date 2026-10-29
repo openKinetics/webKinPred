@@ -1,0 +1,47 @@
+groups:
+  - name: webkinpred-execution
+    rules:
+      - alert: ExecutionControlUnavailable
+        expr: up{job="webkinpred-execution"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Execution control plane or metrics database is unavailable"}
+      - alert: ExecutionHostUnavailable
+        expr: webkinpred_execution_host_heartbeat_age_seconds > 30
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Executor heartbeat is stale; preserve uncertain reservations"}
+      - alert: ExecutionOwnershipUncertain
+        expr: webkinpred_execution_uncertain_attempts + webkinpred_execution_expired_live_attempts > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Reconcile executor ownership before releasing reservations"}
+      - alert: ExecutionProfileBreach
+        expr: webkinpred_execution_reservation_breaches > 0
+        for: 15s
+        labels: {severity: critical}
+        annotations: {summary: "Observed attempt resources exceed their reservations"}
+      - alert: ExecutionDiskPressure
+        expr: webkinpred_execution_host_disk_free < webkinpred_execution_disk_headroom + 1073741824
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Executor disk is approaching its admission headroom"}
+      - alert: ExecutionProfileNeedsAttention
+        expr: webkinpred_execution_suspended_profiles + webkinpred_execution_unprofiled_stages > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Work is waiting for a validated resource profile"}
+      - alert: ExecutionRepeatedOOM
+        expr: delta(webkinpred_execution_oom_attempts[15m]) >= 3
+        labels: {severity: critical}
+        annotations: {summary: "Three or more contained OOM events occurred in fifteen minutes"}
+      - alert: ExecutionOldWaitingJob
+        expr: webkinpred_execution_oldest_job_age_seconds{state=~"ready|held"} > 21600
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "An unfinished job has waited more than six hours"}
+      - alert: ExecutionLegacyConsumerRunning
+        expr: webkinpred_execution_legacy_consumers > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Legacy consumers must stop before durable executor admissions"}

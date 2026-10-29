@@ -160,6 +160,10 @@ def kcat_prediction_batch(substrates, products, enzymes):
                     predictions[global_idx] = float(kcat)
 
         except Exception as e:
+
+            from tools.executor.policy import propagate_resource_error
+
+            propagate_resource_error(e)
             print(f"Error processing batch {start}-{end}: {e}")
         finally:
             print(f"Progress: {end}/{total_predictions} predictions made", flush=True)
@@ -191,6 +195,8 @@ def predict_kcat(X):
         )
     )
     dX = xgb.DMatrix(X)
+    from tools.executor.policy import limit_estimator
+    bst = limit_estimator(bst)
     kcats = 10 ** bst.predict(dX)
     return kcats
 

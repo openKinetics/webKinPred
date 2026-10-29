@@ -227,6 +227,10 @@ def run_prediction(
     experimental_results : list | None
         Pre-fetched experimental values to merge into the output, or None.
     """
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.dispatch import submit
+        submit(public_id, [target], {target: method_key}, {target: experimental_results or []}, canonicalize_substrates, include_similarity_columns, disable_gpu_precompute, False)
+        return None
     job = Job.objects.get(public_id=public_id)
     _safe_clear_gpu_precompute_status(public_id)
     job.status = "Processing"
@@ -295,6 +299,10 @@ def run_both_prediction(
     experimental_results : list | None
         Pre-fetched experimental values to merge into the output, or None.
     """
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.dispatch import submit
+        submit(public_id, ["kcat", "Km"], {"kcat": kcat_key, "Km": km_key}, experimental_results or {}, canonicalize_substrates, include_similarity_columns, disable_gpu_precompute, False)
+        return None
     job = Job.objects.get(public_id=public_id)
     _safe_clear_gpu_precompute_status(public_id)
     job.status = "Processing"
@@ -370,6 +378,10 @@ def run_multi_prediction(
     experimental_results : dict | None
         Optional pre-fetched experimental rows keyed by target.
     """
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.dispatch import submit
+        submit(public_id, targets, methods, experimental_results, canonicalize_substrates, include_similarity_columns, disable_gpu_precompute, recon_xkg)
+        return None
     job = Job.objects.get(public_id=public_id)
     try:
         execute_multi_prediction_job(
@@ -422,6 +434,10 @@ def run_recon_xkg_cache_prediction(
     or cache-only assembly failure falls back to the normal ReconXKG task, which
     computes only cache misses and writes them back.
     """
+    if settings.EXECUTION_V2_ENABLED:
+        from api.execution.dispatch import submit
+        submit(public_id, targets, methods, experimental_results, canonicalize_substrates, include_similarity_columns, disable_gpu_precompute, True)
+        return None
     job = Job.objects.get(public_id=public_id)
     if job.status == "Completed":
         _log.info(
@@ -1635,6 +1651,21 @@ def _invoke_method_prediction(
         raise ReconXkgCacheOnlyMiss(
             "Cache-only prediction execution requires ReconXKG mode."
         )
+    from api.execution.context import current
+    execution_context = current.get()
+    if execution_context is not None and len(sequences) > execution_context.unit_batch_size:
+        from api.execution.units import invoke_bounded
+        return invoke_bounded(
+            _invoke_method_prediction, execution_context, desc, sequences, call_kwargs,
+            {"public_id": public_id, "target": target,
+             "canonicalize_substrates": canonicalize_substrates,
+             "disable_gpu_precompute": disable_gpu_precompute, "recon_xkg": recon_xkg,
+             "cache_stats": cache_stats, "cache_snapshot": cache_snapshot, "cache_only": cache_only},
+        )
+    if current.get() is not None and desc.key == "CatRange":
+        # The historical scalar cache cannot represent class/range annotations.
+        # Keep full scientific output until a compatible richer cache is validated.
+        recon_xkg = False
     if not recon_xkg:
         return _run_method_engine(
             desc,
@@ -1868,7 +1899,10 @@ def _invoke_method_prediction_cached(
             else:
                 miss_kwargs[kwarg] = value
 
-        miss_preds, miss_invalid = _run_method_engine(
+        from api.execution.context import current
+        if current.get() is not None and current.get().select_units:
+            current.get().select_units(miss_indices)
+        miss_preds, miss_invalid, _miss_extra = _run_method_engine(
             desc,
             miss_sequences,
             public_id,

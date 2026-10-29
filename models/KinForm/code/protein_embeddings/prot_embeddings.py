@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Dict, Optional
 from tqdm import tqdm
 import torch
+import sys as _execution_sys
+_execution_sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from tools.executor.policy import require_cuda
 import pickle
 import gc
 
@@ -61,13 +64,7 @@ def _weighted_mean(arr: np.ndarray, w: np.ndarray, normalize: bool = True) -> np
 
 
 def _require_cuda_if_requested(context: str) -> None:
-    raw = str(os.environ.get("KINFORM_REQUIRE_CUDA", "")).strip().lower()
-    require_cuda = raw in {"1", "true", "yes", "on"}
-    if require_cuda and not torch.cuda.is_available():
-        raise RuntimeError(
-            f"CUDA is required for {context} (KINFORM_REQUIRE_CUDA=1), "
-            "but no CUDA device is available."
-        )
+    require_cuda(torch)
 
 
 def _save_array_atomic(path: Path, arr: np.ndarray) -> None:

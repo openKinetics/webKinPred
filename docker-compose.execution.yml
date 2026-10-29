@@ -1,0 +1,176 @@
+# Explicit overlay, never started by the legacy deploy.sh path.
+# docker compose -f docker-compose.prod.yml -f docker-compose.execution.yml ...
+x-execution-env: &execution-env
+  EXECUTION_V2_ENABLED: ${EXECUTION_V2_ENABLED:-0}
+  EXECUTION_START_PAUSED: ${EXECUTION_START_PAUSED:-1}
+  EXECUTION_HOSTS_JSON: ${EXECUTION_HOSTS_JSON:-{}}
+  EXECUTION_MODEL_VERSIONS_JSON: ${EXECUTION_MODEL_VERSIONS_JSON:-{}}
+  EXECUTION_STAGE_VERSIONS_JSON: ${EXECUTION_STAGE_VERSIONS_JSON:-{}}
+  EXECUTION_METRICS_TOKEN: ${EXECUTION_METRICS_TOKEN:-}
+  EXECUTION_ALLOWED_HOSTS: ${EXECUTION_ALLOWED_HOSTS:?Set the internal control-plane address}
+  DATABASE_URL: ${DATABASE_URL:?Configure the dedicated PostgreSQL connection}
+  SEQMAP_DATABASE_URL: ${SEQMAP_DATABASE_URL:?Configure the sequence registry connection}
+  PREDICTION_STORE_DATABASE_URL: ${PREDICTION_STORE_DATABASE_URL:?Configure the prediction cache connection}
+  EXECUTION_BLOB_ROOT: /var/lib/webkinpred/blobs
+  EXECUTION_MAINTENANCE_FILE: /run/webkinpred/maintenance
+
+services:
+  frontend:
+    image: ${EXECUTION_FRONTEND_IMAGE:?Pin the release frontend image}
+
+  execution-db:
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    environment:
+      POSTGRES_USER: webkinpred
+      POSTGRES_DB: webkinpred
+      POSTGRES_PASSWORD: ${EXECUTION_DB_PASSWORD:?Set a dedicated database password}
+    volumes:
+      - execution_pg:/var/lib/postgresql/data
+      - ./deploy/execution/postgres-init.sh:/docker-entrypoint-initdb.d/10-databases.sh:ro
+    mem_limit: 1536m
+    cpus: 1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webkinpred -d webkinpred"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
+    environment:
+      <<: *execution-env
+    volumes:
+      - /var/lib/webkinpred:/var/lib/webkinpred
+      - /run/webkinpred:/run/webkinpred
+    command: gunicorn webKinPred.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300 --access-logfile /dev/null
+    depends_on:
+      execution-db:
+        condition: service_healthy
+
+  execution-migrate:
+    image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
+    profiles: [migration]
+    environment:
+      <<: *execution-env
+      DJANGO_SETTINGS_MODULE: webKinPred.settings_docker
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY}
+    command: ["sh", "-c", "python manage.py migrate && python manage.py migrate --database=seqmap && python manage.py migrate --database=prediction_store"]
+
+  celery:
+    profiles: [legacy-disabled]
+
+  celery-cache:
+    profiles: [legacy-disabled]
+
+  celery-beat:
+    profiles: [legacy-disabled]
+
+  execution-controller:
+    image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
+    environment:
+      <<: *execution-env
+      DJANGO_SETTINGS_MODULE: webKinPred.settings_docker
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY}
+      WEBKINPRED_SERVICE: execution-controller
+    volumes:
+      - ./media:/app/media
+      - /var/lib/webkinpred:/var/lib/webkinpred
+      - ${EXECUTION_MODEL_ROOT:-/var/lib/webkinpred/models}:/app/models:ro
+    mem_limit: 1g
+    cpus: 1
+    command: ["python", "manage.py", "execution_controller"]
+    restart: unless-stopped
+    depends_on:
+      execution-db:
+        condition: service_healthy
+
+  execution-control-worker:
+    image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
+    environment:
+      <<: *execution-env
+      DJANGO_SETTINGS_MODULE: webKinPred.settings_docker
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      WEBKINPRED_SERVICE: execution-control-worker
+    volumes:
+      - ./media:/app/media:ro
+    command: ["celery", "-A", "webKinPred", "worker", "--hostname=execution-control@%h", "--queues=webkinpred-control-v2", "--concurrency=1", "--prefetch-multiplier=1", "--max-tasks-per-child=100", "--loglevel=info"]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+    depends_on:
+      execution-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  execution-agent:
+    image: ${EXECUTION_AGENT_IMAGE:?Pin the executor supervisor image}
+    network_mode: host
+    pid: host
+    cgroup: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/webkinpred:/var/lib/webkinpred
+      - /proc:/host/proc:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - ${EXECUTION_MODEL_ROOT:-/var/lib/webkinpred/models}:${EXECUTION_MODEL_ROOT:-/var/lib/webkinpred/models}:ro
+      - ${EXECUTION_CONFIG_DIR:?Set the private executor config directory}:/run/executor:ro
+    command: ["python", "-m", "tools.executor.agent", "/run/executor/production.json"]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+
+  execution-artifacts:
+    image: ${EXECUTION_AGENT_IMAGE:?Pin the executor supervisor image}
+    network_mode: host
+    volumes:
+      - /var/lib/webkinpred:/var/lib/webkinpred:ro
+      - ${EXECUTION_CONFIG_DIR:?Set the private executor config directory}:/run/executor:ro
+    command: ["python", "-m", "tools.executor.gateway", "/run/executor/production.json"]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
+  execution-prometheus:
+    image: ${EXECUTION_PROMETHEUS_IMAGE:-UNCONFIGURED}
+    profiles: [monitoring]
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    volumes:
+      - ./deploy/execution/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/execution/execution-alerts.yml:/etc/prometheus/execution-alerts.yml:ro
+      - ${EXECUTION_CONFIG_DIR:?Set the private executor config directory}/metrics-token:/run/execution/metrics-token:ro
+      - execution_metrics:/prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d", "--storage.tsdb.retention.size=1GB"]
+    ports: ["127.0.0.1:9093:9090"]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: unless-stopped
+
+  execution-grafana:
+    image: ${EXECUTION_GRAFANA_IMAGE:-UNCONFIGURED}
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${EXECUTION_GRAFANA_PASSWORD:-UNCONFIGURED}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/execution/grafana:/etc/grafana/provisioning:ro
+      - execution_grafana:/var/lib/grafana
+    ports: ["127.0.0.1:3002:3000"]
+    mem_limit: 512m
+    cpus: 0.25
+    restart: unless-stopped
+
+volumes:
+  execution_pg:
+  execution_metrics:
+  execution_grafana:

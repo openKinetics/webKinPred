@@ -319,6 +319,8 @@ def _write_blank_similarity_columns(
     try:
         df = pd.read_csv(output_csv_path)
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         _log.warning(
             "Could not read output CSV to add blank similarity columns",
             extra={
@@ -335,6 +337,8 @@ def _write_blank_similarity_columns(
     try:
         df.to_csv(output_csv_path, index=False)
     except Exception as exc:
+        from tools.executor.policy import propagate_resource_error
+        propagate_resource_error(exc)
         _log.warning(
             "Could not write blank similarity columns to output CSV",
             extra={
@@ -347,6 +351,40 @@ def _write_blank_similarity_columns(
 
 
 def _compute_mmseqs_similarity(
+    sequences: list[str],
+    target_db: str,
+    temp_files_to_cleanup: list[str],
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Reuse a bounded number of results across chunks of the same attempt."""
+    import hashlib
+
+    from api.execution.context import current
+
+    context = current.get()
+    if context is None:
+        return _compute_mmseqs_similarity_uncached(sequences, target_db, temp_files_to_cleanup)
+    keys = {seq: (target_db, hashlib.sha256(seq.encode()).hexdigest()) for seq in sequences if seq}
+    maximum, mean, missing = {}, {}, []
+    for seq, key in keys.items():
+        if key in context.similarity_recent:
+            maximum[seq], mean[seq] = context.similarity_recent[key]
+            context.similarity_recent.move_to_end(key)
+        else:
+            missing.append(seq)
+    if missing:
+        new_max, new_mean = _compute_mmseqs_similarity_uncached(
+            missing, target_db, temp_files_to_cleanup
+        )
+        maximum.update(new_max)
+        mean.update(new_mean)
+        for seq in missing:
+            context.similarity_recent[keys[seq]] = (new_max[seq], new_mean[seq])
+            while len(context.similarity_recent) > 4096:
+                context.similarity_recent.popitem(last=False)
+    return maximum, mean
+
+
+def _compute_mmseqs_similarity_uncached(
     sequences: list[str],
     target_db: str,
     temp_files_to_cleanup: list[str],
@@ -523,6 +561,9 @@ def append_kcat_similarity_columns_to_output_csv(
                 and (os.path.exists(target_db) or os.path.exists(f"{target_db}.dbtype"))
             )
             if not db_available:
+                from api.execution.context import current
+                if target_db and current.get() is not None:
+                    raise FileNotFoundError("Required similarity database is unavailable: " + target_db)
                 _log.warning(
                     "Similarity DB unavailable; using blank similarity values",
                     extra={
@@ -550,6 +591,9 @@ def append_kcat_similarity_columns_to_output_csv(
                         sequences_to_compute, target_db, temp_files_to_cleanup
                     )
                 except Exception as exc:
+                    from api.execution.context import current
+                    if current.get() is not None:
+                        raise
                     _log.warning(
                         "MMseqs similarity computation failed; using blank similarity values",
                         extra={
@@ -606,7 +650,8 @@ def append_kcat_similarity_columns_to_output_csv(
         df.to_csv(output_csv_path, index=False)
 
     except Exception as exc:
-        if cache_only:
+        from api.execution.context import current
+        if cache_only or current.get() is not None:
             raise
         _log.warning(
             "Could not enrich output CSV with kcat similarity columns",

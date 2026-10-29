@@ -13,6 +13,7 @@ import numpy as np
 from rdkit import Chem
 
 from api.methods.base import PredictionError
+from api.execution.context import execution_job
 from api.models import Job
 from api.prediction_engines.subprocess_runner import run_prediction_subprocess
 from api.prediction_engines.runtime_paths import (
@@ -74,7 +75,7 @@ def dlkcat_predictions(
         },
     )
 
-    job = Job.objects.get(public_id=public_id)
+    job = execution_job(public_id)
     reset_stage_prediction_metrics(
         job_public_id=public_id,
         target="kcat",

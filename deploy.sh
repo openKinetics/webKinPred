@@ -22,6 +22,14 @@ set -euo pipefail
 ENV="${1:-prod}"
 shift 1 2>/dev/null || true   # remaining args = specific services to rebuild
 
+if [[ "$ENV" == "prod" && ( -n "${EXECUTION_ENV_FILE:-}" || -f /run/webkinpred/execution-v2 ) ]]; then
+  if [[ -z "${EXECUTION_ENV_FILE:-}" ]]; then
+    echo 'Resource-aware execution is installed. Set EXECUTION_ENV_FILE to its private release environment.' >&2
+    exit 1
+  fi
+  exec ./deploy/execution/deploy.sh "$@"
+fi
+
 case "$ENV" in
   prod)
     COMPOSE_FILE="docker-compose.prod.yml"

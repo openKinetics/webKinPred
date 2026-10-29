@@ -407,6 +407,10 @@ import sys
 from pathlib import Path
 
 repo_root = Path(os.environ["GPU_REPO_ROOT"]).resolve()
+sys.path.insert(0, str(repo_root))
+import torch
+from tools.executor.policy import require_cuda
+require_cuda(torch)
 sys.path.insert(0, str(repo_root / "models" / "TurNup" / "code"))
 from enzyme_representations import calcualte_esm1b_ts_vectors
 

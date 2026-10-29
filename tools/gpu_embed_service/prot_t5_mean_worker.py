@@ -10,6 +10,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import sys as _execution_sys
+_execution_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.executor.policy import require_cuda
 from transformers import T5EncoderModel, T5Tokenizer
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +42,7 @@ def _default_model_path() -> str:
 
 
 def main() -> int:
+    require_cuda(torch)
     args = _parse_args()
     seq_map = json.loads(Path(args.seq_id_to_seq_file).read_text(encoding="utf-8"))
     if not isinstance(seq_map, dict) or not seq_map:
@@ -67,7 +71,7 @@ def main() -> int:
         do_lower_case=False,
         local_files_only=local_only,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
     model = T5EncoderModel.from_pretrained(
         model_path,

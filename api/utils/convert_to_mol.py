@@ -18,6 +18,8 @@ def convert_to_mol(representation):
         if mol is None:
             mol = Chem.MolFromInchi(representation)
         return mol
+    except (MemoryError, OSError):
+        raise
     except Exception as e:
         return None
 
@@ -38,6 +40,8 @@ def is_smiles_text(representation) -> bool:
         return False
     try:
         return Chem.MolFromSmiles(text) is not None
+    except (MemoryError, OSError):
+        raise
     except Exception:
         return False
 

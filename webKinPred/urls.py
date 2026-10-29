@@ -10,6 +10,7 @@ from django.conf.urls.static import static
 from django.views.static import serve
 
 urlpatterns: list[URLPattern | URLResolver] = [
+    path("internal/v2/", include("api.execution.urls")),
     path("admin/", admin.site.urls),
     # Public REST API (v1) — Bearer-token authenticated, no CSRF required.
     # Must be listed before 'api/' so the more-specific prefix matches first.

@@ -1,0 +1,37 @@
+# GPU host services; independent from the production compose project.
+services:
+  execution-agent:
+    image: ${EXECUTION_AGENT_IMAGE:?Pin the supervisor image digest}
+    network_mode: host
+    pid: host
+    cgroup: host
+    runtime: ${EXECUTION_GPU_RUNTIME:-nvidia}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${EXECUTION_GPU_UUID:?Set the assigned GPU UUID}
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/webkinpred:/var/lib/webkinpred
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - ${EXECUTION_MODEL_ROOT:-/var/lib/webkinpred/models}:${EXECUTION_MODEL_ROOT:-/var/lib/webkinpred/models}:ro
+      - ${EXECUTION_GPU_MODEL_ROOT:-/var/lib/webkinpred/gpu-models}:${EXECUTION_GPU_MODEL_ROOT:-/var/lib/webkinpred/gpu-models}:ro
+      - /home/msp/miniconda3:/home/msp/miniconda3:ro
+      - /home/msp/models:/home/msp/models:ro
+      - /home/msp/.cache/huggingface:/home/msp/.cache/huggingface:ro
+      - /home/msp/.cache/torch:/home/msp/.cache/torch:ro
+      - /home/msp/.local/lib:/home/msp/.local/lib:ro
+      - ${EXECUTION_CONFIG_DIR:?Set private config directory}:/run/executor:ro
+    command: ["python", "-m", "tools.executor.agent", "/run/executor/gpu.json"]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+  execution-artifacts:
+    image: ${EXECUTION_AGENT_IMAGE:?Pin the supervisor image digest}
+    network_mode: host
+    volumes:
+      - /var/lib/webkinpred:/var/lib/webkinpred:ro
+      - ${EXECUTION_CONFIG_DIR:?Set private config directory}:/run/executor:ro
+    command: ["python", "-m", "tools.executor.gateway", "/run/executor/gpu.json"]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped

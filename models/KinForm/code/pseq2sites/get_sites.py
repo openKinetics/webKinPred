@@ -52,6 +52,8 @@ def get_sites(
     if len(to_process) == 0:
         print("All sequences already have binding-site predictions.")
         return success_dict, reason_dict, None
+    from tools.executor.policy import require_cached
+    require_cached(False, "KinForm binding-site predictions must be scheduled")
     
     features_output_path = ROOT / "results" / "pseq2sites_temp_features.pkl"
     # write tsv to tempfile (tsv with col 'PDB' and 'Sequence')

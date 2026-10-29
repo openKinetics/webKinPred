@@ -111,6 +111,8 @@ def validate_enzyme(seq, alphabet=aa):
 
 def load_esm1b_model(device: torch.device | None = None):
     """Load ESM1b model once and return model and batch_converter."""
+    from tools.executor.policy import require_cached
+    require_cached(False, "protein embeddings must be scheduled")
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading ESM1b model on {device}...")

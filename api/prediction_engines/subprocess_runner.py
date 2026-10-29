@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import time
+from collections import deque
 
 from api.models import Job
 from api.services.embedding_progress_service import (
@@ -195,6 +196,7 @@ def run_prediction_subprocess(
     last_done_reported = -1
     last_total_reported: int | None = None
     output_lines = 0
+    recent_output = deque(maxlen=100)
     suppressed_lines = 0
     progress_events = 0
     last_progress_bucket = -1
@@ -402,6 +404,7 @@ def run_prediction_subprocess(
                     break
 
                 line = line.rstrip()
+                recent_output.append(line[:2000])
                 output_lines += 1
 
                 if line.startswith("Progress:"):
@@ -451,7 +454,7 @@ def run_prediction_subprocess(
                     "progress_events": progress_events,
                 },
             )
-            raise subprocess.CalledProcessError(process.returncode, process.args)
+            raise subprocess.CalledProcessError(process.returncode, process.args, output="\n".join(recent_output))
         _log.info(
             "Prediction subprocess completed",
             extra={

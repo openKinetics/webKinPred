@@ -227,8 +227,10 @@ class NoBarePrintGuardTests(unittest.TestCase):
         for path in (root / "api").rglob("*.py"):
             if "/migrations/" in path.as_posix():
                 continue
-            text = path.read_text(encoding="utf-8")
-            if "print(" in text:
+            import ast
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            if any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                   and node.func.id == "print" for node in ast.walk(tree)):
                 offenders.append(str(path.relative_to(root)))
         self.assertEqual(offenders, [])
 

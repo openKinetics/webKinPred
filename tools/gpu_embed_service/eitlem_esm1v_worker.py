@@ -10,6 +10,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
+import sys as _execution_sys
+_execution_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.executor.policy import require_cuda
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT_STR = str(_REPO_ROOT)
 if _REPO_ROOT_STR in sys.path:
@@ -52,6 +55,7 @@ def _trim_sequence_for_esm1v(seq: str) -> str:
 
 
 def main() -> int:
+    require_cuda(torch)
     args = _parse_args()
     seq_map = json.loads(Path(args.seq_id_to_seq_file).read_text(encoding="utf-8"))
     if not isinstance(seq_map, dict) or not seq_map:
@@ -82,7 +86,7 @@ def main() -> int:
     model, alphabet = esm.pretrained.load_model_and_alphabet_local(str(model_path))
     batch_converter = alphabet.get_batch_converter()
     model.eval()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")
     model = model.to(device)
     print(f"EITLEM ESM1v device={device} batch_size={max(1, int(args.batch_size))}")
 

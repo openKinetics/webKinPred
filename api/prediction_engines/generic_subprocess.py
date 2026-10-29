@@ -17,6 +17,7 @@ import subprocess
 from typing import Any
 
 from api.methods.base import MethodDescriptor, PredictionError
+from api.execution.context import execution_job
 from api.models import Job
 from api.prediction_engines.runtime_paths import (
     DATA_PATHS,
@@ -76,7 +77,7 @@ def run_generic_subprocess_prediction(
     if cfg is None:
         raise PredictionError(f"{desc.display_name} is not configured with a subprocess engine.")
 
-    job = Job.objects.get(public_id=public_id)
+    job = execution_job(public_id)
     _initialise_job_progress(job, len(sequences), method_key=desc.key, target=target)
 
     row_kwarg_names = list(dict.fromkeys(desc.col_to_kwarg.values()))
@@ -107,7 +108,7 @@ def run_generic_subprocess_prediction(
     )
 
     if not valid_indices:
-        return predictions, invalid_reasons, []
+        return predictions, invalid_reasons, None
 
     python_path, script_path = _resolve_subprocess_paths(desc)
     env = _build_subprocess_env(desc)

@@ -1,6 +1,11 @@
 # models.py
 from django.db import models
 from django.utils import timezone
+from api.execution.models import (  # noqa: F401
+    Artifact, ArtifactDependency, ArtifactLocation, ExecutionAttempt,
+    ExecutionOutbox, ExecutionSpec, ExecutorHost, QuotaDay, QuotaEntry,
+    ResourceProfile, SequenceIdentity, WorkStage, EmbeddingSubmission,
+)
 import secrets
 import string
 import random
@@ -34,7 +39,7 @@ class ApiUser(models.Model):
     """
 
     ip_address = models.GenericIPAddressField(unique=True)
-    custom_daily_limit = models.PositiveIntegerField(
+    custom_daily_limit = models.PositiveBigIntegerField(
         null=True,
         blank=True,
         help_text="Custom daily limit for this IP. Leave blank to use default.",
@@ -339,7 +344,7 @@ class ApiKey(models.Model):
         blank=True,
         help_text="A human-readable name for this key, e.g. 'Lab Python Script'.",
     )
-    custom_daily_limit = models.PositiveIntegerField(
+    custom_daily_limit = models.PositiveBigIntegerField(
         null=True,
         blank=True,
         help_text=(

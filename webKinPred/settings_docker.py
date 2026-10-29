@@ -112,3 +112,7 @@ CELERY_TASK_ROUTES = {
 CELERY_TASK_DEFAULT_QUEUE = "webkinpred"
 CELERY_TASK_DEFAULT_EXCHANGE = "webkinpred"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "webkinpred"
+
+# Apply execution configuration after all environment-specific overrides.
+from .execution_settings import configure as _configure_execution
+_configure_execution(globals())

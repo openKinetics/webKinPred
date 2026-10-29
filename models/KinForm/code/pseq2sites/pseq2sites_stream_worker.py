@@ -128,6 +128,8 @@ def _prepare_runtime():
 
 def _load_model_once(config: dict, model_path: Path, TrainIterCls):
     import torch
+    from tools.executor.policy import require_cuda
+    require_cuda(torch)
 
     trainiter = TrainIterCls(config)
     checkpoint_path = model_path / "Pseq2Sites.pth"
@@ -282,6 +284,8 @@ def _run_legacy_polling(
                 ready_feats[seq_id] = feats
 
         if not ready_feats:
+            if os.environ.get("WEBKINPRED_EXECUTION_POLICY") == "gpu-only":
+                raise RuntimeError("MISSING_EMBEDDING: file-backed Pseq2Sites dependency")
             time.sleep(max(0.05, float(poll_interval_seconds)))
             continue
 
@@ -663,6 +667,13 @@ def main() -> int:
     pseq_root, load_cfg, TrainIterCls, PocketDatasetCls, DataloaderFn, prepare_prots_input_fn = _prepare_runtime()
     config_path = (pseq_root / "configuration_temp.yml").resolve()
     config = load_cfg(str(config_path))
+    if os.environ.get("WEBKINPRED_EXECUTION_POLICY") == "gpu-only":
+        # Preserve the original template while keeping all runtime writes private.
+        import yaml
+        config["paths"]["save_path"] = "/work/tmp/pseq2sites"
+        config["paths"]["result_path"] = "/work/tmp/pseq2sites/results.tsv"
+        Path(config["paths"]["save_path"]).mkdir(parents=True, exist_ok=True)
+        Path("/work/tmp/pseq2sites/configuration.yml").write_text(yaml.safe_dump(config))
     model_path = (pseq_root / "results" / "model").resolve()
     config["paths"]["model_path"] = str(model_path)
     config["train"]["batch_size"] = max(1, int(args.batch_size))

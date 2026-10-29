@@ -1,0 +1,13 @@
+# Thin supervisor image. Model execution uses separately pinned runtime images.
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends docker-cli libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.app.txt requirements.executor.txt ./
+RUN pip install --no-cache-dir -r requirements.executor.txt
+COPY api ./api
+COPY tools ./tools
+COPY webKinPred ./webKinPred
+COPY db_models ./db_models
+COPY manage.py ./manage.py
+CMD ["python", "-m", "tools.executor.agent", "/run/executor/config.json"]

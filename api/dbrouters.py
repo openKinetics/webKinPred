@@ -1,9 +1,13 @@
 # api/dbrouters.py
 class SeqMapRouter:
     def db_for_read(self, model, **hints):
+        if model._meta.label_lower == "api.sequenceidentity":
+            return "seqmap"
         return "seqmap" if getattr(model, "seqmap_db", False) else None
 
     def db_for_write(self, model, **hints):
+        if model._meta.label_lower == "api.sequenceidentity":
+            return "seqmap"
         return None  # read-only
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
@@ -11,6 +15,8 @@ class SeqMapRouter:
         Prevent migrations for the 'seqmap' app and prevent any app
         from migrating to the 'seqmap' database.
         """
+        if app_label == "api" and model_name == "sequenceidentity":
+            return db == "seqmap"
         if app_label == "seqmap":
             return False
         if db == "seqmap":

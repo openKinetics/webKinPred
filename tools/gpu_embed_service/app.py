@@ -27,6 +27,7 @@ import run_step as _run_step_module
 
 
 class EmbedJobRequest(BaseModel):
+    request_id: str | None = None
     method_key: str
     target: str
     profile: str | None = None
@@ -406,6 +407,9 @@ def _worker_loop() -> None:
 
 
 def _ensure_worker() -> None:
+    import durable_proxy
+    if durable_proxy.enabled():
+        return
     global _worker_started
     with _worker_lock:
         if _worker_started:
@@ -446,6 +450,9 @@ def _on_startup() -> None:
 def health(authorization: str | None = Header(default=None)) -> dict:
     _require_auth(authorization)
     gpu = _gpu_health_snapshot()
+    import durable_proxy
+    if durable_proxy.enabled():
+        return {**gpu, **durable_proxy.call("embed-health")}
     return {
         "online": bool(gpu.get("online", True)),
         "gpu_name": gpu.get("gpu_name"),
@@ -459,6 +466,9 @@ def health(authorization: str | None = Header(default=None)) -> dict:
 @app.post("/embed/jobs")
 def submit_embed_job(payload: EmbedJobRequest, authorization: str | None = Header(default=None)) -> dict:
     _require_auth(authorization)
+    import durable_proxy
+    if durable_proxy.enabled():
+        return durable_proxy.call("embed-submit", payload.model_dump())
     _ensure_worker()
 
     if not payload.step_work:
@@ -478,6 +488,10 @@ def submit_embed_job(payload: EmbedJobRequest, authorization: str | None = Heade
 
 @app.get("/embed/jobs/{job_id}")
 def get_embed_job(job_id: str, authorization: str | None = Header(default=None)) -> dict:
+    import durable_proxy
+    if durable_proxy.enabled():
+        _require_auth(authorization)
+        return durable_proxy.call("embed-status", {"job_id": job_id})
     _require_auth(authorization)
     with _jobs_lock:
         state = _jobs.get(job_id)
@@ -494,6 +508,10 @@ def get_embed_job_logs(
     authorization: str | None = Header(default=None),
 ) -> dict:
     _require_auth(authorization)
+    import durable_proxy
+    if durable_proxy.enabled():
+        result = durable_proxy.call("embed-logs", {"job_id": job_id})
+        return {"job_id": job_id, "tail_lines": tail, "log_tail": "\n".join(result["lines"][-int(tail):])}
     with _jobs_lock:
         state = _jobs.get(job_id)
         if state is None:

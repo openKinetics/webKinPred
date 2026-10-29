@@ -121,6 +121,13 @@ def _stable_seq_id(sequence: str) -> str:
 
 
 def _resolve_seq_ids(sequences: list[str], tools_path: Path, media_path: Path) -> list[str]:
+    from tools.executor.policy import planned_sequence_ids
+
+    planned = planned_sequence_ids(sequences)
+    if planned is not None:
+        # The control plane owns identities, including historical collision suffixes.
+        # A missing entry is a planning error; never invent another ID in an attempt.
+        return planned
     seqmap_cli = tools_path / "seqmap" / "main.py"
     seqmap_db = media_path / "sequence_info" / "seqmap.sqlite3"
     if not seqmap_cli.exists() or not seqmap_db.exists():
@@ -272,6 +279,8 @@ def _prepare_seq_pooled_cache(
             seq_cache_paths[model_key] = path
         cache_paths[seq_id] = seq_cache_paths
 
+    from tools.executor.policy import require_cached
+    require_cached(not any(missing_by_model.values()), "CatPred checkpoint embeddings")
     if not any(missing_by_model.values()):
         return cache_paths
 
