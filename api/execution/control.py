@@ -179,6 +179,27 @@ def _gpu_profile_allowed(profile, active, host):
     return combination in host.capabilities.get("validated_gpu_combinations", [])
 
 
+def _admission_wait(stage, profile, resources, host, reason, now):
+    fields = []
+    if stage.waiting_reason != reason:
+        stage.waiting_reason = reason
+        fields.append("waiting_reason")
+    if profile.resources.get("vram", 0) and "admission_wait_started_at" not in stage.payload:
+        stage.payload["admission_wait_started_at"] = now.isoformat()
+        fields.append("payload")
+    if fields:
+        stage.save(update_fields=fields)
+    return (
+        bool(profile.resources.get("vram", 0))
+        and (
+            now - timezone.datetime.fromisoformat(stage.payload["admission_wait_started_at"])
+        ).total_seconds()
+        >= 600
+        and resources.get("vram", 0) + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
+        <= host.telemetry.get("vram_total", 0)
+    )
+
+
 @transaction.atomic
 def claim(host_id: str):
     require_postgres()
@@ -257,8 +278,6 @@ def claim(host_id: str):
     )
     gpu_barrier = False
     for stage in candidates[:512].iterator(chunk_size=16):
-        if stage.dependencies.exclude(state="completed").exists():
-            continue
         if stage.execution.job_id and stage.execution.job.status in {"Completed", "Failed"}:
             continue
         profile = stage.profile
@@ -306,6 +325,26 @@ def claim(host_id: str):
             stage.waiting_reason = "profile_shape_mismatch"
             stage.save(update_fields=["waiting_reason"])
             continue
+        resources = {
+            key: max(value, profile.runtime_floor.get(key, value))
+            for key, value in profile.resources.items()
+        }
+        # Reject unavailable capacity and unvalidated combinations before
+        # per-artifact queries. A saturated 5,000-job queue must not spend
+        # thousands of queries holding the host lock and delay heartbeats.
+        base = admit(
+            resources, active, host.budgets, host.telemetry, gpu=bool(profile.resources.get("vram"))
+        )
+        if not base.fits or not _gpu_profile_allowed(profile, active, host):
+            gpu_barrier |= _admission_wait(
+                stage,
+                profile,
+                resources,
+                host,
+                base.reason or "unvalidated_gpu_combination",
+                now,
+            )
+            continue
         if (
             stage.artifacts.filter(artifact__locations__ready=True).values("pk").distinct().count()
             != stage.artifacts.count()
@@ -334,10 +373,6 @@ def claim(host_id: str):
             stage.waiting_reason = "network"
             stage.save(update_fields=["waiting_reason"])
             continue
-        resources = {
-            key: max(value, profile.runtime_floor.get(key, value))
-            for key, value in profile.resources.items()
-        }
         # Each input needs a private working copy and may also need a new local
         # immutable blob. Reserve both even when an eligible peer owns the data.
         input_bytes = sum(stage.artifacts.values_list("artifact__size", flat=True))
@@ -356,25 +391,14 @@ def claim(host_id: str):
             gpu=bool(profile.resources.get("vram")),
         )
         if not result.fits or not _gpu_profile_allowed(profile, active, host):
-            stage.waiting_reason = result.reason or "unvalidated_gpu_combination"
-            if profile.resources.get("vram", 0):
-                # Planning/dependency time is not time spent eligible for a
-                # GPU. Otherwise an old dependency graph drains the GPU after
-                # each allocation and prevents validated pairs from running.
-                stage.payload.setdefault("admission_wait_started_at", now.isoformat())
-            stage.save(update_fields=["waiting_reason", "payload"])
-            if (
-                profile.resources.get("vram", 0)
-                and (
-                    now
-                    - timezone.datetime.fromisoformat(stage.payload["admission_wait_started_at"])
-                ).total_seconds()
-                >= 600
-                and resources.get("vram", 0)
-                + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
-                <= host.telemetry.get("vram_total", 0)
-            ):
-                gpu_barrier = True
+            gpu_barrier |= _admission_wait(
+                stage,
+                profile,
+                resources,
+                host,
+                result.reason or "unvalidated_gpu_combination",
+                now,
+            )
             continue
         attempt = ExecutionAttempt.objects.create(
             stage=stage,

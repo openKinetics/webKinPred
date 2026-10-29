@@ -600,3 +600,29 @@ def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, 
         assert result is None
     else:
         assert result["stage_id"] == str(fitting.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_saturated_claim_has_bounded_queries_and_does_not_rewrite_waiting_stages(ready_work):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, stages = ready_work
+    WorkStage.objects.bulk_create(
+        [
+            WorkStage(
+                execution=stages[1].execution,
+                key="waiting-" + str(i),
+                kind="predict",
+                profile=stages[1].profile,
+            )
+            for i in range(128)
+        ]
+    )
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        assert control.claim(host.pk) is not None
+        assert control.claim(host.pk) is None  # Publish the initial waiting reason once.
+        with CaptureQueriesContext(connection) as captured:
+            assert control.claim(host.pk) is None
+    assert len(captured) <= 12
+    assert not any(query["sql"].startswith("UPDATE") for query in captured)
