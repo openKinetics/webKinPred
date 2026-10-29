@@ -119,7 +119,66 @@ class Agent:
         return result
 
     def docker(self, *args):
-        return subprocess.check_output(["docker", *args], text=True, timeout=20).strip()
+        return subprocess.check_output(
+            ["docker", *args], text=True, stderr=subprocess.PIPE, timeout=20
+        ).strip()
+
+    def error_details(self, error, request):
+        message = str(error)
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            message = str(error.stderr)
+        secrets = [self.config.get("token"), request.get("token")]
+        secrets.extend(peer.get("token") for peer in self.config.get("peers", {}).values())
+        for secret in secrets:
+            if secret:
+                message = message.replace(str(secret), "[redacted]")
+        return {"error_type": type(error).__name__, "message": message[:2000]}
+
+    def retain_image(self, image):
+        """Keep approved runtimes in use even between independently run attempts."""
+        self.docker("image", "inspect", image)
+        name = "wk-image-keeper-" + image.split(":")[-1][:16]
+        existing = self.docker("ps", "-aq", "--filter", "name=^/" + name + "$")
+        if existing:
+            info = json.loads(self.docker("inspect", name))[0]
+            if (
+                info["Image"] != image
+                or info["Config"]["Labels"].get("org.webkinpred.image-keeper") != "true"
+            ):
+                raise ValueError("Runtime image keeper ownership conflict")
+            if not info["State"]["Running"]:
+                self.docker("start", name)
+            return
+        self.docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "--restart",
+            "unless-stopped",
+            "--network",
+            "none",
+            "--read-only",
+            "--memory",
+            "16m",
+            "--cpus",
+            "0.01",
+            "--pids-limit",
+            "16",
+            "--label",
+            "org.webkinpred.image-keeper=true",
+            "--label",
+            LABEL + "=",
+            "--label",
+            "com.docker.compose.project=webkinpred-image-keepers",
+            "--label",
+            "com.docker.compose.service=image-keeper",
+            "--entrypoint",
+            "/bin/sh",
+            image,
+            "-c",
+            "exec sleep infinity",
+        )
 
     def inventory(self):
         names = self.docker("ps", "-aq", "--filter", f"label={LABEL}={self.host}").splitlines()
@@ -350,8 +409,13 @@ class Agent:
         args += [request["image"], "python", "-m", "tools.executor.runner", "/work/request.json"]
         try:
             container = self.docker(*args)
-        except subprocess.CalledProcessError:
-            info = json.loads(self.docker("inspect", "wk-attempt-" + ident))[0]
+        except subprocess.CalledProcessError as creation_error:
+            try:
+                info = json.loads(self.docker("inspect", "wk-attempt-" + ident))[0]
+            except subprocess.CalledProcessError:
+                # Preserve the create error (e.g. a missing image) instead of
+                # replacing it with the unhelpful 'no such container' error.
+                raise creation_error from None
             if info["Config"]["Labels"].get("org.webkinpred.attempt") != ident:
                 raise ValueError("Container ownership conflict") from None
             container = info["Id"]
@@ -485,7 +549,12 @@ class Agent:
                     self.docker("stop", "-t", "5", exists)
                 self.request(
                     "error",
-                    {"token": request["token"], "stopped": True, "category": classify(exc)},
+                    {
+                        "token": request["token"],
+                        "stopped": True,
+                        "category": classify(exc),
+                        **self.error_details(exc, request),
+                    },
                     ident,
                 )
                 del self.jobs[ident]
@@ -646,7 +715,7 @@ class Agent:
             raise ValueError("Profile activation requires pinned runtime and model files")
         stamps = self.verify_runtime_files()
         for image in self.config["images"]:
-            self.docker("image", "inspect", image)
+            self.retain_image(image)
         while True:
             try:
                 self.request(
@@ -720,6 +789,7 @@ class Agent:
                                         "token": request["token"],
                                         "stopped": request["id"] not in self.jobs,
                                         "category": classify(exc),
+                                        **self.error_details(exc, request),
                                     },
                                     request["id"],
                                 )

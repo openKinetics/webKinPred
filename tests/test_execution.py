@@ -547,3 +547,56 @@ def test_cpu_prediction_can_overlap_gpu_execution_without_a_gpu_combination_prof
     host = SimpleNamespace(capabilities={"validated_gpu_combinations": []})
     assert control._gpu_profile_allowed(cpu, active, host)
     assert not control._gpu_profile_allowed(gpu, active, host)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("already_waited", [False, True])
+def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, already_waited):
+    host, stages = ready_work
+    older, fitting = stages
+    now = timezone.now()
+    common = dict(
+        stage_kind="predict",
+        validated=True,
+        resources={
+            "ram": GIB,
+            "cpu": 1,
+            "disk": GIB,
+            "vram": 2 * GIB,
+        },
+    )
+    ResourceProfile.objects.filter(pk=older.profile_id).update(**common)
+    compatible = ResourceProfile.objects.create(
+        id="compatible-gpu", fingerprint="g" * 64, image=older.profile.image, **common
+    )
+    fitting.profile = compatible
+    fitting.save()
+    host.budgets.update(ram=8 * GIB, gpu_slots=2)
+    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=16 * GIB)
+    host.capabilities.update(
+        profiles=["f" * 64, "g" * 64], validated_gpu_combinations=[["g" * 64] * 2]
+    )
+    host.save()
+    WorkStage.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+    if already_waited:
+        older.payload["admission_wait_started_at"] = (now - timedelta(minutes=11)).isoformat()
+        older.save(update_fields=["payload"])
+    parent = WorkStage.objects.create(
+        execution=fitting.execution, key="active-gpu", state="running"
+    )
+    ExecutionAttempt.objects.create(
+        stage=parent,
+        host=host,
+        resources=common["resources"],
+        profile_fingerprint="g" * 64,
+        lease_until=now + timedelta(seconds=30),
+    )
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        result = control.claim(host.pk)
+    older.refresh_from_db()
+    assert older.waiting_reason == "unvalidated_gpu_combination"
+    assert "admission_wait_started_at" in older.payload
+    if already_waited:
+        assert result is None
+    else:
+        assert result["stage_id"] == str(fitting.pk)

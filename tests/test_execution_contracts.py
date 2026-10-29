@@ -687,3 +687,86 @@ def test_similarity_attempt_does_not_memoize_resource_failures(monkeypatch):
     with stage_context(context), pytest.raises(MemoryError):
         service._compute_mmseqs_similarity(["MAAA"], "db", [])
     assert not context.similarity_recent
+
+
+@pytest.mark.parametrize("running", [True, False])
+def test_approved_image_keeper_is_idempotent_and_isolated(tmp_path, running):
+    from tools.executor.agent import Agent
+
+    image = "sha256:" + "a" * 64
+    agent = Agent({"root": str(tmp_path), "host_id": "test"})
+    calls = []
+
+    def docker(*args):
+        calls.append(args)
+        if args[0] == "ps":
+            return "existing"
+        if args[0] == "inspect":
+            return json.dumps(
+                [
+                    {
+                        "Image": image,
+                        "Config": {"Labels": {"org.webkinpred.image-keeper": "true"}},
+                        "State": {"Running": running},
+                    }
+                ]
+            )
+        return ""
+
+    agent.docker = docker
+    try:
+        agent.retain_image(image)
+        assert not any(c[0] == "run" for c in calls)
+        assert any(c[0] == "start" for c in calls) != running
+        calls.clear()
+        agent.docker = lambda *args: calls.append(args) or ""
+        agent.retain_image(image)
+        create = next(c for c in calls if c[0] == "run")
+        assert "--read-only" in create and "none" in create
+        assert "org.webkinpred.executor=" in create
+        assert "com.docker.compose.project=webkinpred-image-keepers" in create
+    finally:
+        agent.transfers.shutdown(wait=True)
+
+
+def test_docker_create_failure_preserves_missing_image_evidence(tmp_path):
+    import subprocess
+
+    from tools.executor.agent import Agent
+
+    image = "sha256:" + "a" * 64
+    agent = Agent(
+        {
+            "root": str(tmp_path),
+            "host_id": "test",
+            "images": [image],
+            "budgets": {"ram": 8 * GIB, "cpu": 4, "disk": 8 * GIB},
+        }
+    )
+    request = {
+        "id": "missing-runtime",
+        "kind": "assemble",
+        "image": image,
+        "resources": {"ram": GIB, "cpu": 1, "disk": GIB},
+    }
+    agent.observe = lambda: {"ram_available": 16 * GIB, "disk_free": 16 * GIB, "attempts": {}}
+    original = subprocess.CalledProcessError(
+        1, ["docker", "create"], stderr="No such image: " + image
+    )
+
+    def docker(*args):
+        if args[0] == "create":
+            raise original
+        raise subprocess.CalledProcessError(1, ["docker", "inspect"], stderr="No such container")
+
+    agent.docker = docker
+    try:
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            agent.launch(request)
+        assert error.value is original
+        assert agent.error_details(original, request)["message"].startswith("No such image")
+        agent.config["token"] = "secret-control"
+        error = RuntimeError("secret-control secret-owner")
+        assert "secret-" not in agent.error_details(error, {"token": "secret-owner"})["message"]
+    finally:
+        agent.transfers.shutdown(wait=True)

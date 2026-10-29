@@ -132,3 +132,31 @@ A single parent requiring more than the current 4,096 expanded-unit planning
 envelope remains an explicit hold; the imported backlog's maximum expansion is
 two and was checked to fit. Unversioned legacy embedding files remain preserved
 but are regenerated when their representation identity cannot be verified.
+
+## Authorized parallel ramp
+
+The operator accepted the first 27 completed jobs as the baseline and requested
+actual concurrency rather than waiting for 100 jobs at single-allocation limits.
+The next ramp uses two CPU attempts per host and two GPU allocations, with the
+same aggregate resource budgets and measured combination allowlist. The explicit
+`execution_readiness --phase reopen --parallel-ramp` gate requires that recorded
+authorization, at least 27 completed imported jobs, and three telemetry samples
+showing simultaneous resident attempts on each CPU host and on the GPU. Every
+observed proof attempt must subsequently commit successfully. Reservation or
+attempt-envelope breaches and resource failures block that gate. The default
+100-job/hour gate remains available for deployments without this authorization.
+
+A missing assembly image caused final assembly to enter a recoverable hold.
+The unchanged assembler was measured in the retained web runtime with three
+fresh and five warm runs of the 10,000-row fixture; all CSV files matched the
+original serial fixture byte for byte. Its new measured profile replaces the
+missing runtime. Running, isolated image keepers now retain approved runtimes
+between attempts. Model environments were not rebuilt. Temporary scheduling
+deferrals of 1,534 unstarted stages were restored from their saved journal.
+
+CPU overlap on both hosts was observed in the ramp. A scheduler correction
+counts eligible GPU admission waiting rather than time since stage creation;
+dependency waiting must not immediately trigger a drain that prevents measured
+GPU pairs. The correction retains the ten-minute fairness barrier for genuinely
+waiting eligible GPU work. Final parallel-GPU acceptance and reopening evidence
+will be recorded separately after the corresponding attempts complete.

@@ -214,3 +214,64 @@ def test_turnup_retry_profile_controls_the_actual_encoder_batch(tmp_path, monkey
         tmp_path,
     )
     assert os.environ["TURNUP_EMBED_BATCH_SIZE"] == "2"
+
+
+@pytest.mark.parametrize("fault", [None, "uncommitted", "no_gpu_residency", "budget", "unapproved"])
+def test_parallel_ramp_requires_successful_actual_residency_and_bounded_reservations(
+    tmp_path, fault
+):
+    import json
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from api.management.commands.execution_readiness import parallel_ramp_errors
+    from django.utils import timezone
+
+    now = timezone.now()
+    path = tmp_path / "samples.jsonl"
+    attempts = {}
+    hosts = []
+    for name in ["production", "gpu"]:
+        rows = []
+        for index in range(4 if name == "gpu" else 2):
+            ident = name + str(index)
+            gpu = index >= 2
+            resources = {"ram": 10, "cpu": 1, "disk": 1, "vram": 10 if gpu else 0}
+            attempts[ident] = SimpleNamespace(
+                state="completed",
+                host_id=name,
+                resources=resources,
+                started_at=now - timedelta(seconds=5),
+                finished_at=now + timedelta(seconds=10),
+            )
+            rows.append(
+                {
+                    "id": ident,
+                    "state": "running",
+                    "resources": resources,
+                    "observed": {"ram": 5, "vram": 5 if gpu else 0},
+                }
+            )
+        hosts.append({"host": name, "budgets": {"cpu": 4, "ram": 40, "disk": 4}, "attempts": rows})
+    evidence = {
+        "rollout_policy": "operator_authorized_parallel_ramp",
+        "rollout_authorization": "user request",
+        "parallel_ramp_started_at": (now - timedelta(seconds=10)).isoformat(),
+        "parallel_samples": str(path),
+    }
+    if fault == "uncommitted":
+        attempts["gpu2"].state = "running"
+    elif fault == "no_gpu_residency":
+        hosts[1]["attempts"][2]["observed"]["vram"] = 0
+    elif fault == "budget":
+        hosts[1]["budgets"]["ram"] = 30
+    elif fault == "unapproved":
+        evidence["rollout_authorization"] = ""
+    path.write_text(
+        "".join(
+            json.dumps({"at": (now + timedelta(seconds=i)).isoformat(), "hosts": hosts}) + "\n"
+            for i in range(3)
+        )
+    )
+    errors = parallel_ramp_errors(evidence, attempts)
+    assert bool(errors) == bool(fault)

@@ -12,6 +12,68 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 
+def parallel_ramp_errors(evidence, attempts):
+    """Require observed residency and committed success for the approved faster ramp."""
+    if evidence.get("rollout_policy") != "operator_authorized_parallel_ramp" or not evidence.get(
+        "rollout_authorization"
+    ):
+        return ["Parallel ramp requires recorded operator authorization"]
+    path = evidence.get("parallel_samples")
+    if not path or not Path(path).is_file():
+        return ["Parallel ramp requires executor telemetry samples"]
+    start = datetime.fromisoformat(evidence["parallel_ramp_started_at"])
+    if timezone.is_naive(start):
+        return ["Parallel ramp timestamp requires a UTC offset"]
+    pairs = {"production/cpu": [], "gpu/cpu": [], "gpu/gpu": []}
+    errors = set()
+    with Path(path).open() as stream:
+        for line in stream:
+            sample = json.loads(line)
+            at = datetime.fromisoformat(sample["at"])
+            if at < start:
+                continue
+            for host in sample["hosts"]:
+                rows = host["attempts"]
+                for key in ("cpu", "ram", "disk"):
+                    if sum(a["resources"].get(key, 0) for a in rows) > host["budgets"][key]:
+                        errors.add("Parallel ramp exceeded an aggregate reservation budget")
+                for row in rows:
+                    if any(
+                        row["observed"].get(k, 0) > row["resources"].get(k, 0)
+                        for k in ("ram", "vram")
+                    ):
+                        errors.add("Parallel ramp exceeded a measured attempt envelope")
+                for kind in ("cpu", "gpu"):
+                    key = host["host"] + "/" + kind
+                    if key not in pairs:
+                        continue
+                    resident = [
+                        row["id"]
+                        for row in rows
+                        if row["state"] == "running"
+                        and row["observed"].get("ram", 0) > 0
+                        and bool(row["resources"].get("vram")) == (kind == "gpu")
+                        and (kind != "gpu" or row["observed"].get("vram", 0) > 0)
+                    ]
+                    successful = [
+                        ident
+                        for ident in resident
+                        if ident in attempts
+                        and attempts[ident].state == "completed"
+                        and attempts[ident].host_id == host["host"]
+                        and attempts[ident].started_at <= at
+                        and attempts[ident].finished_at >= at
+                        and attempts[ident].resources
+                        == next(row["resources"] for row in rows if row["id"] == ident)
+                    ]
+                    if len(successful) >= 2:
+                        pairs[key].append(at)
+    for key, observed in pairs.items():
+        if len(set(observed)) < 3:
+            errors.add("Insufficient successful simultaneous execution samples: " + key)
+    return sorted(errors)
+
+
 def canary_timestamps(evidence, hosts):
     """Count canary completions from admission, observation from latest recovery."""
 
@@ -37,6 +99,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("evidence", type=Path)
         parser.add_argument("--phase", choices=["canary", "reopen"], default="canary")
+        parser.add_argument(
+            "--parallel-ramp",
+            action="store_true",
+            help="Use an authorized 27-job baseline and observed successful parallel execution",
+        )
 
     def handle(self, *args, **options):
         require_postgres()
@@ -157,7 +224,8 @@ class Command(BaseCommand):
             errors.append("Uncertain containers retain reservations")
         if options["phase"] == "reopen":
             start, observation = canary_timestamps(evidence, ExecutorHost.objects.all())
-            if timezone.now() - observation < timedelta(hours=1):
+            parallel = options["parallel_ramp"]
+            if not parallel and timezone.now() - observation < timedelta(hours=1):
                 errors.append("Healthy canary observation is shorter than one hour")
             completed = Job.objects.filter(
                 execution__isnull=False,
@@ -165,10 +233,25 @@ class Command(BaseCommand):
                 status="Completed",
                 public_id__in=expected,
             ).count()
-            if completed < 100:
+            required = 27 if parallel else 100
+            if completed < required:
                 errors.append(
-                    f"Canary completed only {completed} imported jobs; at least 100 required"
+                    f"Canary completed only {completed} imported jobs; at least {required} required"
                 )
+            if parallel:
+                attempts = {
+                    str(a.pk): a
+                    for a in ExecutionAttempt.objects.filter(
+                        started_at__gte=datetime.fromisoformat(evidence["parallel_ramp_started_at"])
+                    )
+                }
+                errors.extend(parallel_ramp_errors(evidence, attempts))
+                if any(
+                    a.state == "stopped"
+                    and a.outcome.get("category") in {"oom", "cpu", "profile_vram_breach"}
+                    for a in attempts.values()
+                ):
+                    errors.append("Resource failures occurred during the parallel ramp")
             if evidence.get("canary_method_and_shape_coverage_passed") is not True:
                 errors.append("Canary method/shape/interrupted-job coverage is incomplete")
         if errors:

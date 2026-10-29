@@ -357,10 +357,19 @@ def claim(host_id: str):
         )
         if not result.fits or not _gpu_profile_allowed(profile, active, host):
             stage.waiting_reason = result.reason or "unvalidated_gpu_combination"
-            stage.save(update_fields=["waiting_reason"])
+            if profile.resources.get("vram", 0):
+                # Planning/dependency time is not time spent eligible for a
+                # GPU. Otherwise an old dependency graph drains the GPU after
+                # each allocation and prevents validated pairs from running.
+                stage.payload.setdefault("admission_wait_started_at", now.isoformat())
+            stage.save(update_fields=["waiting_reason", "payload"])
             if (
                 profile.resources.get("vram", 0)
-                and (now - stage.created_at).total_seconds() >= 600
+                and (
+                    now
+                    - timezone.datetime.fromisoformat(stage.payload["admission_wait_started_at"])
+                ).total_seconds()
+                >= 600
                 and resources.get("vram", 0)
                 + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
                 <= host.telemetry.get("vram_total", 0)
