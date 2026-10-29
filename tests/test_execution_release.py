@@ -4,6 +4,32 @@ import pytest
 from tools.executor.stage_models import stage
 
 
+def test_committed_model_adapters_are_in_source_release_with_clean_model_diff(
+    tmp_path, monkeypatch
+):
+    import subprocess
+    import tarfile
+    from pathlib import Path
+
+    from tools.executor import release_bundle
+
+    original = subprocess.check_output
+
+    def git_output(command, **kwargs):
+        if command[:2] == ["git", "diff"]:
+            return ""
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "check_output", git_output)
+    bundle = tmp_path / "release.tar.gz"
+    manifest = release_bundle.create(Path(__file__).resolve().parents[1], bundle)
+    with tarfile.open(bundle) as archive:
+        names = set(archive.getnames())
+    assert "patches/models/OmniESI/batch_predict.py" in names
+    assert set(release_bundle.MODEL_ADAPTERS) <= set(manifest["model_patches"])
+    assert not any(name.startswith("media/") or name.endswith(".env") for name in names)
+
+
 def test_model_release_preserves_dirty_source_and_reuses_weights(tmp_path):
     source, patches, dest = (tmp_path / name for name in ["original", "patches", "release"])
     source.mkdir()

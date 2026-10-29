@@ -10,6 +10,30 @@ from pathlib import Path
 
 ROOTS = ("api", "tools", "webKinPred", "db_models")
 
+# Deployment adapters must be included after they have been committed, too.
+MODEL_ADAPTERS = (
+    "models/CatPred/catpred/integration/catpred_embed_gpu.py",
+    "models/CatPred/catpred/integration/webkinpred_adapter.py",
+    "models/CatRange/inference/catrange_inference.py",
+    "models/CatRange/predict.py",
+    "models/CataPro/inference/custom_predict.py",
+    "models/DLKcat/DeeplearningApproach/Code/example/prediction_for_input.py",
+    "models/EITLEM/Code/eitlem_prediction_script_batch.py",
+    "models/IECata/prediction_script.py",
+    "models/KinForm/code/main.py",
+    "models/KinForm/code/protein_embeddings/prot_embeddings.py",
+    "models/KinForm/code/protein_embeddings/t5_embeddings.py",
+    "models/KinForm/code/pseq2sites/get_sites.py",
+    "models/KinForm/code/pseq2sites/pseq2sites_stream_worker.py",
+    "models/KinForm/code/utils/compute_embs.py",
+    "models/KinForm/code/utils/smiles_features.py",
+    "models/MMISA-KM/upstream/script/prediction_script.py",
+    "models/OmniESI/batch_predict.py",
+    "models/TurNup/code/enzyme_representations.py",
+    "models/TurNup/code/kcat_prediction_batch.py",
+    "models/UniKP-main/run_unikp_batch.py",
+)
+
 
 def create(root, destination):
     files = []
@@ -30,6 +54,7 @@ def create(root, destination):
             "docker-compose.executor-host.yml",
             "docs/resource-aware-execution.md",
             "docs/execution-profiling-2026-10-28.md",
+            "docs/execution-deployment-2026-10-29.md",
         )
     )
     files.extend(p for p in (root / "deploy/execution").rglob("*") if p.is_file())
@@ -43,7 +68,11 @@ def create(root, destination):
     modified = subprocess.check_output(
         ["git", "diff", "--name-only", "--", "models"], cwd=root, text=True
     ).splitlines()
-    patches = [root / name for name in modified if name.endswith(".py")]
+    patches = [
+        root / name
+        for name in sorted(set(modified) | set(MODEL_ADAPTERS))
+        if name.endswith(".py") and (root / name).is_file()
+    ]
     manifest = {
         "commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True
