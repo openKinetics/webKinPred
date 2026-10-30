@@ -7,6 +7,7 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import OperationalError, connection, transaction
 from django.db.models import Count, Min, Sum
 from django.http import HttpResponse
 from django.utils import timezone
@@ -171,14 +172,23 @@ def render():
             )
         emit("disk_headroom", host.budgets.get("disk_headroom", 0), **labels)
         emit("legacy_consumers", len(host.telemetry.get("legacy_consumers", [])), **labels)
-        emit(
-            "artifact_bytes",
-            Artifact.objects.filter(locations__host=host, locations__ready=True).aggregate(
-                total=Sum("size")
-            )["total"]
-            or 0,
-            **labels,
-        )
+        # This optional inventory scan can touch millions of imported cache
+        # records. A slow scan must not monopolize the web/heartbeat workers.
+        try:
+            with transaction.atomic():
+                size = (
+                    Artifact.objects.filter(locations__host=host, locations__ready=True).aggregate(
+                        total=Sum("size")
+                    )["total"]
+                    or 0
+                )
+        except OperationalError as error:
+            if getattr(error.__cause__, "pgcode", None) != "57014":
+                raise
+            emit("artifact_inventory_available", 0, **labels)
+        else:
+            emit("artifact_inventory_available", 1, **labels)
+            emit("artifact_bytes", size, **labels)
     emit("scrape_duration_seconds", time.monotonic() - started)
     return "\n".join(lines) + "\n"
 
@@ -191,4 +201,17 @@ def metrics(request):
         request.headers.get("Authorization", ""), "Bearer " + token
     ):
         return HttpResponse(status=401)
-    return HttpResponse(render(), content_type="text/plain; version=0.0.4; charset=utf-8")
+    try:
+        with transaction.atomic():
+            if connection.vendor == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL jit = off")
+                    cursor.execute("SET LOCAL statement_timeout = '1000ms'")
+                    cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+                    cursor.execute("SELECT pg_try_advisory_xact_lock(481726395)")
+                    if not cursor.fetchone()[0]:
+                        return HttpResponse(status=503, headers={"Retry-After": "15"})
+            body = render()
+    except OperationalError:
+        return HttpResponse(status=503, headers={"Retry-After": "15"})
+    return HttpResponse(body, content_type="text/plain; version=0.0.4; charset=utf-8")

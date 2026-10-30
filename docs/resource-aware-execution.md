@@ -453,3 +453,11 @@ its class. Queue estimates also place normal requests before background ones.
 Migration `0036_background_scheduling` must run before deploying this control
 code. Its native false default lets old attempt images coexist during rollout.
 The policy is central and does not require rebuilding model or GPU environments.
+
+Metrics scrapes use a nonblocking PostgreSQL advisory lock and a one-second
+statement deadline, with JIT and parallel queries disabled for the scrape.
+Overlapping or timed-out scrapes return retryable HTTP 503 responses instead of
+queuing expensive scans in web workers. A timed-out artifact inventory scan is
+omitted while other metrics remain available; its
+`artifact_inventory_available{host=...}` gauge reports zero. This does not affect
+artifact readiness, retention, admission accounting, or disk-headroom telemetry.
