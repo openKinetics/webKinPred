@@ -9,7 +9,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Q
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
 from api.execution.models import (
@@ -191,10 +191,15 @@ def _admission_wait(stage, profile, resources, host, reason, now):
         stage.save(update_fields=fields)
     return (
         bool(profile.resources.get("vram", 0))
+        and not stage.has_offline_input
+        and all(resources.get(key, 0) <= host.budgets[key] for key in ("ram", "cpu", "disk"))
         and (
-            now - timezone.datetime.fromisoformat(stage.payload["admission_wait_started_at"])
-        ).total_seconds()
-        >= 600
+            max(stage.priority, stage.execution.priority) > 0
+            or (
+                now - timezone.datetime.fromisoformat(stage.payload["admission_wait_started_at"])
+            ).total_seconds()
+            >= 600
+        )
         and resources.get("vram", 0) + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
         <= host.telemetry.get("vram_total", 0)
     )
@@ -263,6 +268,7 @@ def claim(host_id: str):
         .annotate(has_blocked_dependency=Exists(blocked))
         .filter(has_blocked_dependency=False)
         .annotate(
+            effective_priority=Greatest("priority", "execution__priority"),
             has_offline_input=Exists(offline_input),
             job_has_active=Exists(
                 ExecutionAttempt.objects.filter(
@@ -272,6 +278,7 @@ def claim(host_id: str):
         )
         .select_related("execution__job", "profile")
         .order_by(
+            "-effective_priority",
             "has_offline_input",
             "job_has_active",
             Coalesce("execution__job__submission_time", "execution__created_at"),

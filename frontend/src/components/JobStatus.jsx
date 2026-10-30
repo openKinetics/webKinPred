@@ -557,8 +557,10 @@ function JobStatus() {
                     {jobStatus.queue_estimate && (
                       <span className="trk__pending-note">
                         {jobStatus.queue_estimate.jobs_ahead === 0
-                          ? 'Next by submission time.'
-                          : `${jobStatus.queue_estimate.jobs_ahead.toLocaleString()} older ${jobStatus.queue_estimate.jobs_ahead === 1 ? 'job is' : 'jobs are'} waiting.`}
+                          ? (jobStatus.queue_estimate.basis === 'priority_and_submission_order' ? 'First by queue priority.' : 'Next by submission time.')
+                          : jobStatus.queue_estimate.basis === 'priority_and_submission_order'
+                            ? `${jobStatus.queue_estimate.jobs_ahead.toLocaleString()} ${jobStatus.queue_estimate.jobs_ahead === 1 ? 'job' : 'jobs'} ahead.`
+                            : `${jobStatus.queue_estimate.jobs_ahead.toLocaleString()} older ${jobStatus.queue_estimate.jobs_ahead === 1 ? 'job is' : 'jobs are'} waiting.`}
                         {' '}Jobs run in parallel, so start order may vary.
                       </span>
                     )}

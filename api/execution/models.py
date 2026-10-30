@@ -15,6 +15,7 @@ class ExecutionSpec(models.Model):
     input_checksum = models.CharField(max_length=64)
     created_at = models.DateTimeField(default=timezone.now)
     paused = models.BooleanField(default=True)
+    priority = models.PositiveIntegerField(default=0, db_default=0, db_index=True)
     policy_version = models.CharField(max_length=32, default="v2-gpu-only")
 
 
@@ -54,6 +55,7 @@ class ResourceProfile(models.Model):
 class WorkStage(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     execution = models.ForeignKey(ExecutionSpec, on_delete=models.PROTECT, related_name="stages")
+    priority = models.PositiveIntegerField(default=0, db_default=0, db_index=True)
     key = models.CharField(max_length=160)
     kind = models.CharField(max_length=32)
     method = models.CharField(max_length=64, blank=True)

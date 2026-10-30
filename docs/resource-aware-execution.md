@@ -386,3 +386,33 @@ insertion rank until the next refresh. This cache does not reserve resources,
 alter scheduling or require Redis to be available. The snapshot holds at most
 20,000 entries; ranks beyond that prefix use database counts to keep web-process
 memory bounded for larger backlogs.
+
+### Prioritize one job
+
+On production, use the durable executor's command:
+
+```sh
+sudo docker exec webkinpred-backend-1 python manage.py prioritize_job JOB_ID
+sudo docker exec webkinpred-backend-1 python manage.py prioritize_job JOB_ID --priority 200
+sudo docker exec webkinpred-backend-1 python manage.py prioritize_job JOB_ID --clear
+```
+
+Normal priority is zero; the command defaults to 100. Higher numbers are admitted
+first, with normal submission order within a priority. The setting survives
+restarts and also promotes unfinished shared prerequisites. Clearing a boost
+retains any higher priority still required by another job. Preparation yields at
+committed chunk boundaries for a more urgent request. GPU admissions drain for
+waiting prioritized work without terminating existing model processes.
+
+Resource budgets, profile compatibility, holds, retry backoff, host maintenance
+and ownership checks still apply. `--resume` explicitly resumes an individually
+paused job; other jobs and hosts retain their existing pause state. The command
+preserves IDs, submission times, immutable request options, checkpoints, results
+and quota accounting. Completed jobs report that they are complete and are not
+rerun. Failed legacy jobs require diagnosis/recovery before prioritization.
+
+Queue estimates use priority followed by submission order when boosts are active;
+otherwise they retain the existing submission-order basis. The API also exposes
+`scheduling_priority`. Migration `0035_execution_priority` must run before the
+new web/controller images; database defaults permit older services to continue
+creating normal-priority rows during the rolling deployment.

@@ -28,8 +28,14 @@ class Command(BaseCommand):
                 self.stderr.write("Another execution controller owns the preparation lock")
                 return
         try:
+            last_priority_refresh = 0
             while True:
                 if settings.EXECUTION_V2_ENABLED:
+                    if time.monotonic() - last_priority_refresh >= 5:
+                        from api.execution.priority import refresh_stage_priorities
+
+                        refresh_stage_priorities()
+                        last_priority_refresh = time.monotonic()
                     for execution in (
                         ExecutionSpec.objects.filter(
                             paused=False,
@@ -39,14 +45,32 @@ class Command(BaseCommand):
                         )
                         .select_related("job")
                         .distinct()
-                        .order_by(Coalesce("job__submission_time", "created_at"), "pk")[:4]
+                        .order_by(
+                            "-priority", Coalesce("job__submission_time", "created_at"), "pk"
+                        )[:4]
                     ):
+                        # A priority request arriving during this batch should
+                        # not wait behind the other prefetched normal requests.
+                        if ExecutionSpec.objects.filter(
+                            paused=False,
+                            priority__gt=execution.priority,
+                            stages__key="prepare",
+                            stages__state="ready",
+                            stages__available_at__lte=timezone.now(),
+                        ).exists():
+                            break
                         try:
                             prepare(
                                 execution,
                                 Path(settings.MEDIA_ROOT),
                                 Path(settings.EXECUTION_BLOB_ROOT),
                             )
+                            execution.refresh_from_db(fields=["priority"])
+                            if execution.priority:
+                                from api.execution.priority import refresh_stage_priorities
+
+                                refresh_stage_priorities()
+                                bind_profiles()
                         except Exception as error:
                             # Keep inputs/specifications and hold for controller recovery.
                             from api.execution.errors import classify
