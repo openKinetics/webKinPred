@@ -273,7 +273,10 @@ def claim(host_id: str):
     # This is a short control request, not an analytical query. JIT compilation
     # of the large compatibility predicate can itself exceed the HTTP deadline.
     with connection.cursor() as cursor:
-        cursor.execute("SET LOCAL jit = off")
+        cursor.execute(
+            "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+            "SET LOCAL statement_timeout = '3000ms'"
+        )
     host = ExecutorHost.objects.select_for_update().get(pk=host_id)
     now = timezone.now()
     if (
@@ -438,17 +441,23 @@ def claim(host_id: str):
         return capacity
 
     foreground_capacity = profile_capacity(foreground_fitting)
+    normal_executions = list(
+        ExecutionSpec.objects.filter(background=False)
+        .exclude(job__status__in=["Completed", "Failed"])
+        .values_list("pk", flat=True)
+    )
+    foreground = Q(execution_id__in=normal_executions) | Q(pk__in=needed)
     # Nonlocking demand check also sees normal work another host is claiming.
     # It must not let a background request take that capacity in the meantime.
+    # Use indexed stage ownership/IDs here: filtering the ordering CASE forces
+    # PostgreSQL to inspect the whole background backlog to prove no demand.
     foreground_demand = (
-        candidates.filter(effective_background=False, has_offline_input=False)
-        .filter(foreground_capacity)
-        .exists()
+        candidates.filter(foreground, has_offline_input=False).filter(foreground_capacity).exists()
     )
     capacity = (
         Q(pk__in=[pk for pk in oldest if pk is not None])
         | profile_capacity(fitting)
-        | (Q(effective_background=False) & foreground_capacity)
+        | (foreground & foreground_capacity)
     )
     candidates = candidates.filter(capacity).select_for_update(skip_locked=True, of=("self",))
     gpu_barrier = False

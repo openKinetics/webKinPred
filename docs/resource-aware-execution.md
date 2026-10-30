@@ -461,3 +461,8 @@ queuing expensive scans in web workers. A timed-out artifact inventory scan is
 omitted while other metrics remain available; its
 `artifact_inventory_available{host=...}` gauge reports zero. This does not affect
 artifact readiness, retention, admission accounting, or disk-headroom telemetry.
+Admission queries use a three-second statement deadline and disable parallel
+query workers. Foreground-demand checks filter indexed execution/stage IDs before
+evaluating profile compatibility, so proving that normal work cannot fit does not
+scan the whole background backlog. A query timeout rolls back the claim and
+returns HTTP 503 with `Retry-After: 5`; it never commits a partial reservation.

@@ -9,7 +9,34 @@ from api.execution.models import ResourceProfile, WorkStage
 from api.execution.resources import GIB, admit
 from api.execution.views import executor
 from api.models import Job
+from django.db import connection, transaction
 from django.test import RequestFactory, override_settings
+
+
+@pytest.mark.django_db(transaction=True)
+def test_control_query_timeout_is_retryable_and_rolls_back(monkeypatch):
+    def slow_claim(host_id):
+        with transaction.atomic():
+            Job.objects.create(public_id="tmprobe", prediction_type="kcat")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL statement_timeout = '50ms'")
+                cursor.execute("SELECT pg_sleep(1)")
+
+    monkeypatch.setattr(control, "claim", slow_claim)
+    with override_settings(EXECUTION_HOSTS={"gpu": {"token": "test-token"}}):
+        response = executor(
+            RequestFactory().post(
+                "/internal/v2/executors/gpu/claim",
+                data="{}",
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer test-token",
+            ),
+            "gpu",
+            "claim",
+        )
+    assert response.status_code == 503
+    assert response["Retry-After"] == "5"
+    assert not Job.objects.filter(public_id="tmprobe").exists()
 
 
 def test_maintenance_blocks_before_submission_or_quota_and_allows_downloads(tmp_path):

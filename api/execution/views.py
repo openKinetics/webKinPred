@@ -5,6 +5,7 @@ import json
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -77,6 +78,12 @@ def executor(request, host_id, operation, attempt_id=None):
         return JsonResponse({"error": "unknown operation"}, status=404)
     except PermissionError:
         return JsonResponse({"error": "ownership mismatch"}, status=403)
+    except OperationalError as exc:
+        if getattr(exc.__cause__, "pgcode", None) != "57014":
+            raise
+        return JsonResponse(
+            {"error": "control temporarily busy"}, status=503, headers={"Retry-After": "5"}
+        )
     except ObjectDoesNotExist:
         return JsonResponse({"error": "unknown execution record"}, status=404)
     except (ValueError, KeyError, TypeError) as exc:
