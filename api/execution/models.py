@@ -16,7 +16,22 @@ class ExecutionSpec(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     paused = models.BooleanField(default=True)
     priority = models.PositiveIntegerField(default=0, db_default=0, db_index=True)
+    background = models.BooleanField(default=False, db_default=False, db_index=True)
     policy_version = models.CharField(max_length=32, default="v2-gpu-only")
+
+
+class SchedulingRule(models.Model):
+    kind = models.CharField(
+        max_length=20, choices=[("ip", "IP address"), ("api_key_prefix", "API key prefix")]
+    )
+    value = models.CharField(max_length=128)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "value"], name="scheduling_rule_selector")
+        ]
 
 
 class ExecutorHost(models.Model):

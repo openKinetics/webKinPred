@@ -2,6 +2,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
+from api.execution.background import higher_preparation
 from api.execution.control import bind_profiles, ensure_hosts, require_postgres
 from api.execution.models import ExecutionOutbox, ExecutionSpec
 from api.execution.planning import prepare
@@ -46,18 +47,15 @@ class Command(BaseCommand):
                         .select_related("job")
                         .distinct()
                         .order_by(
-                            "-priority", Coalesce("job__submission_time", "created_at"), "pk"
+                            "background",
+                            "-priority",
+                            Coalesce("job__submission_time", "created_at"),
+                            "pk",
                         )[:4]
                     ):
                         # A priority request arriving during this batch should
                         # not wait behind the other prefetched normal requests.
-                        if ExecutionSpec.objects.filter(
-                            paused=False,
-                            priority__gt=execution.priority,
-                            stages__key="prepare",
-                            stages__state="ready",
-                            stages__available_at__lte=timezone.now(),
-                        ).exists():
+                        if higher_preparation(execution).exists():
                             break
                         try:
                             prepare(
@@ -66,7 +64,7 @@ class Command(BaseCommand):
                                 Path(settings.EXECUTION_BLOB_ROOT),
                             )
                             execution.refresh_from_db(fields=["priority"])
-                            if execution.priority:
+                            if execution.priority or not execution.background:
                                 from api.execution.priority import refresh_stage_priorities
 
                                 refresh_stage_priorities()

@@ -42,10 +42,15 @@ def waiting_queue_snapshot():
             return _queue_snapshot
         jobs = tuple(
             waiting_jobs()
-            .order_by("-priority", "job__submission_time", "job_id")
-            .values_list("priority", "job__submission_time", "job_id")[: _QUEUE_SNAPSHOT_LIMIT + 1]
+            .order_by("background", "-priority", "job__submission_time", "job_id")
+            .values_list("background", "priority", "job__submission_time", "job_id")[
+                : _QUEUE_SNAPSHOT_LIMIT + 1
+            ]
         )
-        jobs = tuple((-priority, submitted, ident) for priority, submitted, ident in jobs)
+        jobs = tuple(
+            (background, -priority, submitted, ident)
+            for background, priority, submitted, ident in jobs
+        )
         truncated = len(jobs) > _QUEUE_SNAPSHOT_LIMIT
         total = waiting_jobs().count() if truncated else len(jobs)
         _queue_snapshot = {
@@ -59,11 +64,11 @@ def waiting_queue_snapshot():
         return _queue_snapshot
 
 
-def queue_estimate(job, state, priority=0):
+def queue_estimate(job, state, priority=0, background=False):
     if job.status != "Pending" or job.start_time or state not in {"waiting_cpu", "waiting_gpu"}:
         return None
     snapshot = waiting_queue_snapshot()
-    key = (-priority, job.submission_time, job.pk)
+    key = (background, -priority, job.submission_time, job.pk)
     jobs = snapshot["jobs"]
     ahead = bisect_left(jobs, key)
     present = ahead < len(jobs) and jobs[ahead] == key
@@ -71,9 +76,19 @@ def queue_estimate(job, state, priority=0):
         ahead = (
             waiting_jobs()
             .filter(
-                Q(priority__gt=priority)
-                | Q(priority=priority, job__submission_time__lt=job.submission_time)
-                | Q(priority=priority, job__submission_time=job.submission_time, job_id__lt=job.pk)
+                Q(background__lt=background)
+                | Q(background=background, priority__gt=priority)
+                | Q(
+                    background=background,
+                    priority=priority,
+                    job__submission_time__lt=job.submission_time,
+                )
+                | Q(
+                    background=background,
+                    priority=priority,
+                    job__submission_time=job.submission_time,
+                    job_id__lt=job.pk,
+                )
             )
             .count()
         )
@@ -85,7 +100,7 @@ def queue_estimate(job, state, priority=0):
         else len(jobs) + (0 if present else 1),
         "approximate": True,
         "basis": "priority_and_submission_order"
-        if priority or (jobs and jobs[0][0] < 0)
+        if background or priority or any(row[0] or row[1] < 0 for row in jobs)
         else "submission_order",
         "updated_at": snapshot["updated_at"],
     }
@@ -142,8 +157,9 @@ def execution_status(job):
     elapsed = max(0, ((job.completion_time or now) - execution.created_at).total_seconds())
     return {
         "execution_state": state,
-        "queue_estimate": queue_estimate(job, state, execution.priority),
+        "queue_estimate": queue_estimate(job, state, execution.priority, execution.background),
         "scheduling_priority": execution.priority,
+        "scheduling_class": "background" if execution.background else "normal",
         "waiting_reason": {
             "paused": "maintenance",
             "needs_attention": "operator_attention",

@@ -67,6 +67,10 @@ class Command(BaseCommand):
             f"{job.public_id}: priority {value}; {changed} stage priorities updated. "
             "Resource limits and running attempts are unchanged."
         )
+        if execution.background:
+            self.stdout.write(
+                "Background class still applies; normal requests always take precedence."
+            )
         held = execution.stages.filter(state="held").count()
         if held:
             self.stdout.write(f"{held} held stages still require operator attention.")

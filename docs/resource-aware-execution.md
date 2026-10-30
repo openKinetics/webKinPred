@@ -416,3 +416,40 @@ otherwise they retain the existing submission-order basis. The API also exposes
 `scheduling_priority`. Migration `0035_execution_priority` must run before the
 new web/controller images; database defaults permit older services to continue
 creating normal-priority rows during the rolling deployment.
+
+## Strict background scheduling policies
+
+`execution_background_priority` persists IP and API-key-prefix selectors in
+PostgreSQL and applies their union to every unfinished job. Future ingestion
+classifies requests under the same policy lock. API-key matching uses the key
+identity preserved in the quota subject, even when a request arrives from a
+different IP. Completed jobs and immutable scientific specifications are not
+rewritten and quotas are not charged again.
+
+```sh
+sudo docker exec webkinpred-backend-1 python manage.py execution_background_priority --ip 198.51.100.187 --api-key-prefix ak_1234abc
+```
+
+Run without selectors to reapply the persisted policy and report counts. Add
+`--clear` with selectors to disable those rules; other enabled selectors still
+apply. Actual deployment selectors live in the database, not in source control.
+
+Normal requests precede background requests regardless of numeric priority or
+submission time. Preparation yields at committed chunk boundaries. Admission
+checks normal demand before admitting background work and requests the smallest
+useful set of background attempts to stop when normal work needs their resources.
+Reservations remain held until the supervisor confirms termination; interrupted
+work retains checkpoints and retries without permanent failure. Normal attempts
+and unrelated host workloads are never preempted by this policy. Background work
+can use spare capacity when it does not delay eligible normal requests.
+
+A background-owned shared prerequisite required by an unfinished normal request
+inherits normal precedence, including its transitive prerequisites. This is
+computed from the live dependency graph so stale promotions cannot bypass the
+policy. Ordinary requests retain their existing numeric-priority and age ordering
+within the normal class. `prioritize_job` cannot lift a background request out of
+its class. Queue estimates also place normal requests before background ones.
+
+Migration `0036_background_scheduling` must run before deploying this control
+code. Its native false default lets old attempt images coexist during rollout.
+The policy is central and does not require rebuilding model or GPU environments.

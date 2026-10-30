@@ -15,7 +15,6 @@ from api.execution.models import (
     Artifact,
     ArtifactDependency,
     ArtifactLocation,
-    ExecutionSpec,
     SequenceIdentity,
     WorkStage,
 )
@@ -450,17 +449,9 @@ def prepare(execution, media: Path, blob_root: Path):
     from api.execution.bounded import frames
 
     for chunk_index, frame in enumerate(frames(source)):
-        if (
-            ExecutionSpec.objects.filter(
-                paused=False,
-                priority__gt=ExecutionSpec.objects.filter(pk=execution.pk).values("priority")[:1],
-                stages__key="prepare",
-                stages__state="ready",
-                stages__available_at__lte=timezone.now(),
-            )
-            .exclude(pk=execution.pk)
-            .exists()
-        ):
+        from api.execution.background import higher_preparation
+
+        if higher_preparation(execution).exists():
             # Completed chunks keep their deterministic keys. Resume this
             # preparation after the urgent request has been prepared.
             return

@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from datetime import timedelta
+from itertools import combinations
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -53,6 +54,9 @@ def ingest(
     public_id: str, specification: dict, input_checksum: str, *, paused=True
 ) -> ExecutionSpec:
     job = Job.objects.select_for_update().get(public_id=public_id)
+    from api.execution.background import background_for_job
+
+    background = background_for_job(job)
     checksum = digest(specification)
     existing = ExecutionSpec.objects.filter(job=job).first()
     if existing:
@@ -65,6 +69,7 @@ def ingest(
         checksum=checksum,
         input_checksum=input_checksum,
         paused=paused,
+        background=background,
     )
     if "methods" in specification and job.status not in {"Completed", "Failed"}:
         from api.methods.registry import get
@@ -179,6 +184,63 @@ def _gpu_profile_allowed(profile, active, host):
     return combination in host.capabilities.get("validated_gpu_combinations", [])
 
 
+def _after_stopping(active, removed, telemetry):
+    removed = set(removed)
+    retained = [row for row in active if row["id"] not in removed]
+    projected = dict(telemetry)
+    for resource, available, total in (
+        ("ram", "ram_available", "ram_total"),
+        ("vram", "vram_free", "vram_total"),
+    ):
+        if available in projected:
+            projected[available] += sum(
+                row["observed"].get(resource, 0) for row in active if row["id"] in removed
+            )
+            if total in projected:
+                projected[available] = min(projected[available], projected[total])
+    return retained, projected
+
+
+def _preempt_background(stage, profile, resources, active, host):
+    """Request the smallest useful background stop set; retain all reservations."""
+    lower = sorted(
+        [row for row in active if row["background"]],
+        key=lambda row: (
+            bool(row["resources"].get("vram")) == bool(resources.get("vram")),
+            row["started_at"],
+        ),
+        reverse=True,
+    )
+    if not lower or stage.has_offline_input:
+        return False
+    if (
+        stage.artifacts.filter(artifact__locations__ready=True).values("pk").distinct().count()
+        != stage.artifacts.count()
+    ):
+        return False
+    for size in range(1, len(lower) + 1):
+        for subset in combinations(lower, size):
+            ids = [row["id"] for row in subset]
+            retained, projected = _after_stopping(active, ids, host.telemetry)
+            if admit(
+                resources, retained, host.budgets, projected, gpu=bool(resources.get("vram"))
+            ).fits and _gpu_profile_allowed(profile, retained, host):
+                ExecutionAttempt.objects.filter(pk__in=ids, state__in=LIVE_STATES).update(
+                    stop_requested=True
+                )
+                log.info(
+                    "Background work yielding resources",
+                    extra={
+                        "event": "execution.background_preemption",
+                        "executor_host": host.pk,
+                        "foreground_stage": str(stage.pk),
+                        "attempts": len(ids),
+                    },
+                )
+                return True
+    return False
+
+
 def _admission_wait(stage, profile, resources, host, reason, now):
     fields = []
     if stage.waiting_reason != reason:
@@ -224,10 +286,22 @@ def claim(host_id: str):
         or ArtifactCleanup.objects.filter(host=host, completed_at__isnull=True).exists()
     ):
         return None
-    attempts = list(host.attempts.filter(state__in=LIVE_STATES).select_related("stage"))
+    attempts = list(
+        host.attempts.filter(state__in=LIVE_STATES)
+        .select_related("stage__execution")
+        .defer("stage__execution__specification", "stage__payload", "stage__checkpoint")
+    )
+    if any(a.stop_requested for a in attempts):
+        return None  # Confirm termination before reallocating any reservation.
+    from api.execution.background import foreground_dependencies
+
+    needed = foreground_dependencies()
     observed = host.telemetry.get("attempts", {})
     active = [
         {
+            "id": a.pk,
+            "started_at": a.started_at,
+            "background": a.stage.execution.background and a.stage_id not in needed,
             "resources": a.resources,
             "observed": observed.get(str(a.pk), {}),
             "profile_fingerprint": a.profile_fingerprint,
@@ -279,19 +353,23 @@ def claim(host_id: str):
         "stage__execution_id"
     )
     candidates = (
-        WorkStage.objects.select_for_update(skip_locked=True, of=("self",))
-        .filter(
+        WorkStage.objects.filter(
             state="ready",
             execution__paused=False,
             available_at__lte=now,
             profile__validated=True,
             profile__suspended=False,
         )
+        .exclude(execution__job__status__in=["Completed", "Failed"])
         .exclude(kind="prepare")
         .filter(eligible)
         .annotate(has_blocked_dependency=Exists(blocked))
         .filter(has_blocked_dependency=False)
         .annotate(
+            effective_background=Case(
+                When(Q(execution__background=True) & ~Q(pk__in=needed), then=Value(True)),
+                default=Value(False),
+            ),
             effective_priority=Greatest("priority", "execution__priority"),
             has_offline_input=offline,
             job_has_active=Case(
@@ -302,6 +380,7 @@ def claim(host_id: str):
         .select_related("execution__job", "profile")
         .defer("execution__specification", "profile__evidence")
         .order_by(
+            "effective_background",
             "-effective_priority",
             "has_offline_input",
             "job_has_active",
@@ -317,6 +396,7 @@ def claim(host_id: str):
     oldest = [
         candidates.filter(rule)
         .order_by(
+            "effective_background",
             "-effective_priority",
             Coalesce("execution__job__submission_time", "execution__created_at"),
             "created_at",
@@ -326,34 +406,61 @@ def claim(host_id: str):
         for rule in (cpu_stage, Q(profile__resources__vram__gt=0))
     ]
     fitting = []
+    foreground_fitting = []
+    retained, projected = _after_stopping(
+        active, [row["id"] for row in active if row["background"]], host.telemetry
+    )
     for p in advertised:
         resources = {k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}
         if admit(
             resources, active, host.budgets, host.telemetry, gpu=bool(resources.get("vram"))
         ).fits and _gpu_profile_allowed(p, active, host):
             fitting.append(p)
-    capacity = Q(pk__in=[pk for pk in oldest if pk is not None]) | Q(
-        profile_id__in=[p.pk for p in fitting]
+        if admit(
+            resources, retained, host.budgets, projected, gpu=bool(resources.get("vram"))
+        ).fits and _gpu_profile_allowed(p, retained, host):
+            foreground_fitting.append(p)
+
+    def profile_capacity(profiles):
+        capacity = Q(profile_id__in=[p.pk for p in profiles])
+        for p in profiles:
+            if not p.resources.get("vram"):
+                identity = p.settings.get("model_identity")
+                same_identity = Q(profile__settings__model_identity=identity)
+                if identity is None:
+                    same_identity |= Q(profile__settings__model_identity__isnull=True)
+                capacity |= (
+                    cpu_stage
+                    & same_identity
+                    & Q(kind=p.stage_kind, method=p.method)
+                    & ~Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
+                )
+        return capacity
+
+    foreground_capacity = profile_capacity(foreground_fitting)
+    # Nonlocking demand check also sees normal work another host is claiming.
+    # It must not let a background request take that capacity in the meantime.
+    foreground_demand = (
+        candidates.filter(effective_background=False, has_offline_input=False)
+        .filter(foreground_capacity)
+        .exists()
     )
-    for p in fitting:
-        if not p.resources.get("vram"):
-            identity = p.settings.get("model_identity")
-            same_identity = Q(profile__settings__model_identity=identity)
-            if identity is None:
-                same_identity |= Q(profile__settings__model_identity__isnull=True)
-            capacity |= (
-                cpu_stage
-                & same_identity
-                & Q(kind=p.stage_kind, method=p.method)
-                & ~Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
-            )
-    candidates = candidates.filter(capacity)
+    capacity = (
+        Q(pk__in=[pk for pk in oldest if pk is not None])
+        | profile_capacity(fitting)
+        | (Q(effective_background=False) & foreground_capacity)
+    )
+    candidates = candidates.filter(capacity).select_for_update(skip_locked=True, of=("self",))
     gpu_barrier = False
     # Rank/lock IDs only. Sorting joined payloads, checkpoint JSON and profile
     # manifests for the whole backlog spills large rows to disk. Fetch the full
     # context only for candidates we actually inspect under those row locks.
-    candidate_rows = list(candidates.values_list("pk", "has_offline_input")[:512])
-    for ident, has_offline_input in candidate_rows:
+    candidate_rows = list(
+        candidates.values_list("pk", "has_offline_input", "effective_background")[:512]
+    )
+    for ident, has_offline_input, background in candidate_rows:
+        if background and foreground_demand:
+            continue
         stage = (
             WorkStage.objects.select_related("execution__job", "profile")
             .defer("execution__specification", "profile__evidence")
@@ -418,6 +525,8 @@ def claim(host_id: str):
             resources, active, host.budgets, host.telemetry, gpu=bool(profile.resources.get("vram"))
         )
         if not base.fits or not _gpu_profile_allowed(profile, active, host):
+            if not background and _preempt_background(stage, profile, resources, active, host):
+                return None
             gpu_barrier |= _admission_wait(
                 stage,
                 profile,
@@ -473,6 +582,8 @@ def claim(host_id: str):
             gpu=bool(profile.resources.get("vram")),
         )
         if not result.fits or not _gpu_profile_allowed(profile, active, host):
+            if not background and _preempt_background(stage, profile, resources, active, host):
+                return None
             gpu_barrier |= _admission_wait(
                 stage,
                 profile,
