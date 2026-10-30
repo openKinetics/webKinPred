@@ -62,3 +62,51 @@ sudo docker exec webkinpred-gpu-embedding-proxy python -c 'import os,json,urllib
 Production verification uses `get_gpu_status(force_refresh=True)` from
 `api.services.gpu_embed_service` and confirms new successful GPU attempts, rather
 than relying only on endpoint or container liveness.
+
+## Production recovery verification
+
+The executor repair is commit `c118134`; the cleanup deadline is commit
+`97513aa`. Both were pushed before deployment. Production uses web image `r36`
+and executor `r28`; the GPU host uses executor `r28`. Existing model execution
+images, environments, profiles, unrelated workloads and dirty checkouts were
+preserved. The retired systemd embedding service remains stopped and disabled;
+the Docker GPU endpoint is healthy from production and through the public GPU
+status API.
+
+At **30 October 2026, 14:24:39 UTC**:
+
+- Completed jobs increased from 261 to **301**: **40 additional completions**.
+- All **ten originally stranded stages completed** under new attempts. Their
+  abandoned attempts are retained as stopped provenance records.
+- All **6,301 pre-repair durable jobs** retain their identifiers, submission
+  times, requested rows and selected methods. Previously completed jobs retain
+  their completion timestamps. No queue purge or delete/recreate resubmission
+  was used. Unfinished jobs have execution specifications and are unpaused.
+- Quota bucket balances match their ledger entries. Both executor hosts are
+  unpaused and reconciled. Reservations remain within their configured budgets.
+- There are **zero expired leases, uncertain attempts or permanently failed
+  jobs under durable execution**. One preparation stage held before this repair
+  remains held; no additional preparation holds were introduced.
+- GPU-host attempts completed protein embeddings for CatPred, EITLEM, IECata and
+  KinForm, molecular KinForm embeddings, and CPU predictions for multiple methods.
+  Production completed CPU predictions, similarity work and result assembly.
+- Five recently completed result downloads matched the authoritative files by
+  SHA-256. Public submissions remain open and the GPU status endpoint reports
+  `online: true`.
+- Fifteen-second observations after the final patch recorded no expired leases,
+  up to three resident CPU attempts on the GPU host, CPU activity on production,
+  and actual GPU embedding activity reaching **96% GPU utilization**. This is
+  evidence of recovery and parallel execution, not a maximum-throughput claim.
+- Recent admission requests had a median server time of about **125 ms**. A few
+  requests remained slow; lost responses are now reconciled instead of retaining
+  invisible reservations indefinitely. Host registrations and attempt heartbeats
+  remained responsive in the measured post-patch window.
+- **433 tests and three subtests passed**, including real PostgreSQL cancellation
+  of a deliberately slow isolated cleanup query. The no-progress alert loaded
+  successfully and Prometheus reported no rule errors.
+
+Private, timestamped evidence is retained on production under
+`/home/saleh/webkinpred-execution-staging/audit44/`, including the before snapshot,
+claim profiles, `recovery-verification45.json`, and `recovery-samples45.jsonl`.
+The original timing audit is deferred until the recovered platform has a useful
+steady execution window.
