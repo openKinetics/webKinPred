@@ -624,7 +624,9 @@ def test_saturated_claim_has_bounded_queries_and_does_not_rewrite_waiting_stages
         assert control.claim(host.pk) is None  # Publish the initial waiting reason once.
         with CaptureQueriesContext(connection) as captured:
             assert control.claim(host.pk) is None
-    assert len(captured) <= 12
+    # Fixed availability lookups and fetching only inspected candidate contexts
+    # avoid expensive correlated sorting; query count stays independent of backlog.
+    assert len(captured) <= 16
     assert not any(query["sql"].startswith("UPDATE") for query in captured)
 
 

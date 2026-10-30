@@ -12,10 +12,15 @@ groups:
         labels: {severity: critical}
         annotations: {summary: "Executor heartbeat is stale; preserve uncertain reservations"}
       - alert: ExecutionOwnershipUncertain
-        expr: webkinpred_execution_uncertain_attempts + webkinpred_execution_expired_live_attempts > 0
+        expr: max_over_time(webkinpred_execution_uncertain_attempts[5m]) + max_over_time(webkinpred_execution_expired_live_attempts[5m]) > 0
         for: 1m
         labels: {severity: critical}
         annotations: {summary: "Reconcile executor ownership before releasing reservations"}
+      - alert: ExecutionNoForwardProgress
+        expr: webkinpred_execution_jobs_completed_last_hour == 0 and sum(webkinpred_execution_stages{state="ready"}) > 0 and sum(webkinpred_execution_observed{resource=~"cpu|vram"}) == 0 and sum(webkinpred_execution_host_paused) == 0
+        for: 10m
+        labels: {severity: critical}
+        annotations: {summary: "Queued work has no completions or observed compute despite unpaused hosts"}
       - alert: ExecutionProfileBreach
         expr: webkinpred_execution_reservation_breaches > 0
         for: 15s

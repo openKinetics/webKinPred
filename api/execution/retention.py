@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
@@ -13,13 +13,20 @@ from api.execution.models import (
     ArtifactLocation,
     ExecutorHost,
 )
-from api.execution.planning import graph_transaction
 from api.execution.resources import LIVE_STATES
 
 
-@graph_transaction
+@transaction.atomic
 def claim_cleanup(host_id):
-    host = ExecutorHost.objects.select_for_update().get(pk=host_id)
+    # Cleanup is optional. Never occupy an HTTP worker waiting behind graph
+    # preparation, or block the executor's five-second supervision deadline.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
+        if not cursor.fetchone()[0]:
+            return None
+    host = ExecutorHost.objects.select_for_update(skip_locked=True).filter(pk=host_id).first()
+    if host is None:
+        return None
     if not host.reconciled or host.attempts.filter(state__in=LIVE_STATES).exists():
         return None
     existing = ArtifactCleanup.objects.filter(host=host, completed_at__isnull=True).first()

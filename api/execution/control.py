@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import BooleanField, Case, Exists, OuterRef, Q, Value, When
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -208,6 +208,10 @@ def _admission_wait(stage, profile, resources, host, reason, now):
 @transaction.atomic
 def claim(host_id: str):
     require_postgres()
+    # This is a short control request, not an analytical query. JIT compilation
+    # of the large compatibility predicate can itself exceed the HTTP deadline.
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL jit = off")
     host = ExecutorHost.objects.select_for_update().get(pk=host_id)
     now = timezone.now()
     if (
@@ -246,13 +250,33 @@ def claim(host_id: str):
     blocked = WorkStage.dependencies.through.objects.filter(
         from_workstage_id=OuterRef("pk")
     ).exclude(to_workstage__state="completed")
-    reachable_location = ArtifactLocation.objects.filter(
-        artifact_id=OuterRef("artifact_id"), ready=True
-    ).filter(Q(host_id=host_id) | Q(host__heartbeat_at__gte=now - timedelta(seconds=10)))
-    offline_input = (
-        ArtifactDependency.objects.filter(stage_id=OuterRef("pk"), artifact__locations__ready=True)
-        .annotate(reachable_location=Exists(reachable_location))
-        .filter(reachable_location=False)
+    reachable_hosts = [
+        host_id,
+        *ExecutorHost.objects.filter(heartbeat_at__gte=now - timedelta(seconds=10)).values_list(
+            "pk", flat=True
+        ),
+    ]
+    offline_locations = ArtifactLocation.objects.filter(ready=True).exclude(
+        host_id__in=reachable_hosts
+    )
+    # Availability is a property of locations, not of every candidate/artifact
+    # pair. The old nested correlated EXISTS ran millions of checks just to
+    # order a backlog, including when every host was online.
+    offline = Value(False, output_field=BooleanField())
+    if offline_locations.exists():
+        reachable_artifacts = ArtifactLocation.objects.filter(
+            ready=True, host_id__in=reachable_hosts
+        ).values("artifact_id")
+        offline_artifacts = offline_locations.exclude(artifact_id__in=reachable_artifacts).values(
+            "artifact_id"
+        )
+        offline = Exists(
+            ArtifactDependency.objects.filter(
+                stage_id=OuterRef("pk"), artifact_id__in=offline_artifacts
+            )
+        )
+    active_executions = ExecutionAttempt.objects.filter(state__in=LIVE_STATES).values(
+        "stage__execution_id"
     )
     candidates = (
         WorkStage.objects.select_for_update(skip_locked=True, of=("self",))
@@ -269,14 +293,14 @@ def claim(host_id: str):
         .filter(has_blocked_dependency=False)
         .annotate(
             effective_priority=Greatest("priority", "execution__priority"),
-            has_offline_input=Exists(offline_input),
-            job_has_active=Exists(
-                ExecutionAttempt.objects.filter(
-                    stage__execution_id=OuterRef("execution_id"), state__in=LIVE_STATES
-                )
+            has_offline_input=offline,
+            job_has_active=Case(
+                When(execution_id__in=active_executions, then=Value(True)),
+                default=Value(False),
             ),
         )
         .select_related("execution__job", "profile")
+        .defer("execution__specification", "profile__evidence")
         .order_by(
             "-effective_priority",
             "has_offline_input",
@@ -291,7 +315,14 @@ def claim(host_id: str):
     # profiles before applying the bounded scan.
     cpu_stage = Q(profile__resources__vram__isnull=True) | Q(profile__resources__vram__lte=0)
     oldest = [
-        candidates.filter(rule).values_list("pk", flat=True).first()
+        candidates.filter(rule)
+        .order_by(
+            "-effective_priority",
+            Coalesce("execution__job__submission_time", "execution__created_at"),
+            "created_at",
+        )
+        .values_list("pk", flat=True)
+        .first()
         for rule in (cpu_stage, Q(profile__resources__vram__gt=0))
     ]
     fitting = []
@@ -318,7 +349,17 @@ def claim(host_id: str):
             )
     candidates = candidates.filter(capacity)
     gpu_barrier = False
-    for stage in candidates[:512].iterator(chunk_size=16):
+    # Rank/lock IDs only. Sorting joined payloads, checkpoint JSON and profile
+    # manifests for the whole backlog spills large rows to disk. Fetch the full
+    # context only for candidates we actually inspect under those row locks.
+    candidate_rows = list(candidates.values_list("pk", "has_offline_input")[:512])
+    for ident, has_offline_input in candidate_rows:
+        stage = (
+            WorkStage.objects.select_related("execution__job", "profile")
+            .defer("execution__specification", "profile__evidence")
+            .get(pk=ident)
+        )
+        stage.has_offline_input = has_offline_input
         if stage.execution.job_id and stage.execution.job.status in {"Completed", "Failed"}:
             continue
         profile = stage.profile
@@ -441,19 +482,20 @@ def claim(host_id: str):
                 now,
             )
             continue
+        admitted_at = timezone.now()
         attempt = ExecutionAttempt.objects.create(
             stage=stage,
             host=host,
             resources=resources,
             profile_fingerprint=profile.fingerprint,
-            lease_until=now + timedelta(seconds=30),
+            lease_until=admitted_at + timedelta(seconds=30),
         )
         stage.state = "running"
         stage.profile = profile
         stage.waiting_reason = ""
         stage.save(update_fields=["state", "waiting_reason", "profile"])
         Job.objects.filter(pk=stage.execution.job_id, start_time__isnull=True).update(
-            start_time=now, status="Processing"
+            start_time=admitted_at, status="Processing"
         )
         log.info(
             "Execution admitted",

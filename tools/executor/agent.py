@@ -54,6 +54,7 @@ class Agent:
         self.jobs = {}
         self.last_contact = time.monotonic()
         self.last_cleanup = 0
+        self.last_error_log = 0
         self.transfers = ThreadPoolExecutor(max_workers=4, thread_name_prefix="artifact-transfer")
 
     def verify_runtime_files(self, threads=1):
@@ -113,7 +114,15 @@ class Agent:
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
+        timeout = 5
+        if operation == "claim":
+            # Allow a bounded cold admission without extending any compute
+            # lease. Leave at least five seconds before local fencing is due.
+            oldest = max(
+                (time.monotonic() - job["renewed"] for job in self.jobs.values()), default=0
+            )
+            timeout = max(1, min(8, 15 - oldest))
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.load(response)
         self.last_contact = time.monotonic()
         return result
@@ -207,6 +216,43 @@ class Agent:
         # Inventory is complete before the control plane may release old reservations.
         # All labelled containers are now confirmed stopped; abandoned stages retry.
         self.request("reconcile", {"running": [], "stopped": stopped})
+
+    def reconcile_unreceived(self, reply):
+        """Recover a claim committed after its response was lost or timed out.
+
+        The controller's lease is evidence of reservation, not of local launch.
+        Inspect and fence unknown owned containers before releasing anything.
+        Known transfers and running attempts retain their reservations.
+        """
+        unknown = set(reply.get("owned_attempts", [])) - self.jobs.keys()
+        if not unknown:
+            return
+        stopped = {}
+        for info in self.inventory():
+            ident = info["Config"]["Labels"]["org.webkinpred.attempt"]
+            if ident in self.jobs:
+                continue
+            if info["State"]["Running"]:
+                self.docker("stop", "-t", "5", info["Id"])
+            # Re-read termination after stop; failures preserve reservations.
+            state = json.loads(self.docker("inspect", info["Id"]))[0]["State"]
+            if state["Running"]:
+                raise RuntimeError("Unknown owned attempt has not stopped")
+            path = self.root / "attempts" / ident / "request.json"
+            if path.exists():
+                remember(self.root, json.loads(path.read_text()))
+            stopped[ident] = state["FinishedAt"]
+        self.request("reconcile", {"running": list(self.jobs), "stopped": stopped})
+        print(
+            json.dumps(
+                {
+                    "event": "executor.claim_response_recovered",
+                    "host": self.host,
+                    "unreceived_claims": len(unknown),
+                }
+            ),
+            flush=True,
+        )
 
     def materialize(self, request, work):
         started = time.monotonic()
@@ -744,6 +790,7 @@ class Agent:
                     "register",
                     {"capabilities": self.config["capabilities"], "telemetry": telemetry},
                 )
+                self.reconcile_unreceived(reply)
                 if not self.jobs and time.monotonic() - self.last_cleanup >= 60:
                     self.collect_artifacts()
                 for ident in reply.get("stop_attempts", []):
@@ -809,8 +856,20 @@ class Agent:
                                 },
                                 request["id"],
                             )
-            except (OSError, ValueError, subprocess.SubprocessError):
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 self.expire_unrenewed()
+                if time.monotonic() - self.last_error_log >= 10:
+                    print(
+                        json.dumps(
+                            {
+                                "event": "executor.control_error",
+                                "host": self.host,
+                                **self.error_details(exc, {}),
+                            }
+                        ),
+                        flush=True,
+                    )
+                    self.last_error_log = time.monotonic()
             time.sleep(1)
 
     def expire_unrenewed(self):

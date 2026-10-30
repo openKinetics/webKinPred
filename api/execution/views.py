@@ -36,14 +36,16 @@ def executor(request, host_id, operation, attempt_id=None):
             return JsonResponse(dispatch(operation, data))
         if operation == "register":
             host = control.register(host_id, data)
+            owned = list(
+                host.attempts.filter(state__in=["leased", "running", "uncertain"]).values(
+                    "id", "stop_requested"
+                )
+            )
             return JsonResponse(
                 {
                     "paused": host.paused,
-                    "stop_attempts": list(
-                        host.attempts.filter(
-                            state__in=["leased", "running", "uncertain"], stop_requested=True
-                        ).values_list("id", flat=True)
-                    ),
+                    "owned_attempts": [row["id"] for row in owned],
+                    "stop_attempts": [row["id"] for row in owned if row["stop_requested"]],
                 }
             )
         if operation == "sequences":
