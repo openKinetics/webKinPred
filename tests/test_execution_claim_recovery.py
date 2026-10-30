@@ -160,3 +160,28 @@ def test_claim_wait_budget_preserves_time_for_compute_fencing(
         assert waits == [expected]
     finally:
         agent.transfers.shutdown(wait=True)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_slow_cleanup_scan_rolls_back_instead_of_blocking_heartbeats(ready_work):
+    from api.execution.models import ArtifactCleanup
+
+    host, _ = ready_work
+    host.budgets["cache_free_target"] = 10**20
+    host.save(update_fields=["budgets"])
+    delayed = False
+
+    def slow_scan(execute, sql, params, many, context):
+        nonlocal delayed
+        if not delayed and "api_artifactlocation" in sql:
+            delayed = True
+            execute("SELECT pg_sleep(3)", None, False, context)
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(slow_scan):
+        assert claim_cleanup(host.pk) is None
+    assert delayed
+    assert not ArtifactCleanup.objects.filter(host=host).exists()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        assert cursor.fetchone() == (1,)

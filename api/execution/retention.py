@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from django.db import connection, transaction
+from django.db import OperationalError, connection, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
@@ -16,11 +16,25 @@ from api.execution.models import (
 from api.execution.resources import LIVE_STATES
 
 
-@transaction.atomic
 def claim_cleanup(host_id):
+    try:
+        return _claim_cleanup(host_id)
+    except OperationalError as error:
+        cause = error.__cause__
+        if getattr(cause, "sqlstate", None) == "57014" or getattr(cause, "pgcode", None) == "57014":
+            # An optional scan must not monopolize a host lock or API worker.
+            # The savepoint/transaction has rolled back before this response.
+            return None
+        raise
+
+
+@transaction.atomic
+def _claim_cleanup(host_id):
     # Cleanup is optional. Never occupy an HTTP worker waiting behind graph
     # preparation, or block the executor's five-second supervision deadline.
     with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL statement_timeout = 1500")
+        cursor.execute("SET LOCAL jit = off")
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return None

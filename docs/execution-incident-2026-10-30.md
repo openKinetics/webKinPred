@@ -32,7 +32,8 @@ operations delayed claims and host heartbeats.
   scans. Analytical JIT compilation is disabled within admission transactions.
 - Leases start at admission after candidate selection. A bounded cold-claim
   timeout leaves time for the unchanged twenty-second local fencing deadline.
-- Optional cleanup skips busy preparation/host locks. Control errors are logged
+- Optional cleanup skips busy preparation/host locks and cancels expensive
+  scans after 1.5 seconds, rolling back before allowing another attempt. Control errors are logged
   without ownership credentials instead of being silently swallowed.
 - Regression coverage includes lost claim responses, preservation of known
   transfers, unknown-container stop confirmation, busy cleanup locks, full lease
