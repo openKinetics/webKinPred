@@ -76,23 +76,6 @@ def _claim_cleanup(host_id, *, version=1):
     free = host.telemetry.get("disk_free")
     pressure = free is not None and free < target
     cutoff = timezone.now() - timedelta(seconds=host.budgets.get("cache_min_age_seconds", 3600))
-    protected_aliases = (
-        Artifact.objects.filter(checksum=OuterRef("artifact__checksum"))
-        .annotate(
-            unfinished=Exists(
-                ArtifactDependency.objects.filter(artifact_id=OuterRef("pk")).filter(
-                    ~Q(stage__state__in=["completed", "canceled"])
-                    | Q(stage__attempts__state__in=LIVE_STATES)
-                )
-            )
-        )
-        .filter(
-            Q(regenerable=False)
-            | Q(retention__in=["protected", "permanent"])
-            | Q(unfinished=True)
-            | Q(producer__attempts__state__in=LIVE_STATES)
-        )
-    )
     # Full residue matrices are work files, not a reusable long-term cache.
     # Only classified, newly generated platform artifacts in the managed blob
     # store qualify; standalone/project requests and unknown legacy files do not.
@@ -113,14 +96,44 @@ def _claim_cleanup(host_id, *, version=1):
     sweep.cursor = max(page) if page else 0
     candidates = list(
         base.filter(pk__in=[*page, *hinted])
-        .annotate(protected=Exists(protected_aliases))
-        .filter(protected=False)
         .order_by("pk")
         .values_list("pk", "artifact__checksum", "artifact__size")
     )
+    # Separate indexed existence checks avoid expanding every alias by all of
+    # its producer/consumer attempt history inside a correlated OR subquery.
+    checksums = {checksum for _, checksum, _ in candidates if checksum}
+    aliases = list(
+        Artifact.objects.filter(checksum__in=checksums).values_list(
+            "pk", "checksum", "regenerable", "retention", "producer_id"
+        )
+    )
+    live_stages = set(
+        ExecutionAttempt.objects.filter(state__in=LIVE_STATES).values_list("stage_id", flat=True)
+    )
+    protected = {
+        checksum
+        for _, checksum, regenerable, policy, producer in aliases
+        if not regenerable or policy in {"protected", "permanent"} or producer in live_stages
+    }
+    remaining = {ident: checksum for ident, checksum, *_ in aliases if checksum not in protected}
+    protected.update(
+        remaining[ident]
+        for ident in ArtifactDependency.objects.filter(artifact_id__in=remaining)
+        .exclude(stage__state__in=["completed", "canceled"])
+        .values_list("artifact_id", flat=True)
+    )
+    remaining = {
+        ident: checksum for ident, checksum in remaining.items() if checksum not in protected
+    }
+    protected.update(
+        remaining[ident]
+        for ident in ArtifactDependency.objects.filter(
+            artifact_id__in=remaining, stage_id__in=live_stages
+        ).values_list("artifact_id", flat=True)
+    )
     blobs, selected, total, deferred = [], set(), 0, []
     for ident, checksum, size in candidates:
-        if not checksum or checksum in selected:
+        if not checksum or checksum in selected or checksum in protected:
             continue
         if total >= 4 * 1024**3 or len(blobs) >= 64:
             deferred.append(ident)
