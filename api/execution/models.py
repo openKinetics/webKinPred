@@ -107,6 +107,7 @@ class ExecutionAttempt(models.Model):
     heartbeat_at = models.DateTimeField(default=timezone.now)
     lease_until = models.DateTimeField()
     finished_at = models.DateTimeField(null=True)
+    scratch_released_at = models.DateTimeField(null=True)
     outcome = models.JSONField(default=dict)
 
     class Meta:
@@ -126,9 +127,20 @@ class Artifact(models.Model):
     size = models.PositiveBigIntegerField()
     metadata = models.JSONField(default=dict)
     regenerable = models.BooleanField(default=True)
+    # Unclassified/legacy files are retained until provenance is established.
+    retention = models.CharField(max_length=16, default="protected", db_default="protected")
     producer = models.ForeignKey(
         WorkStage, null=True, on_delete=models.PROTECT, related_name="outputs"
     )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["retention", "checksum"],
+                condition=models.Q(retention__in=["transient", "cache"]),
+                name="artifact_collectible_policy",
+            )
+        ]
 
 
 class ArtifactLocation(models.Model):
@@ -159,6 +171,7 @@ class ArtifactCleanup(models.Model):
     host = models.ForeignKey(ExecutorHost, on_delete=models.PROTECT)
     token = models.UUIDField(default=uuid.uuid4)
     blobs = models.JSONField(default=list)
+    attempt_ids = models.JSONField(default=list, db_default=[])
     created_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True)
 

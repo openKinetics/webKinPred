@@ -46,6 +46,7 @@ def directory_bytes(root):
 class Agent:
     def __init__(self, config):
         self.config = config
+        self.config.setdefault("capabilities", {})["artifact_cleanup_version"] = 2
         self.host = config["host_id"]
         self.root = Path(config["root"]).resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -791,7 +792,7 @@ class Agent:
                     {"capabilities": self.config["capabilities"], "telemetry": telemetry},
                 )
                 self.reconcile_unreceived(reply)
-                if not self.jobs and time.monotonic() - self.last_cleanup >= 60:
+                if time.monotonic() - self.last_cleanup >= 30:
                     self.collect_artifacts()
                 for ident in reply.get("stop_attempts", []):
                     if ident in self.jobs:
@@ -885,15 +886,28 @@ class Agent:
                 job["abandoned"] = True
 
     def collect_artifacts(self):
-        if self.jobs:
-            return
-        cleanup = self.request("collect-artifacts").get("cleanup")
+        # The control plane excludes every pending/active checksum alias before
+        # fencing deletion. Unrelated running attempts need not delay residue cleanup.
+        cleanup = self.request("collect-artifacts", {"version": 2}).get("cleanup")
         if cleanup:
             # The durable cleanup record fences admissions on this host. It
             # remains pending across lost responses and executor restarts.
             atomic_json(self.root / "cleanup.json", cleanup)
             for blob in cleanup["blobs"]:
                 self.store.path(blob["checksum"]).unlink(missing_ok=True)
+            for ident in cleanup.get("attempt_ids", []):
+                work = self.root / "attempts" / safe_relative(ident)
+                if not work.resolve().is_relative_to(self.root / "attempts"):
+                    raise ValueError("Cleanup attempt escapes executor storage")
+                for folder in ("media", "tmp"):
+                    scratch = work / folder
+                    if scratch.is_symlink():
+                        scratch.unlink()
+                    elif scratch.exists():
+                        try:
+                            shutil.rmtree(scratch)
+                        except FileNotFoundError:
+                            pass  # A second collector may acknowledge the same durable cleanup.
             self.request("collected-artifacts", {"id": cleanup["id"], "token": cleanup["token"]})
         self.last_cleanup = time.monotonic()
 

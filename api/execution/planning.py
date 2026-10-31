@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from functools import wraps
 from pathlib import Path
 
@@ -106,8 +107,16 @@ def artifact_identity(spec, method, target, path, *, context=None):
 
 
 def declare(identity):
+    from api.execution.artifact_policy import retention_for
+
     artifact, _ = Artifact.objects.get_or_create(
-        id=digest(identity), defaults={"identity": identity, "checksum": "", "size": 0}
+        id=digest(identity),
+        defaults={
+            "identity": identity,
+            "checksum": "",
+            "size": 0,
+            "retention": retention_for(identity),
+        },
     )
     return artifact
 
@@ -177,6 +186,7 @@ def publish_file(path, identity, host_id, store):
             "checksum": checksum,
             "size": path.stat().st_size,
             "regenerable": False,
+            "retention": "permanent",
         },
     )
     if artifact.checksum != checksum:
@@ -446,6 +456,7 @@ def prepare(execution, media: Path, blob_root: Path):
     ordinal = {t: 0 for t in spec["targets"]}
     prediction_stages = []
     offset = 0
+    chunk_dir = blob_root.parent / "planning" / str(execution.pk)
     from api.execution.bounded import frames
 
     for chunk_index, frame in enumerate(frames(source)):
@@ -462,7 +473,6 @@ def prepare(execution, media: Path, blob_root: Path):
             text = sequence.processed_sequence
             if isinstance(text, str) and text:
                 mapping[text] = sequence_id(text)
-        chunk_dir = blob_root.parent / "planning" / str(execution.pk)
         chunk_dir.mkdir(parents=True, exist_ok=True)
         chunk_path = chunk_dir / f"{chunk_index}.csv"
         frame.to_csv(chunk_path, index=False)
@@ -702,3 +712,6 @@ def prepare(execution, media: Path, blob_root: Path):
         prep.state = "completed"
         prep.completed_at = timezone.now()
         prep.save(update_fields=["state", "completed_at"])
+    # Published chunks are immutable blobs; these are only private staging copies.
+    # Failed/interrupted planning retains its directory until a successful retry.
+    shutil.rmtree(chunk_dir, ignore_errors=True)

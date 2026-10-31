@@ -24,6 +24,12 @@ def configure(namespace):
     )
     namespace["EXECUTION_HOSTS"] = json.loads(os.getenv("EXECUTION_HOSTS_JSON", "{}"))
     namespace["EXECUTION_METRICS_TOKEN"] = os.getenv("EXECUTION_METRICS_TOKEN", "")
+    namespace["EXECUTION_PREPARED_BACKGROUND_LIMIT"] = int(
+        os.getenv("EXECUTION_PREPARED_BACKGROUND_LIMIT", "128")
+    )
+    namespace["EXECUTION_PREPARATION_RESERVE_BYTES"] = int(
+        os.getenv("EXECUTION_PREPARATION_RESERVE_BYTES", str(2 * 1024**3))
+    )
     for alias, variable in (
         ("default", "DATABASE_URL"),
         ("seqmap", "SEQMAP_DATABASE_URL"),

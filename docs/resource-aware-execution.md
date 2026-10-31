@@ -466,3 +466,46 @@ query workers. Foreground-demand checks filter indexed execution/stage IDs befor
 evaluating profile compatibility, so proving that normal work cannot fit does not
 scan the whole background backlog. A query timeout rolls back the claim and
 returns HTTP 503 with `Retry-After: 5`; it never commits a partial reservation.
+
+## Storage lifetime and preparation backpressure
+
+Only the executor-owned content-addressed store and private attempt scratch are
+eligible for automatic cleanup. Legacy filesystem caches and other projects'
+T5, ESM2 and ESM-C residue files are never traversed or removed. Unclassified
+artifacts default to `protected`; creation/modification time alone does not
+establish ownership.
+
+`execution_artifact_retention` reports proposed policies for verified resident
+artifacts; `--apply` backfills their policy without deleting files. Only
+`execution-v2` representation identities with platform prediction-job provenance
+can become transient residue artifacts. Standalone embedding requests stay
+protected. Mean/weighted vectors, CatPred attentive-pooled vectors, molecular
+vectors and other declared vector representations are permanent caches. The
+`regenerable` flag remains separate so a lost permanent cache can be recomputed.
+
+Full residue matrices are transient, including KinForm T5/ESM2/ESM-C layers,
+EITLEM ESM1v, OmniESI ESM2 and IECata T5. Collection waits for every unfinished
+consumer and every live/uncertain producer or reader. A protected or permanent
+checksum alias protects the same bytes. Locations become unavailable under the
+graph lock before unlinking, and new admissions remain fenced until deletion is
+acknowledged. Missing dependencies regenerate under a new attempt, without
+reopening completed jobs. Collection runs even when disk has ample free space.
+
+A local `execution-cleanup` service checks every 30 seconds, independently of
+model supervision. Its image uses the existing supervisor environment and needs
+only the executor configuration and managed storage mounts. It has no Docker
+socket or model-directory mounts. Protocol 2 also retires private `media`/`tmp`
+from completed stages' old attempts, preserving journals and all held/retry
+checkpoints. Older collectors cannot acknowledge a pending scratch cleanup.
+
+Background preparation pauses when 128 unfinished background jobs are already
+prepared, or production has less than its disk headroom plus 2 GiB. Set
+`EXECUTION_PREPARED_BACKGROUND_LIMIT` and `EXECUTION_PREPARATION_RESERVE_BYTES`
+to tune these thresholds. Already prepared work keeps running; new normal jobs
+retain priority and use the unchanged hard disk guard. Inputs/specifications
+remain queued, and planning checks again after 60 seconds. Successfully
+published input chunks no longer leave duplicate planning CSVs behind.
+
+`ExecutionCompletionStalled` catches zero whole-job completions despite active
+GPU work. `ExecutionStorageBlocked` reports disk below the admission guard.
+Neither alert automatically kills work or deletes files.

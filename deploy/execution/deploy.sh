@@ -30,7 +30,7 @@ if (( $# )); then
     done
     "${compose[@]}" up -d --no-build "$@"
 else
-    "${compose[@]}" up -d --no-build backend frontend execution-controller execution-control-worker execution-agent execution-artifacts
+    "${compose[@]}" up -d --no-build backend frontend execution-controller execution-control-worker execution-agent execution-artifacts execution-cleanup
 fi
 # Never prune rollback images or remove unrelated/legacy containers here.
 

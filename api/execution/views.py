@@ -58,7 +58,7 @@ def executor(request, host_id, operation, attempt_id=None):
         if operation == "collect-artifacts":
             from api.execution.retention import claim_cleanup
 
-            return JsonResponse({"cleanup": claim_cleanup(host_id)})
+            return JsonResponse({"cleanup": claim_cleanup(host_id, version=data.get("version", 1))})
         if operation == "collected-artifacts":
             from api.execution.retention import finish_cleanup
 

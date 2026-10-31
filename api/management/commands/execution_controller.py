@@ -57,6 +57,15 @@ class Command(BaseCommand):
                         # not wait behind the other prefetched normal requests.
                         if higher_preparation(execution).exists():
                             break
+                        from api.execution.preparation import waiting_reason
+
+                        reason = waiting_reason(execution, settings.EXECUTION_BLOB_ROOT)
+                        if reason:
+                            execution.stages.filter(key="prepare").update(
+                                waiting_reason=reason,
+                                available_at=timezone.now() + timedelta(seconds=60),
+                            )
+                            continue
                         try:
                             prepare(
                                 execution,

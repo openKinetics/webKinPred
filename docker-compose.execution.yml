@@ -134,6 +134,17 @@ services:
     cpus: 0.5
     restart: unless-stopped
 
+  execution-cleanup:
+    image: ${EXECUTION_CLEANUP_IMAGE:?Pin the cleanup supervisor image}
+    network_mode: host
+    volumes:
+      - /var/lib/webkinpred:/var/lib/webkinpred
+      - ${EXECUTION_CONFIG_DIR:?Set the private executor config directory}:/run/executor:ro
+    command: ["python", "-m", "tools.executor.cleanup", "/run/executor/production.json"]
+    mem_limit: 256m
+    cpus: 0.3
+    restart: unless-stopped
+
   execution-prometheus:
     image: ${EXECUTION_PROMETHEUS_IMAGE:-UNCONFIGURED}
     profiles: [monitoring]

@@ -755,7 +755,12 @@ def checkpoint(host_id, attempt_id, data):
         ):
             raise ValueError("Checkpoint identity conflict")
         artifact.checksum, artifact.size = output["checksum"], output["size"]
-        artifact.save(update_fields=["checksum", "size"])
+        from api.execution.artifact_policy import retention_for
+
+        artifact.retention = retention_for(artifact.identity)
+        if artifact.retention == "transient" and attempt.stage.execution.job_id is None:
+            artifact.retention = "protected"
+        artifact.save(update_fields=["checksum", "size", "retention"])
         ArtifactLocation.objects.update_or_create(
             artifact=artifact,
             host_id=host_id,
@@ -811,6 +816,8 @@ def finish(host_id, attempt_id, data):
     if expected != {output["id"] for output in outputs} or len(outputs) != len(expected):
         raise ValueError("Incomplete or undeclared output manifest")
     for output in outputs:
+        from api.execution.artifact_policy import retention_for
+
         identity = output["identity"]
         if digest(identity) != output["id"] or len(output["checksum"]) != 64 or output["size"] < 0:
             raise ValueError("Invalid artifact manifest")
@@ -821,6 +828,7 @@ def finish(host_id, attempt_id, data):
                 "checksum": output["checksum"],
                 "size": output["size"],
                 "metadata": output.get("metadata", {}),
+                "retention": retention_for(identity),
             },
         )
         if not created and artifact.checksum:
@@ -833,6 +841,12 @@ def finish(host_id, attempt_id, data):
             artifact.size = output["size"]
             artifact.metadata = {**artifact.metadata, **output.get("metadata", {})}
             artifact.save(update_fields=["checksum", "size", "metadata"])
+        retention = retention_for(identity) if artifact.regenerable else "permanent"
+        if retention == "transient" and stage.execution.job_id is None:
+            retention = "protected"
+        if artifact.retention != retention:
+            artifact.retention = retention
+            artifact.save(update_fields=["retention"])
         ArtifactLocation.objects.update_or_create(
             artifact=artifact,
             host_id=host_id,

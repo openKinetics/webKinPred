@@ -38,6 +38,7 @@ def test_cleanup_protects_unfinished_aliases_inputs_results_and_live_reservation
             size=100,
             identity={"id": ident},
             regenerable=regenerable,
+            retention="cache",
         )
         ArtifactLocation.objects.create(
             artifact=artifact,

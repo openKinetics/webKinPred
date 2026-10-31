@@ -44,7 +44,15 @@ def test_preparation_is_idempotent_and_preserves_rows_and_dependencies(tmp_path)
         "similarity",
         "publish",
     }
+    # Planning scratch is reclaimable only after published chunks and graph commit.
+    assert not (tmp_path / "planning" / str(execution.pk)).exists()
+    assert source.exists() and sha256_file(source) == execution.input_checksum
     prediction = execution.stages.get(key="predict:kcat:0")
+    input_artifact = prediction.artifacts.get(path="jobs/prepare1/input.csv").artifact
+    assert (
+        sha256_file(tmp_path / "blobs" / input_artifact.checksum[:2] / input_artifact.checksum)
+        == input_artifact.checksum
+    )
     assert prediction.payload["offset"] == 0
     assert prediction.payload["rows"] == 3
     assert prediction.artifacts.filter(path="jobs/prepare1/input.csv").exists()

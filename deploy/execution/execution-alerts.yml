@@ -26,6 +26,16 @@ groups:
         for: 15s
         labels: {severity: critical}
         annotations: {summary: "Observed attempt resources exceed their reservations"}
+      - alert: ExecutionCompletionStalled
+        expr: webkinpred_execution_jobs_completed_last_hour == 0 and sum(webkinpred_execution_stages{state=~"ready|running"}) > 0 and sum(webkinpred_execution_host_paused) == 0
+        for: 30m
+        labels: {severity: critical}
+        annotations: {summary: "No job has completed for at least 90 minutes despite queued work; inspect final assembly and storage even if GPU stages are active"}
+      - alert: ExecutionStorageBlocked
+        expr: webkinpred_execution_host_disk_free < webkinpred_execution_disk_headroom
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: "Executor storage is below its safety headroom; preparation or final result assembly may be blocked"}
       - alert: ExecutionDiskPressure
         expr: webkinpred_execution_host_disk_free < webkinpred_execution_disk_headroom + 1073741824
         for: 1m

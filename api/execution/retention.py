@@ -1,4 +1,4 @@
-"""Two-phase, host-idle garbage collection of regenerable immutable blobs."""
+"""Fenced collection of managed intermediates; legacy/project files stay protected."""
 
 from datetime import timedelta
 
@@ -11,14 +11,15 @@ from api.execution.models import (
     ArtifactCleanup,
     ArtifactDependency,
     ArtifactLocation,
+    ExecutionAttempt,
     ExecutorHost,
 )
 from api.execution.resources import LIVE_STATES
 
 
-def claim_cleanup(host_id):
+def claim_cleanup(host_id, *, version=1):
     try:
-        return _claim_cleanup(host_id)
+        return _claim_cleanup(host_id, version=version)
     except OperationalError as error:
         cause = error.__cause__
         if getattr(cause, "sqlstate", None) == "57014" or getattr(cause, "pgcode", None) == "57014":
@@ -29,7 +30,7 @@ def claim_cleanup(host_id):
 
 
 @transaction.atomic
-def _claim_cleanup(host_id):
+def _claim_cleanup(host_id, *, version=1):
     # Cleanup is optional. Never occupy an HTTP worker waiting behind graph
     # preparation, or block the executor's five-second supervision deadline.
     with connection.cursor() as cursor:
@@ -41,35 +42,49 @@ def _claim_cleanup(host_id):
     host = ExecutorHost.objects.select_for_update(skip_locked=True).filter(pk=host_id).first()
     if host is None:
         return None
-    if not host.reconciled or host.attempts.filter(state__in=LIVE_STATES).exists():
+    if not host.reconciled:
         return None
     existing = ArtifactCleanup.objects.filter(host=host, completed_at__isnull=True).first()
     if existing:
-        return {"id": str(existing.pk), "token": str(existing.token), "blobs": existing.blobs}
+        if existing.attempt_ids and version < 2:
+            return None  # An older collector cannot acknowledge scratch deletion.
+        return {
+            "id": str(existing.pk),
+            "token": str(existing.token),
+            "blobs": existing.blobs,
+            "attempt_ids": existing.attempt_ids,
+        }
     target = host.budgets.get(
         "cache_free_target", host.budgets.get("disk_headroom", 0) + 10 * 1024**3
     )
     free = host.telemetry.get("disk_free")
-    if free is None or free >= target:
-        return None
+    pressure = free is not None and free < target
     cutoff = timezone.now() - timedelta(seconds=host.budgets.get("cache_min_age_seconds", 3600))
     protected_aliases = (
         Artifact.objects.filter(checksum=OuterRef("artifact__checksum"))
         .annotate(
             unfinished=Exists(
-                ArtifactDependency.objects.filter(artifact_id=OuterRef("pk")).exclude(
-                    stage__state="completed"
+                ArtifactDependency.objects.filter(artifact_id=OuterRef("pk")).filter(
+                    ~Q(stage__state__in=["completed", "canceled"])
+                    | Q(stage__attempts__state__in=LIVE_STATES)
                 )
             )
         )
         .filter(
-            Q(regenerable=False) | Q(unfinished=True) | Q(producer__attempts__state__in=LIVE_STATES)
+            Q(regenerable=False)
+            | Q(retention__in=["protected", "permanent"])
+            | Q(unfinished=True)
+            | Q(producer__attempts__state__in=LIVE_STATES)
         )
     )
+    # Full residue matrices are work files, not a reusable long-term cache.
+    # Only classified, newly generated platform artifacts in the managed blob
+    # store qualify; standalone/project requests and unknown legacy files do not.
+    policy = Q(artifact__retention="transient", artifact__producer__execution__job__isnull=False)
+    if pressure:
+        policy |= Q(artifact__retention="cache", verified_at__lt=cutoff)
     candidates = (
-        ArtifactLocation.objects.filter(
-            host=host, ready=True, verified_at__lt=cutoff, artifact__regenerable=True
-        )
+        ArtifactLocation.objects.filter(policy, host=host, ready=True, artifact__regenerable=True)
         .annotate(protected=Exists(protected_aliases))
         .filter(protected=False)
         .select_related("artifact")
@@ -84,15 +99,38 @@ def _claim_cleanup(host_id):
         selected.add(checksum)
         blobs.append({"checksum": checksum, "size": artifact.size})
         total += artifact.size
-        if total >= target - free or len(blobs) >= 128:
+        if total >= 4 * 1024**3 or len(blobs) >= 64:
             break
-    if not blobs:
+    attempt_ids = []
+    if version >= 2:
+        live_stage = ExecutionAttempt.objects.filter(
+            stage_id=OuterRef("stage_id"), state__in=LIVE_STATES
+        )
+        attempt_ids = [
+            str(ident)
+            for ident in ExecutionAttempt.objects.filter(
+                host=host,
+                state__in=["completed", "stopped"],
+                stage__state="completed",
+                scratch_released_at__isnull=True,
+            )
+            .annotate(has_live=Exists(live_stage))
+            .filter(has_live=False)
+            .order_by("started_at")
+            .values_list("pk", flat=True)[:32]
+        ]
+    if not blobs and not attempt_ids:
         return None
-    cleanup = ArtifactCleanup.objects.create(host=host, blobs=blobs)
+    cleanup = ArtifactCleanup.objects.create(host=host, blobs=blobs, attempt_ids=attempt_ids)
     # Claims on this host remain blocked until deletion is acknowledged. New
     # consumers see missing locations and schedule verified copies/regeneration.
     ArtifactLocation.objects.filter(host=host, artifact__checksum__in=selected).update(ready=False)
-    return {"id": str(cleanup.pk), "token": str(cleanup.token), "blobs": blobs}
+    return {
+        "id": str(cleanup.pk),
+        "token": str(cleanup.token),
+        "blobs": blobs,
+        "attempt_ids": attempt_ids,
+    }
 
 
 @transaction.atomic
@@ -104,4 +142,9 @@ def finish_cleanup(host_id, data):
     if cleanup.completed_at is None:
         cleanup.completed_at = timezone.now()
         cleanup.save(update_fields=["completed_at"])
+        ExecutionAttempt.objects.filter(
+            host_id=host_id,
+            pk__in=cleanup.attempt_ids,
+            scratch_released_at__isnull=True,
+        ).update(scratch_released_at=cleanup.completed_at)
     return {"completed": True}
