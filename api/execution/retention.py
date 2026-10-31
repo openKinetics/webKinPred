@@ -103,30 +103,31 @@ def _claim_cleanup(host_id, *, version=1):
     base = ArtifactLocation.objects.filter(
         policy, host=host, ready=True, artifact__regenerable=True
     )
-    page = list(base.filter(pk__gt=sweep.cursor).order_by("pk").values_list("pk", flat=True)[:128])
+    locations = ArtifactLocation.objects.filter(host=host, ready=True)
+    page = list(
+        locations.filter(pk__gt=sweep.cursor).order_by("pk").values_list("pk", flat=True)[:512]
+    )
     if not page and sweep.cursor:
-        page = list(base.order_by("pk").values_list("pk", flat=True)[:128])
+        page = list(locations.order_by("pk").values_list("pk", flat=True)[:512])
     hinted = sweep.pending[:128]
     sweep.cursor = max(page) if page else 0
     candidates = list(
         base.filter(pk__in=[*page, *hinted])
         .annotate(protected=Exists(protected_aliases))
         .filter(protected=False)
-        .select_related("artifact")
         .order_by("pk")
+        .values_list("pk", "artifact__checksum", "artifact__size")
     )
     blobs, selected, total, deferred = [], set(), 0, []
-    for location in candidates:
-        artifact = location.artifact
-        checksum = artifact.checksum
+    for ident, checksum, size in candidates:
         if not checksum or checksum in selected:
             continue
         if total >= 4 * 1024**3 or len(blobs) >= 64:
-            deferred.append(location.pk)
+            deferred.append(ident)
             continue
         selected.add(checksum)
-        blobs.append({"checksum": checksum, "size": artifact.size})
-        total += artifact.size
+        blobs.append({"checksum": checksum, "size": size})
+        total += size
     sweep.pending = list(dict.fromkeys([*deferred, *sweep.pending[128:]]))[:2048]
     sweep.save(update_fields=["cursor", "pending"])
     attempt_ids = []

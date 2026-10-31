@@ -910,6 +910,7 @@ class Agent:
                             pass  # A second collector may acknowledge the same durable cleanup.
             self.request("collected-artifacts", {"id": cleanup["id"], "token": cleanup["token"]})
         self.last_cleanup = time.monotonic()
+        return bool(cleanup)
 
 
 def main():

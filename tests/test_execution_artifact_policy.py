@@ -275,7 +275,7 @@ def test_cleanup_advances_past_a_page_of_shared_residues_and_honors_release_hint
             retention="transient",
             producer=producer,
         )
-        for i in range(1, 258)
+        for i in range(1, 1026)
     ]
     Artifact.objects.bulk_create(artifacts)
     ArtifactLocation.objects.bulk_create(
@@ -284,14 +284,14 @@ def test_cleanup_advances_past_a_page_of_shared_residues_and_honors_release_hint
     ArtifactDependency.objects.bulk_create(
         [
             ArtifactDependency(artifact=a, stage=consumer, path=f"{i}.npy")
-            for i, a in enumerate(artifacts[:256])
+            for i, a in enumerate(artifacts[:1024])
         ]
     )
     assert claim_cleanup(host.pk) is None
     assert ArtifactSweep.objects.get(host=host).cursor > 0
     assert claim_cleanup(host.pk) is None
     cleanup = claim_cleanup(host.pk)
-    assert cleanup["blobs"] == [{"checksum": f"{257:064x}", "size": 100}]
+    assert cleanup["blobs"] == [{"checksum": f"{1025:064x}", "size": 100}]
     finish_cleanup(host.pk, cleanup)
     # A completion hint bypasses the shared-residue scan immediately.
     consumer.state = "completed"

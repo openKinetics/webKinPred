@@ -25,40 +25,58 @@ class Command(BaseCommand):
             for policy, ids in pending.items():
                 Artifact.objects.filter(pk__in=ids, retention="protected").update(retention=policy)
             pending.clear()
+
         with connection.cursor() as cursor:
             cursor.execute("SET jit = off")
             cursor.execute("SET max_parallel_workers_per_gather = 0")
         try:
-            rows = (
-                Artifact.objects.filter(
-                    retention="protected",
-                    pk__in=ArtifactLocation.objects.filter(ready=True).values("artifact_id"),
+            last_location = 0
+            seen_protected = set()
+            while True:
+                page = list(
+                    ArtifactLocation.objects.filter(ready=True, pk__gt=last_location)
+                    .order_by("pk")
+                    .values_list("pk", "artifact_id")[:512]
                 )
-                .select_related("producer__execution")
-                .only(
-                    "id",
-                    "identity",
-                    "retention",
-                    "regenerable",
-                    "producer_id",
-                    "producer__execution_id",
-                    "producer__execution__job_id",
+                if not page:
+                    break
+                last_location = page[-1][0]
+                # Keyset pages avoid PostgreSQL materializing a WITH HOLD cursor
+                # containing the entire resident catalogue on the production disk.
+                rows = (
+                    Artifact.objects.filter(
+                        retention="protected", pk__in=[ident for _, ident in page]
+                    )
+                    .select_related("producer__execution")
+                    .only(
+                        "id",
+                        "identity",
+                        "retention",
+                        "regenerable",
+                        "producer_id",
+                        "producer__execution_id",
+                        "producer__execution__job_id",
+                    )
                 )
-                .iterator(chunk_size=256)
-            )
-            for artifact in rows:
-                policy = retention_for(artifact.identity)
-                if not artifact.regenerable:
-                    policy = "permanent"
-                if policy == "transient" and (
-                    not artifact.producer_id or artifact.producer.execution.job_id is None
-                ):
-                    policy = "protected"
-                counts[policy] += 1
-                if options["apply"] and policy != "protected":
-                    pending[policy].append(artifact.pk)
-                    if sum(map(len, pending.values())) >= 256:
-                        flush()
+                for artifact in rows:
+                    if artifact.pk in seen_protected:
+                        continue
+                    policy = retention_for(artifact.identity)
+                    if not artifact.regenerable:
+                        policy = "permanent"
+                    if policy == "transient" and (
+                        not artifact.producer_id or artifact.producer.execution.job_id is None
+                    ):
+                        policy = "protected"
+                    counts[policy] += 1
+                    if options["apply"] and policy != "protected":
+                        pending[policy].append(artifact.pk)
+                        if sum(map(len, pending.values())) >= 256:
+                            flush()
+                    else:
+                        seen_protected.add(artifact.pk)
+                if pending:
+                    flush()
             if pending:
                 flush()
         finally:

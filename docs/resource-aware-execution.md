@@ -491,7 +491,7 @@ graph lock before unlinking, and new admissions remain fenced until deletion is
 acknowledged. Missing dependencies regenerate under a new attempt, without
 reopening completed jobs. Collection runs even when disk has ample free space.
 
-A local `execution-cleanup` service checks every 30 seconds, independently of
+A local `execution-cleanup` service checks about every 30 seconds, independently of
 model supervision. Its image uses the existing supervisor environment and needs
 only the executor configuration and managed storage mounts. It has no Docker
 socket or model-directory mounts. Protocol 2 also retires private `media`/`tmp`

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import random
 import time
 from pathlib import Path
 
@@ -15,8 +16,9 @@ def main():
     args = parser.parse_args()
     agent = Agent(json.loads(args.config.read_text()))
     while True:
+        collected = False
         try:
-            agent.collect_artifacts()
+            collected = agent.collect_artifacts()
         except Exception as error:
             # Errors are retryable; never print credentials or a request manifest.
             print(
@@ -27,7 +29,9 @@ def main():
             )
         if args.once:
             return
-        time.sleep(30)
+        # Drain confirmed garbage promptly; jitter idle checks so optional work
+        # does not continually collide with a supervisor's periodic host lock.
+        time.sleep(5 if collected else random.uniform(25, 35))
 
 
 if __name__ == "__main__":
