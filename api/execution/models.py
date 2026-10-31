@@ -166,6 +166,12 @@ class ArtifactDependency(models.Model):
         ]
 
 
+class ArtifactSweep(models.Model):
+    host = models.OneToOneField(ExecutorHost, primary_key=True, on_delete=models.PROTECT)
+    cursor = models.PositiveBigIntegerField(default=0)
+    pending = models.JSONField(default=list)
+
+
 class ArtifactCleanup(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     host = models.ForeignKey(ExecutorHost, on_delete=models.PROTECT)

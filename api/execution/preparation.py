@@ -4,8 +4,9 @@ import shutil
 from pathlib import Path
 
 from django.conf import settings
+from django.db.models import Exists, OuterRef, Q
 
-from api.execution.models import ExecutionSpec
+from api.execution.models import ExecutionSpec, WorkStage
 from api.execution.resources import GIB
 
 
@@ -24,6 +25,9 @@ def waiting_reason(execution, blob_root):
         return "waiting_disk"
     limit = getattr(settings, "EXECUTION_PREPARED_BACKGROUND_LIMIT", 128)
     if limit > 0:
+        attention = WorkStage.objects.filter(execution_id=OuterRef("pk")).filter(
+            Q(state="held") | Q(waiting_reason="profiling_required")
+        )
         prepared = (
             ExecutionSpec.objects.filter(
                 background=True,
@@ -33,6 +37,8 @@ def waiting_reason(execution, blob_root):
                 stages__state="completed",
             )
             .exclude(pk=execution.pk)
+            .annotate(needs_attention=Exists(attention))
+            .filter(needs_attention=False)
             .values_list("pk", flat=True)[:limit]
         )
         if len(prepared) >= limit:

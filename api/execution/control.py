@@ -861,6 +861,9 @@ def finish(host_id, attempt_id, data):
     stage.checkpoint = data.get("checkpoint", {})
     stage.completed_at = timezone.now()
     stage.save(update_fields=["state", "checkpoint", "completed_at"])
+    from api.execution.retention import release_consumed_residues
+
+    release_consumed_residues(stage)
     if stage.kind == "assemble" and stage.payload.get("phase") == "preliminary":
         for final in stage.execution.stages.filter(key="publish"):
             final.payload["assembly_checkpoint"] = stage.checkpoint

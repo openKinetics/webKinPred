@@ -1,7 +1,7 @@
 """Classify only managed executor artifacts; never traverses legacy cache trees."""
 
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 
 from api.execution.artifact_policy import retention_for
 from api.execution.models import Artifact, ArtifactLocation
@@ -17,7 +17,14 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         counts = Counter()
-        pending = []
+        pending = defaultdict(list)
+
+        def flush():
+            # A constant policy per group avoids quadratic CASE evaluation for
+            # hundreds of thousands of verified vectors. Updates are resumable.
+            for policy, ids in pending.items():
+                Artifact.objects.filter(pk__in=ids, retention="protected").update(retention=policy)
+            pending.clear()
         with connection.cursor() as cursor:
             cursor.execute("SET jit = off")
             cursor.execute("SET max_parallel_workers_per_gather = 0")
@@ -49,13 +56,11 @@ class Command(BaseCommand):
                     policy = "protected"
                 counts[policy] += 1
                 if options["apply"] and policy != "protected":
-                    artifact.retention = policy
-                    pending.append(artifact)
-                    if len(pending) >= 256:
-                        Artifact.objects.bulk_update(pending, ["retention"], batch_size=256)
-                        pending.clear()
+                    pending[policy].append(artifact.pk)
+                    if sum(map(len, pending.values())) >= 256:
+                        flush()
             if pending:
-                Artifact.objects.bulk_update(pending, ["retention"], batch_size=256)
+                flush()
         finally:
             with connection.cursor() as cursor:
                 cursor.execute("RESET jit")

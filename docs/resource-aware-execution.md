@@ -509,3 +509,11 @@ published input chunks no longer leave duplicate planning CSVs behind.
 `ExecutionCompletionStalled` catches zero whole-job completions despite active
 GPU work. `ExecutionStorageBlocked` reports disk below the admission guard.
 Neither alert automatically kills work or deletes files.
+
+Cleanup checks a bounded page of locations and persists its scan cursor, so a
+large page of shared, still-needed residues cannot make every sweep time out.
+Successful consumers enqueue durable location hints in the same transaction as
+completion. These hints bypass the scan on the next sweep; the full protection
+check still runs. This provides prompt cleanup of newly consumed matrices while
+an incremental sweep reconciles older leftovers. Attention-held and unprofiled
+requests do not monopolize the prepared-job window.

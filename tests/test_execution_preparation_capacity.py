@@ -47,6 +47,12 @@ def test_prepared_window_drains_without_reclassifying_or_blocking_normal_jobs(tm
     paused = execution("window5", background=True, prepared=True)
     paused.paused = True
     paused.save(update_fields=["paused"])
+    attention = execution("window6", background=True, prepared=True)
+    WorkStage.objects.create(
+        execution=attention, key="profile-hold", kind="predict", waiting_reason="profiling_required"
+    )
+    held = execution("window7", background=True, prepared=True)
+    WorkStage.objects.create(execution=held, key="held", kind="predict", state="held")
     with override_settings(
         EXECUTION_HOSTS={},
         EXECUTION_PREPARATION_RESERVE_BYTES=0,

@@ -1,5 +1,6 @@
 """Fenced collection of managed intermediates; legacy/project files stay protected."""
 
+from collections import defaultdict
 from datetime import timedelta
 
 from django.db import OperationalError, connection, transaction
@@ -11,10 +12,24 @@ from api.execution.models import (
     ArtifactCleanup,
     ArtifactDependency,
     ArtifactLocation,
+    ArtifactSweep,
     ExecutionAttempt,
     ExecutorHost,
 )
 from api.execution.resources import LIVE_STATES
+
+
+def release_consumed_residues(stage):
+    """Enqueue hints at consumer commit; ownership checks still run at deletion."""
+    groups = defaultdict(set)
+    for ident, host in ArtifactLocation.objects.filter(
+        artifact__dependencies__stage=stage, artifact__retention="transient", ready=True
+    ).values_list("pk", "host_id"):
+        groups[host].add(ident)
+    for host, ids in groups.items():
+        sweep, _ = ArtifactSweep.objects.select_for_update().get_or_create(host_id=host)
+        sweep.pending = list(dict.fromkeys([*sweep.pending, *sorted(ids)]))[-2048:]
+        sweep.save(update_fields=["pending"])
 
 
 def claim_cleanup(host_id, *, version=1):
@@ -36,6 +51,7 @@ def _claim_cleanup(host_id, *, version=1):
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL statement_timeout = 1500")
         cursor.execute("SET LOCAL jit = off")
+        cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return None
@@ -83,24 +99,36 @@ def _claim_cleanup(host_id, *, version=1):
     policy = Q(artifact__retention="transient", artifact__producer__execution__job__isnull=False)
     if pressure:
         policy |= Q(artifact__retention="cache", verified_at__lt=cutoff)
-    candidates = (
-        ArtifactLocation.objects.filter(policy, host=host, ready=True, artifact__regenerable=True)
+    sweep, _ = ArtifactSweep.objects.select_for_update().get_or_create(host=host)
+    base = ArtifactLocation.objects.filter(
+        policy, host=host, ready=True, artifact__regenerable=True
+    )
+    page = list(base.filter(pk__gt=sweep.cursor).order_by("pk").values_list("pk", flat=True)[:128])
+    if not page and sweep.cursor:
+        page = list(base.order_by("pk").values_list("pk", flat=True)[:128])
+    hinted = sweep.pending[:128]
+    sweep.cursor = max(page) if page else 0
+    candidates = list(
+        base.filter(pk__in=[*page, *hinted])
         .annotate(protected=Exists(protected_aliases))
         .filter(protected=False)
         .select_related("artifact")
-        .order_by("verified_at")[:512]
+        .order_by("pk")
     )
-    blobs, selected, total = [], set(), 0
+    blobs, selected, total, deferred = [], set(), 0, []
     for location in candidates:
         artifact = location.artifact
         checksum = artifact.checksum
         if not checksum or checksum in selected:
             continue
+        if total >= 4 * 1024**3 or len(blobs) >= 64:
+            deferred.append(location.pk)
+            continue
         selected.add(checksum)
         blobs.append({"checksum": checksum, "size": artifact.size})
         total += artifact.size
-        if total >= 4 * 1024**3 or len(blobs) >= 64:
-            break
+    sweep.pending = list(dict.fromkeys([*deferred, *sweep.pending[128:]]))[:2048]
+    sweep.save(update_fields=["cursor", "pending"])
     attempt_ids = []
     if version >= 2:
         live_stage = ExecutionAttempt.objects.filter(
