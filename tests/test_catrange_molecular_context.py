@@ -67,7 +67,7 @@ def test_catrange_payload_matches_planned_encoder_text(
             disable_gpu_precompute=False,
             extra_call_kwargs={},
         )
-    assert received == [(seq, text) for seq, text in zip(sequences, expected) if text]
+    assert received == [(seq, text) for seq, text in zip(sequences, expected, strict=True) if text]
     assert result["preds"][2] == ""
     assert "Invalid substrate" in result["sources"][2]
     assert set(result["failed_reactions"]) == {2}

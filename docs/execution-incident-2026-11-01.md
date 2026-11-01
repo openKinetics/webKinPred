@@ -92,3 +92,52 @@ contained one row annotated `Invalid substrate (not a valid SMILES or InChI)`.
 class; its completion is not claimed. The other affected KinForm stages were
 also requeued without recreating their jobs. Live IECata attempts were observed
 running concurrently in the corrected image with enforced CPU and RAM limits.
+
+## CatRange substrate context correction
+
+`B5lzhWX` completed its embeddings but its prediction attempts failed three times
+with `MISSING_EMBEDDING: molecular batch context mismatch`. Molecular planning
+honored the canonicalization option; the generic CatRange prediction adapter
+passed the original substrate text. Rebuilding otherwise valid embeddings did
+not resolve that textual mismatch. Automatic recovery held the stage and suspended
+its GPU-host kcat prediction profile.
+
+Commit `45a28b0` normalizes only CatRange's subprocess substrate inputs with the
+same `substrate_as_smiles` helper and options used by molecular planning. Raw
+SMILES remain raw when requested; InChI conversion and stereochemistry follow
+the same policy on both paths. Invalid rows retain their annotations and original
+positions. Original uploaded files and other methods' encoder contexts are unchanged.
+
+Regression coverage includes both targets, raw/canonical options, InChI, invalid
+rows, row order and one-unit retry batches. The full suite passed 495 tests and
+three subtests. Both final deployment runtimes passed three fresh-process and five
+filesystem-warm boundary runs per target against the earlier CPU references, plus
+the saved ten-row failed input per target: 36 isolated runtime checks in total.
+The saved-input result digests matched exactly between the two hosts for each
+target. Resource envelopes include process-tree RSS and never reduce old limits.
+
+Thin overlays replace the generic adapter in the separately pinned production
+and GPU-host CatRange execution images; no environment or weight was rebuilt.
+The four new `production55-*` / `gpu55-*` profiles replace the affected version-29
+profiles, which remain suspended. Supervisors were restarted only after live
+database attempts and labelled containers had drained; zero running attempts
+were stopped. Production verified 926 runtime files and the GPU host verified
+9,883. The web services and submission interface stayed online.
+
+Only the held prediction stage was retried. Its live attempt completed under
+`gpu55-CatRange-kcat`. All 9,731 jobs from the preservation snapshot remained
+present, including the original execution specification and input checksum for
+`B5lzhWX`; the frozen Redis queue retained 5,002 messages. The three attempts
+captured before deployment all completed naturally. Both hosts resumed admissions,
+all four profiles remained validated and enabled, and no new-profile stage was
+held at the verification check.
+
+After assembly, similarity and publication, `B5lzhWX` completed all 18 stages.
+Its public download returned HTTP 200 (4,646 bytes). The CSV contained the original
+10 rows with 10 nonempty kcat predictions, each sourced from CatRange. The public
+status endpoint reported `Completed` / `completed`. No model environment was
+rebuilt, no running attempt was killed during rollout, and no queue was purged.
+
+Private deployment, calibration and preservation evidence is under the two hosts'
+`webkinpred-execution-staging/` directories in `release55-*`, `profiles55-*`,
+`preservation55.json` and `probes/repair55/`. Copied job reproductions remain private.
