@@ -302,10 +302,13 @@ def test_lost_original_input_is_held_without_recomputation():
     assert job.status == "Processing"
 
 
-@pytest.mark.parametrize("method", ["OmniESI", "OmniESI-O2DENet"])
+@pytest.mark.parametrize(
+    "method,target", [("OmniESI", "kcat"), ("OmniESI-O2DENet", "kcat"), ("IECata", "kcat/Km")]
+)
 @pytest.mark.parametrize("unit_batch_size", [1, 128])
+@pytest.mark.parametrize("rows", [1, 2])
 def test_all_invalid_native_batches_preserve_rows_without_loading_a_model(
-    monkeypatch, method, unit_batch_size
+    monkeypatch, method, target, unit_batch_size, rows
 ):
     import pandas as pd
     from api.execution.context import StageContext, execution_job, stage_context
@@ -319,23 +322,26 @@ def test_all_invalid_native_batches_preserve_rows_without_loading_a_model(
     monkeypatch.setattr(generic_subprocess, "_resolve_subprocess_paths", forbidden)
     monkeypatch.setattr(generic_subprocess, "run_prediction_subprocess", forbidden)
     frame = pd.DataFrame(
-        {"Protein Sequence": ["MAAA", "MCCC"], "Substrate": ["invalid-chemistry", "also-invalid"]}
+        {
+            "Protein Sequence": ["MAAA", "MCCC"][:rows],
+            "Substrate": ["invalid-chemistry", "also-invalid"][:rows],
+        }
     )
     with stage_context(StageContext("invalid-native", unit_batch_size=unit_batch_size)):
         result = _execute_target_batch(
             job=execution_job("invalid-native"),
             desc=get(method),
             df=frame,
-            target="kcat",
+            target=target,
             sequences=frame["Protein Sequence"].tolist(),
             processed_by_reaction=frame["Protein Sequence"].tolist(),
-            valid_reaction_indices=[0, 1],
+            valid_reaction_indices=list(range(rows)),
             experimental_results=[],
             canonicalize_substrates=True,
             disable_gpu_precompute=False,
             extra_call_kwargs={},
         )
-    assert result["preds"] == ["", ""]
-    assert result["extra"] == ["", ""]
-    assert set(result["failed_reactions"]) == {0, 1}
+    assert result["preds"] == [""] * rows
+    assert result["extra"] == [""] * rows
+    assert set(result["failed_reactions"]) == set(range(rows))
     assert all("Invalid substrate" in value for value in result["sources"])

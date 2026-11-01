@@ -59,6 +59,7 @@ from utils.pca import make_design_matrices
 from utils.seqmap_cli import resolve_seq_ids_via_cli
 from pseq2sites.get_sites import get_sites
 from utils.compute_embs import embeddings_exist, _compute_all_emb
+from tools.executor.binding_table import read_binding_table
 
 # Global paths - relative to repository root
 # ------------------------------------------------------------------- #
@@ -107,7 +108,7 @@ def compute_embeddings(sequences: List[str]) -> Tuple[Dict[str, bool], Dict[str,
     print(f"Missing {sum(not x for x in esmc_exists)} ESM-C embeddings.")
     print(f"Missing {sum(not x for x in t5_exists)} Prot-T5 embeddings.")
     # load binding site DF
-    bs_df = pd.read_csv(BS_PRED_PATH, sep="\t")
+    bs_df = read_binding_table(BS_PRED_PATH)
     bs_df_ids = bs_df['PDB'].tolist()
     missing_bs_seqs = set(seq_ids) - set(bs_df_ids)
     print(f"Missing binding-site predictions for {len(missing_bs_seqs)} sequences.")
@@ -261,7 +262,7 @@ def build_design_matrix(
     Uses make_design_matrices which handles PCA internally.
     """
     # Binding-site predictions
-    bs_df = pd.read_csv(BS_PRED_PATH, sep="\t")
+    bs_df = read_binding_table(BS_PRED_PATH)
     seq_ids = resolve_seq_ids_via_cli(seqs.tolist())
     seq_to_id = {seq: sid for seq, sid in zip(seqs, seq_ids)}
     blocks_all, block_names = sequences_to_feature_blocks(
@@ -310,7 +311,7 @@ def train(task: str, cfg_name: str, model_dir: Path, train_test_split: float = 1
         seq_to_id = {v: k for k, v in seq_lookup.items()}
         groups = [seq_to_id[s] for s in seqs]
         # Binding-site predictions (load once)
-        bs_df = pd.read_csv(BS_PRED_PATH, sep="\t")
+        bs_df = read_binding_table(BS_PRED_PATH)
         # Build feature blocks once
         blocks_all, block_names = sequences_to_feature_blocks(
             sequence_list=seqs,
