@@ -65,3 +65,30 @@ Private reproductions, measurements, image identities and profile registries are
 under `/home/msp/webkinpred-execution-staging/probes/repair54/` and adjacent
 `release54-*` / `profiles54-*` files. Production retains its preservation inventory
 and recovery script under `/home/saleh/webkinpred-execution-staging/`.
+
+## Observed deployment result
+
+All 36 isolated runtime probes passed, including the four reproduced failures.
+The 32 boundary runs matched their previous CPU references. The final reservation
+gate included process-tree RSS and retained or increased every old reservation.
+Four new `gpu54-*` CPU profiles were imported for the two KinForm-H targets,
+KinForm-L kcat and IECata kcat/Km. Old suspended profiles remain unchanged.
+
+The GPU supervisor verified 9,883 runtime files. Both the live-attempt database
+inventory and labelled container inventory were empty before its restart; zero
+running attempts were stopped. A captured pre-deployment CatPred attempt completed
+naturally. Production supervision and web services were not restarted, and no
+model environment was rebuilt. The original dirty model trees were not modified.
+
+All 9,901 jobs in the unfinished-job preservation inventory remained present.
+The frozen legacy Redis queue retained its 5,002 messages. The retry/import path
+made no quota changes and performed no broker purge. Both hosts resumed admissions;
+the public health endpoint reported healthy with submissions open.
+
+`LDy1dTR` completed all three stages. Its downloadable CSV returned HTTP 200 and
+contained one row annotated `Invalid substrate (not a valid SMILES or InChI)`.
+`UbiEVIW` cleared the operator-attention state and reported `waiting_gpu`, with
+6 of 91 stages completed at the check. It remains in the background scheduling
+class; its completion is not claimed. The other affected KinForm stages were
+also requeued without recreating their jobs. Live IECata attempts were observed
+running concurrently in the corrected image with enforced CPU and RAM limits.
