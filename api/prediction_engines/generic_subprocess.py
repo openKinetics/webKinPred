@@ -36,7 +36,7 @@ from api.services.job_progress_service import (
 )
 
 from api.prediction_engines.subprocess_runner import run_prediction_subprocess
-from api.utils.convert_to_mol import convert_to_mol
+from api.utils.convert_to_mol import convert_to_mol, substrate_as_smiles
 from webKinPred.settings import MEDIA_ROOT
 _log = logging.getLogger(__name__)
 _SEQ_ID_ATTACH_METHOD_KEYS = {"OmniESI", "OmniESI-O2DENet", "RealKcat", "IECata", "CatRange"}
@@ -87,6 +87,19 @@ def run_generic_subprocess_prediction(
         sequences=sequences,
         call_kwargs=kwargs,
     )
+    if desc.key == "CatRange":
+        # Match molecular_graph's representation before validating/filtering rows.
+        # The classifier's cache-only adapter must receive the exact encoder text,
+        # including the requested raw/canonical policy and InChI conversion.
+        per_row_inputs["substrates"] = [
+            substrate_as_smiles(
+                value,
+                canonicalize=kwargs.get("canonicalize_substrates", True),
+                preserve_raw_smiles_when_possible=True,
+            )
+            or value
+            for value in per_row_inputs["substrates"]
+        ]
     static_params = {key: value for key, value in kwargs.items() if key not in row_kwarg_names}
 
     predictions: list[Any] = [None] * len(sequences)
