@@ -804,54 +804,7 @@ class Agent:
                                 ident,
                             )
                             del self.jobs[ident]
-                # Saturated hosts must still poll: new foreground demand may
-                # need a background allocation to yield its resources.
-                if (
-                    not reply.get("paused", False)
-                    and time.monotonic() - self.last_contact < 5
-                    and sum(not j["container"] for j in self.jobs.values()) < 4
-                ):
-                    request = self.request("claim").get("attempt")
-                    if request:
-                        active = [
-                            {
-                                "resources": j["request"]["resources"],
-                                "observed": telemetry["attempts"].get(k, {}),
-                            }
-                            for k, j in self.jobs.items()
-                        ]
-                        allowed = admit(
-                            request["resources"],
-                            active,
-                            self.config["budgets"],
-                            telemetry,
-                            gpu=bool(request["resources"].get("vram")),
-                        )
-                        if allowed.fits:
-                            try:
-                                self.stage(request)
-                            except Exception as exc:
-                                # If creation was ambiguous, reconciliation must prove termination.
-                                self.request(
-                                    "error",
-                                    {
-                                        "token": request["token"],
-                                        "stopped": request["id"] not in self.jobs,
-                                        "category": classify(exc),
-                                        **self.error_details(exc, request),
-                                    },
-                                    request["id"],
-                                )
-                        else:
-                            self.request(
-                                "error",
-                                {
-                                    "token": request["token"],
-                                    "stopped": True,
-                                    "category": allowed.reason,
-                                },
-                                request["id"],
-                            )
+                self.claim_available(telemetry, paused=reply.get("paused", False))
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 self.expire_unrenewed()
                 if time.monotonic() - self.last_error_log >= 10:
@@ -867,6 +820,61 @@ class Agent:
                     )
                     self.last_error_log = time.monotonic()
             time.sleep(1)
+
+    def claim_available(self, telemetry, *, paused=False):
+        """Fill capacity without letting admissions delay lease supervision."""
+        began = time.monotonic()
+        for _ in range(4):
+            now = time.monotonic()
+            if (
+                paused
+                or now - self.last_contact >= 5
+                or now - began >= 4
+                or any(now - job["renewed"] >= 5 for job in self.jobs.values())
+                or sum(not job["container"] for job in self.jobs.values()) >= 4
+            ):
+                break
+            # Saturated hosts still poll once so foreground work can request
+            # preemption. PostgreSQL remains authoritative for every reservation.
+            request = self.request("claim").get("attempt")
+            if not request:
+                break
+            active = [
+                {
+                    "resources": job["request"]["resources"],
+                    "observed": telemetry["attempts"].get(ident, {}),
+                }
+                for ident, job in self.jobs.items()
+            ]
+            allowed = admit(
+                request["resources"],
+                active,
+                self.config["budgets"],
+                telemetry,
+                gpu=bool(request["resources"].get("vram")),
+            )
+            if not allowed.fits:
+                self.request(
+                    "error",
+                    {"token": request["token"], "stopped": True, "category": allowed.reason},
+                    request["id"],
+                )
+                break  # Refresh telemetry before asking for another allocation.
+            try:
+                self.stage(request)
+            except Exception as exc:
+                # Ambiguous creation retains ownership until reconciliation.
+                self.request(
+                    "error",
+                    {
+                        "token": request["token"],
+                        "stopped": request["id"] not in self.jobs,
+                        "category": classify(exc),
+                        **self.error_details(exc, request),
+                    },
+                    request["id"],
+                )
+                break
 
     def expire_unrenewed(self):
         """Fence compute and drain transfers whose ownership cannot be renewed."""
