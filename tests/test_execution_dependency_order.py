@@ -113,6 +113,15 @@ def test_bounded_pages_eventually_visit_each_prepared_request(ready_work):
     assert refresh_dependency_order(cursor, limit=1) == (0, 0)
 
 
+def test_newly_prepared_request_can_refresh_without_scanning_older_pages(ready_work):
+    _, (producer, _) = ready_work
+    consumer(producer, "priorpage", timezone.now() - timedelta(days=1))
+    old, _ = consumer(producer, "newpage", timezone.now() - timedelta(days=3))
+    assert refresh_dependency_order(execution_id=old.pk) == (old.pk, 1)
+    producer.refresh_from_db()
+    assert producer.oldest_consumer_at == old.job.submission_time
+
+
 def test_cohort_retains_inherited_age_and_all_original_consumers():
     _, _, _, _, sources, head = setup_cohort()
     age = timezone.now() - timedelta(days=3)

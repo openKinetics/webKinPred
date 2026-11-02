@@ -7,7 +7,7 @@ from api.execution.models import ExecutionSpec, WorkStage
 
 
 @transaction.atomic
-def refresh_dependency_order(after=0, limit=8):
+def refresh_dependency_order(after=0, limit=8, *, execution_id=None):
     """Visit a bounded page of prepared requests; return the next page cursor.
 
     No input manifests or immutable specifications are loaded. Queue age only
@@ -20,14 +20,16 @@ def refresh_dependency_order(after=0, limit=8):
     prepared = WorkStage.objects.filter(
         execution_id=OuterRef("pk"), key="prepare", state="completed"
     )
-    ids = list(
+    requests = (
         ExecutionSpec.objects.filter(paused=False, pk__gt=after)
         .exclude(job__status__in=["Completed", "Failed"])
         .annotate(prepared=Exists(prepared))
         .filter(prepared=True)
         .order_by("pk")
-        .values_list("pk", flat=True)[: max(1, min(limit, 32))]
     )
+    if execution_id is not None:
+        requests = requests.filter(pk=execution_id)
+    ids = list(requests.values_list("pk", flat=True)[: max(1, min(limit, 32))])
     if not ids:
         return 0, 0
     with connection.cursor() as cursor:

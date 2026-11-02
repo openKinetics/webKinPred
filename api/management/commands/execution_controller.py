@@ -44,9 +44,13 @@ class Command(BaseCommand):
                         from api.execution.dependency_order import refresh_dependency_order
 
                         try:
-                            dependency_order_cursor, _ = refresh_dependency_order(
-                                dependency_order_cursor
-                            )
+                            deadline = time.monotonic() + 1
+                            for _ in range(8):
+                                dependency_order_cursor, _ = refresh_dependency_order(
+                                    dependency_order_cursor, limit=32
+                                )
+                                if not dependency_order_cursor or time.monotonic() >= deadline:
+                                    break
                         except OperationalError:
                             import logging
 
@@ -89,6 +93,14 @@ class Command(BaseCommand):
                                 Path(settings.MEDIA_ROOT),
                                 Path(settings.EXECUTION_BLOB_ROOT),
                             )
+                            from api.execution.dependency_order import refresh_dependency_order
+
+                            # Newly prepared old requests must not wait for a
+                            # full metadata sweep before their shared inputs.
+                            try:
+                                refresh_dependency_order(execution_id=execution.pk)
+                            except OperationalError:
+                                pass  # The bounded periodic sweep retries this metadata.
                             execution.refresh_from_db(fields=["priority"])
                             if execution.priority or not execution.background:
                                 from api.execution.priority import refresh_stage_priorities
