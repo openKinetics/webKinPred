@@ -175,14 +175,18 @@ def register(host_id: str, data: dict):
     return host
 
 
-def _gpu_profile_allowed(profile, active, host):
+def _gpu_profile_allowed(profile, active, host, families=None):
     if not profile.resources.get("vram", 0):
         return True
     gpu_profiles = [x["profile_fingerprint"] for x in active if x["resources"].get("vram")]
     if not gpu_profiles:
         return True
-    combination = sorted(gpu_profiles + [profile.fingerprint])
-    approved = host.capabilities.get("validated_gpu_combinations", [])
+    families = families or {}
+    combination = sorted(families.get(fp, fp) for fp in gpu_profiles + [profile.fingerprint])
+    approved = [
+        sorted(families.get(fp, fp) for fp in row)
+        for row in host.capabilities.get("validated_gpu_combinations", [])
+    ]
     if combination in approved:
         return True
     # Any measured mixture must be reachable while its models are starting.
@@ -209,7 +213,7 @@ def _after_stopping(active, removed, telemetry):
     return retained, projected
 
 
-def _preempt_background(stage, profile, resources, active, host):
+def _preempt_background(stage, profile, resources, active, host, families=None):
     """Request the smallest useful background stop set; retain all reservations."""
     lower = sorted(
         [row for row in active if row["background"]],
@@ -232,7 +236,7 @@ def _preempt_background(stage, profile, resources, active, host):
             retained, projected = _after_stopping(active, ids, host.telemetry)
             if admit(
                 resources, retained, host.budgets, projected, gpu=bool(resources.get("vram"))
-            ).fits and _gpu_profile_allowed(profile, retained, host):
+            ).fits and _gpu_profile_allowed(profile, retained, host, families):
                 ExecutionAttempt.objects.filter(pk__in=ids, state__in=LIVE_STATES).update(
                     stop_requested=True
                 )
@@ -323,6 +327,9 @@ def claim(host_id: str):
     # scan. Thousands of blocked or other-host stages must not hide fitting
     # work beyond the first page, or consume its row locks.
     available_profiles = list(ResourceProfile.objects.filter(validated=True, suspended=False))
+    from api.execution.gpu_families import families as gpu_families
+
+    families = gpu_families(available_profiles)
     if host.gpu_paused:
         available_profiles = [p for p in available_profiles if not p.resources.get("vram")]
     advertised_fingerprints = set(host.capabilities.get("profiles", []))
@@ -428,11 +435,11 @@ def claim(host_id: str):
         resources = {k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}
         if admit(
             resources, active, host.budgets, host.telemetry, gpu=bool(resources.get("vram"))
-        ).fits and _gpu_profile_allowed(p, active, host):
+        ).fits and _gpu_profile_allowed(p, active, host, families):
             fitting.append(p)
         if admit(
             resources, retained, host.budgets, projected, gpu=bool(resources.get("vram"))
-        ).fits and _gpu_profile_allowed(p, retained, host):
+        ).fits and _gpu_profile_allowed(p, retained, host, families):
             foreground_fitting.append(p)
 
     def profile_capacity(profiles):
@@ -551,8 +558,10 @@ def claim(host_id: str):
         base = admit(
             resources, active, host.budgets, host.telemetry, gpu=bool(profile.resources.get("vram"))
         )
-        if not base.fits or not _gpu_profile_allowed(profile, active, host):
-            if not background and _preempt_background(stage, profile, resources, active, host):
+        if not base.fits or not _gpu_profile_allowed(profile, active, host, families):
+            if not background and _preempt_background(
+                stage, profile, resources, active, host, families
+            ):
                 return None
             gpu_barrier |= _admission_wait(
                 stage,
@@ -619,8 +628,10 @@ def claim(host_id: str):
             host.telemetry,
             gpu=bool(profile.resources.get("vram")),
         )
-        if not result.fits or not _gpu_profile_allowed(profile, active, host):
-            if not background and _preempt_background(stage, profile, resources, active, host):
+        if not result.fits or not _gpu_profile_allowed(profile, active, host, families):
+            if not background and _preempt_background(
+                stage, profile, resources, active, host, families
+            ):
                 return None
             gpu_barrier |= _admission_wait(
                 stage,

@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path
 
 import psutil
@@ -46,6 +47,7 @@ def directory_bytes(root):
 class Agent:
     def __init__(self, config):
         self.config = config
+        self.local_budgets = deepcopy(config.get("budgets", {}))
         self.config.setdefault("capabilities", {})["artifact_cleanup_version"] = 2
         self.host = config["host_id"]
         self.root = Path(config["root"]).resolve()
@@ -598,6 +600,8 @@ class Agent:
             if time.monotonic() - job["renewed"] >= 20:
                 self.docker("stop", "-t", "5", job["container"])
                 return
+            if time.monotonic() - job["renewed"] < 5:
+                return
             try:
                 self.request(
                     "heartbeat",
@@ -727,6 +731,28 @@ class Agent:
                 )
         return outcome
 
+    def apply_control_budgets(self, reply):
+        """A calibration reservation also applies at the final local launch check."""
+        server = reply.get("budgets", {})
+        self.config["budgets"] = {
+            key: (max(value, server[key]) if key.endswith("headroom") else min(value, server[key]))
+            if key in server
+            else value
+            for key, value in self.local_budgets.items()
+        }
+        for key, value in server.items():
+            if key.endswith("headroom") and key not in self.config["budgets"]:
+                self.config["budgets"][key] = value
+
+    def has_capacity(self):
+        # Every executable profile consumes positive CPU/RAM. Avoid a costly
+        # backlog scan when neither another GPU nor CPU allocation could fit.
+        return all(
+            sum(j["request"]["resources"].get(key, 0) for j in self.jobs.values())
+            < self.config["budgets"].get(key, float("inf"))
+            for key in ("cpu", "ram")
+        )
+
     def run(self):
         from tools.executor.runtime_identity import identity
 
@@ -765,6 +791,7 @@ class Agent:
                     "register",
                     {"capabilities": self.config["capabilities"], "telemetry": telemetry},
                 )
+                self.apply_control_budgets(reply)
                 self.reconcile_unreceived(reply)
                 if time.monotonic() - self.last_cleanup >= 30:
                     self.collect_artifacts()
@@ -787,7 +814,9 @@ class Agent:
                             )
                             del self.jobs[ident]
                 if (
-                    time.monotonic() - self.last_contact < 5
+                    not reply.get("paused", False)
+                    and self.has_capacity()
+                    and time.monotonic() - self.last_contact < 5
                     and sum(not j["container"] for j in self.jobs.values()) < 4
                 ):
                     request = self.request("claim").get("attempt")

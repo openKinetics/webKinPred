@@ -271,6 +271,7 @@ def test_cpu_pool_cohort_preserves_shared_and_per_sequence_inputs():
         )
         ArtifactDependency.objects.create(stage=stage, artifact=residue, path=f"residues/{sid}.npy")
     stage = WorkStage.objects.get(pk=coalesce()[0])
+    assert stage.kind == "predict" and stage.method == "KinForm-pool"
     assert stage.artifacts.count() == 5
     assert stage.artifacts.get(path="binding.tsv").artifact_id == common.pk
 

@@ -216,7 +216,7 @@ def replace(stages, profile):
     stage = WorkStage.objects.create(
         execution_id=stages[0].execution_id,
         key="cohort:" + digest(sorted(map(str, ids))),
-        kind="embedding",
+        kind=stages[0].kind,
         method=stages[0].method,
         target=stages[0].target,
         profile=profile,
