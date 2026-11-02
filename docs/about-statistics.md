@@ -71,3 +71,68 @@ Tests cover scalar/array/range counts, current and historical headers, invalid
 values, shared/multiple proteins, retries, changed results, status changes,
 restarts/deletion, incomplete backfills, missing files, HTTP query count/ETag and
 expiry. Browser cache tests verify freshness is not extended by page visits.
+
+## Production validation, 2 November 2026
+
+Backend/statistics worker release r62 uses source `072f853`; the frontend r63
+uses `c6d6a85`. Migration 0041 adds only the summary/membership tables. Existing
+model environments, executor images and supervisor processes were retained.
+
+The initial historical backfill covered 7,470 completed jobs with zero pending
+summaries and zero unavailable/unreadable results. A header-only audit established
+RealKcat's historical `Km (M)` column and distinguished extra input measurement
+columns from requested result columns. Previously summarised results were reused
+only when all counted columns were identical; changed cases were reparsed.
+
+The first snapshot was published at 12:35:45 UTC. Normal background operation then
+summarised newly completed jobs within approximately 6–28 seconds in the checked
+examples. The next automatic snapshot at 12:40:59 included four more completed
+jobs, with no manual counter updates:
+
+| Metric | Published value at 12:40:59 UTC |
+|---|---:|
+| Completed jobs | 7,474 |
+| Successful reaction rows | 6,629,149 |
+| Distinct successful protein sequences | 538,347 |
+| Parameter values, total | 8,959,541 |
+| kcat | 4,279,085 |
+| Km | 3,798,134 |
+| kcat/Km | 882,322 |
+| Unavailable result files | 0 |
+
+The parameter total equals the three component totals. Historical values can move
+up or down because the previous implementation missed formats and counted invalid
+values/unrequested input columns; continued job completions also change totals.
+
+Validation passed 517 backend tests plus three subtests, three browser-cache unit
+tests, and the frontend production build. Tests include a nine-query reconciliation
+of 20 small completed jobs. Production query capture verified one simple row query
+on a cold stats read and zero queries on a cached read; neither path opened CSVs
+or ran aggregates. Cached Python view processing measured approximately 0.92 ms
+(excluding web-server queuing, TLS and network time). A public HTTPS request to
+`predictor.openkinetics.org/api/about-stats/` returned 200 with the new snapshot
+in approximately 264 ms. Conditional GET returned 304 with ETag and max-age=60.
+
+Headless Chrome exercised the deployed bundle with controlled responses and a
+controlled clock: fetch on mount, reject expired local previews, timer refresh,
+focus refresh, and coalescing focus/visibility events. A separate browser visit
+rendered the genuine production counts and update timestamp.
+
+Preservation checks retained all 9,498 jobs that were unfinished at rollout and
+all 11,671 original immutable execution specification/input checksums. All three
+attempts running before rollout completed normally. Both hosts kept fresh
+heartbeats; production executor/artifact supervisor images and start times were
+unchanged. Frozen legacy Redis prediction messages remained at 5,002. No quota,
+job input, result file or model weight was rewritten by the statistics work.
+
+The worker used a temporary 0.5-CPU ceiling during the one-time backfill and was
+returned to its configured 0.25 CPU afterward, with no restarts after its final
+rollout. Its observed RSS during the backfill was approximately 88 MiB. Production
+retained approximately 23 GiB free disk after the summary tables were populated.
+
+Operational evidence is under
+`/home/saleh/webkinpred-execution-staging/`: `preservation60.json`,
+`verification60.json`, `statistics-verification63.json`, `promotion61.json`
+(in the backend temporary directory), release image manifests, deployment logs
+and the preserved predeployment environment files. No credentials are recorded
+in this document.
