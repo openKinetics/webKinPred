@@ -12,7 +12,7 @@ from datetime import timedelta
 from pathlib import PurePosixPath
 
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Prefetch
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -38,8 +38,10 @@ STEPS = frozenset(
         "kinform_t5_residues",
         "kinform_esm2_residues",
         "kinform_esmc_residues",
+        "kinform_pseq2sites",
     }
 )
+INPUT_STEPS = frozenset({"kinform_pseq2sites", "kinform_pool"})
 
 
 def merged_payload(stages, profile):
@@ -47,8 +49,12 @@ def merged_payload(stages, profile):
     payload = deepcopy(stages[0].payload)
     varying = {"seq_id_to_seq", "outputs", "output_artifacts", "shape", "admission_wait_started_at"}
     fixed = {k: v for k, v in payload.items() if k not in varying}
-    sequences, outputs, paths, shape = {}, {}, {}, {}
+    sequences, outputs, paths, shape, inputs = {}, {}, {}, {}, {}
     for stage in stages:
+        for dependency in getattr(stage, "cohort_inputs", []):
+            if dependency.path in inputs and inputs[dependency.path] != dependency.artifact_id:
+                return None
+            inputs[dependency.path] = dependency.artifact_id
         if {k: v for k, v in stage.payload.items() if k not in varying} != fixed:
             return None
         for sid, sequence in stage.payload["seq_id_to_seq"].items():
@@ -109,11 +115,18 @@ def coalesce(limit=128):
     )
     created = []
     for profile in profiles:
-        if (
-            profile.stage_kind != "embedding"
-            or not profile.resources.get("vram")
-            or profile.settings.get("step") not in STEPS
-        ):
+        gpu = (
+            profile.stage_kind == "embedding"
+            and profile.resources.get("vram")
+            and profile.settings.get("step") in STEPS
+        )
+        pooling = (
+            profile.stage_kind == "predict"
+            and profile.method == "KinForm-pool"
+            and not profile.resources.get("vram")
+            and profile.settings.get("step") == "kinform_pool"
+        )
+        if not (gpu or pooling):
             continue
         sources = ResourceProfile.objects.filter(
             fingerprint__in=profile.settings["cohort_sources"],
@@ -121,7 +134,7 @@ def coalesce(limit=128):
             suspended=False,
             stage_kind=profile.stage_kind,
             method=profile.method,
-            image=profile.image,
+            image__in=[profile.image, profile.settings.get("cohort_parent_image", profile.image)],
             settings__model_identity=profile.settings.get("model_identity"),
             settings__step=profile.settings.get("step"),
         )
@@ -129,7 +142,7 @@ def coalesce(limit=128):
             from_workstage_id=OuterRef("pk")
         ).exclude(to_workstage__state="completed")
         attempts = ExecutionAttempt.objects.filter(stage_id=OuterRef("pk"))
-        candidates = list(
+        query = (
             WorkStage.objects.select_for_update(skip_locked=True, of=("self",))
             .filter(
                 state="ready",
@@ -145,14 +158,24 @@ def coalesce(limit=128):
                 blocked=Exists(blocked),
                 has_inputs=Exists(ArtifactDependency.objects.filter(stage_id=OuterRef("pk"))),
             )
-            .filter(tried=False, blocked=False, has_inputs=False)
+            .filter(tried=False, blocked=False)
+            .prefetch_related(
+                Prefetch(
+                    "artifacts",
+                    queryset=ArtifactDependency.objects.only("artifact_id", "path", "stage_id"),
+                    to_attr="cohort_inputs",
+                )
+            )
             .order_by(
                 "execution__background",
                 "-execution__priority",
                 Coalesce("execution__job__submission_time", "execution__created_at"),
                 "created_at",
-            )[: max(2, min(limit, 512))]
+            )
         )
+        if profile.settings.get("step") not in INPUT_STEPS:
+            query = query.filter(has_inputs=False)
+        candidates = list(query[: max(2, min(limit, 512))])
         groups = defaultdict(list)
         for stage in candidates:
             if stage.payload.get("seq_id_to_seq") and stage.payload.get("outputs"):
@@ -200,6 +223,17 @@ def replace(stages, profile):
         payload=payload,
         priority=max(s.priority for s in stages),
         created_at=min(s.created_at for s in stages),
+    )
+    inputs = {
+        dependency.path: dependency.artifact_id
+        for source in stages
+        for dependency in getattr(source, "cohort_inputs", [])
+    }
+    ArtifactDependency.objects.bulk_create(
+        [
+            ArtifactDependency(stage=stage, artifact_id=ident, path=path)
+            for path, ident in inputs.items()
+        ]
     )
     edge = WorkStage.dependencies.through
     # Completed prerequisite links are retained for provenance and diagnostics.
@@ -267,6 +301,25 @@ def split_cohort(ident):
                 stage.waiting_reason = "profiling_required"
                 stage.save(update_fields=["state", "waiting_reason"])
                 return False
+            alternatives = ResourceProfile.objects.filter(
+                fingerprint__in=stage.profile.settings.get("cohort_sources", []),
+                validated=True,
+                stage_kind=stage.kind,
+                method=stage.method,
+                settings__model_identity=stage.profile.settings.get("model_identity"),
+            )
+            parent = next(
+                (
+                    p
+                    for p in alternatives
+                    if all(
+                        stage.payload["shape"].get(k, float("inf")) <= v
+                        for k, v in p.limits.items()
+                        if k != "sequences"
+                    )
+                ),
+                parent,
+            )
             mapping = list(stage.payload["seq_id_to_seq"].items())
             width = max(1, min(16, parent.limits["sequences"]))
             sources = []
@@ -302,6 +355,12 @@ def split_cohort(ident):
                     created_at=stage.created_at,
                 )
                 source.dependencies.add(*stage.dependencies.all())
+                from api.execution.planning import attach
+
+                for dependency in stage.artifacts.select_related("artifact"):
+                    sid = PurePosixPath(dependency.path).stem
+                    if sid not in stage.payload["seq_id_to_seq"] or sid in subset:
+                        attach(source, dependency.artifact, dependency.path)
                 sources.append(source)
             if {a for source in sources for a in source.payload["output_artifacts"]} != set(
                 stage.payload["output_artifacts"]

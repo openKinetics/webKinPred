@@ -248,3 +248,51 @@ def test_recovery_cohort_splits_without_reopening_original_completed_job():
     old.job.refresh_from_db()
     assert old.job.status == "Completed"
     assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="canceled").count() == 4
+
+
+def test_cpu_pool_cohort_preserves_shared_and_per_sequence_inputs():
+    _, _, parent, large, stages, _ = setup_cohort()
+    for profile in [parent, large]:
+        profile.stage_kind = "predict"
+        profile.method = "KinForm-pool"
+        profile.resources["vram"] = 0
+        profile.settings["step"] = "kinform_pool"
+        profile.save()
+    common = Artifact.objects.create(id="c" * 64, identity={}, size=12, checksum="d" * 64)
+    for stage in stages:
+        stage.kind = "predict"
+        stage.method = "KinForm-pool"
+        stage.payload["step"] = "kinform_pool"
+        stage.save()
+        ArtifactDependency.objects.create(stage=stage, artifact=common, path="binding.tsv")
+        sid = next(iter(stage.payload["seq_id_to_seq"]))
+        residue = Artifact.objects.create(
+            id=control.digest("residue" + sid), identity={}, size=12, checksum="e" * 64
+        )
+        ArtifactDependency.objects.create(stage=stage, artifact=residue, path=f"residues/{sid}.npy")
+    stage = WorkStage.objects.get(pk=coalesce()[0])
+    assert stage.artifacts.count() == 5
+    assert stage.artifacts.get(path="binding.tsv").artifact_id == common.pk
+
+
+def test_cpu_pool_cohort_keeps_distinct_binding_contexts_separate():
+    _, _, parent, large, stages, _ = setup_cohort()
+    for profile in [parent, large]:
+        profile.stage_kind = "predict"
+        profile.method = "KinForm-pool"
+        profile.resources["vram"] = 0
+        profile.settings["step"] = "kinform_pool"
+        profile.save()
+    for index, stage in enumerate(stages):
+        stage.kind = "predict"
+        stage.method = "KinForm-pool"
+        stage.payload["step"] = "kinform_pool"
+        stage.save()
+        artifact, _ = Artifact.objects.get_or_create(
+            id=control.digest("binding" + str(index // 2)), defaults={"identity": {}, "size": 12}
+        )
+        ArtifactDependency.objects.create(stage=stage, artifact=artifact, path="binding.tsv")
+    ids = coalesce()
+    assert len(ids) == 2 and all(
+        WorkStage.objects.get(pk=i).payload["shape"]["sequences"] == 16 for i in ids
+    )

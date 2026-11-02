@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 
-def metadata(path, request):
+def metadata(path, request, output=None):
     if path.suffix == ".npy":
         value = np.load(path, mmap_mode="r", allow_pickle=False)
         if value.dtype.kind == "U":
@@ -41,6 +41,17 @@ def metadata(path, request):
         "kinform_binding_merge",
     }:
         wanted = request["payload"]["seq_id_to_seq"]
+        context = (output or {}).get("identity", {}).get("context") or {}
+        if "sequences" in context:
+            ids = context["sequences"]
+            if (
+                not isinstance(ids, list)
+                or not ids
+                or len(set(ids)) != len(ids)
+                or not set(ids) <= wanted.keys()
+            ):
+                raise ValueError("Invalid binding-site output context")
+            wanted = {sid: wanted[sid] for sid in ids}
         seen = set()
         with path.open(newline="") as handle:
             for row in csv.DictReader(handle, delimiter="\t"):
@@ -64,7 +75,7 @@ def main():
     request = json.loads(Path(sys.argv[1]).read_text())
     media = Path(sys.argv[2])
     result = {
-        output["id"]: metadata(media / output["path"], request)
+        output["id"]: metadata(media / output["path"], request, output)
         for output in request["payload"]["outputs"]
     }
     Path(sys.argv[3]).write_text(json.dumps(result))

@@ -59,7 +59,11 @@ def run(request, media):
             "--seq-id-to-seq-file",
             "/work/sequences.json",
             "--binding-sites-path",
-            str(media / payload["outputs"][0]["path"]),
+            str(
+                Path("/work/pseq-cohort.tsv")
+                if len(payload["outputs"]) > 1
+                else media / payload["outputs"][0]["path"]
+            ),
             "--batch-size",
             str(request["settings"].get("batch_size", 1)),
         ]
@@ -70,6 +74,35 @@ def run(request, media):
     )
     command[0] = request["settings"].get("python_paths", {}).get(step, command[0])
     subprocess.run(command, check=True, env=env)
+    if step == "kinform_pseq2sites" and len(payload["outputs"]) > 1:
+        split_binding_outputs(Path("/work/pseq-cohort.tsv"), payload, media)
+
+
+def split_binding_outputs(combined, payload, media):
+    """Publish the original immutable partitions after one bounded model load."""
+    import csv
+
+    with combined.open(newline="") as source:
+        reader = csv.DictReader(source, delimiter="\t")
+        columns = reader.fieldnames
+        rows = {}
+        for row in reader:
+            if row["PDB"] in rows:
+                raise ValueError("Duplicate binding-site row")
+            rows[row["PDB"]] = row
+    if set(rows) != set(payload["seq_id_to_seq"]):
+        raise ValueError("Binding-site cohort coverage differs")
+    for output in payload["outputs"]:
+        wanted = output["identity"]["context"]["sequences"]
+        if not wanted or len(set(wanted)) != len(wanted) or not set(wanted) <= rows.keys():
+            raise ValueError("Invalid binding-site partition")
+        path = media / output["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", newline="") as destination:
+            writer = csv.DictWriter(destination, fieldnames=columns, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(rows[sid] for sid in wanted)
+    combined.unlink()
 
 
 def merge_binding(request, media):
