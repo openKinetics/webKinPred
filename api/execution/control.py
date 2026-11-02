@@ -909,6 +909,9 @@ def finish(host_id, attempt_id, data):
             completion_time=timezone.now(),
             output_file=f"jobs/{job.public_id}/output.csv",
         )
+        from api.services.about_stats_service import mark_about_stats_cache_stale
+
+        transaction.on_commit(mark_about_stats_cache_stale)
     ExecutionOutbox.objects.get_or_create(
         key=f"complete:{stage.pk}",
         defaults={

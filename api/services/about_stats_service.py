@@ -1,197 +1,325 @@
-"""
-About-page usage metrics aggregation.
+"""Incremental result summaries and bounded, background-published usage snapshots.
 
-This module stores a persistent cache in the Django database so /api/about-stats/
-can serve quickly without rescanning output CSV files on every request.
+HTTP requests never open result files or count the protein membership table.
+Only the singleton worker parses new/changed completed jobs, once per result.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
-import os
-from typing import Any
+import logging
+import math
+import re
+from datetime import timedelta
+from functools import lru_cache
+from pathlib import Path
 
-from django.db.utils import OperationalError, ProgrammingError
+from api.models import AboutJobProtein, AboutJobStats, AboutStatsCache, Job
+from django.core.cache import cache
+from django.core.exceptions import SuspiciousFileOperation
+from django.db import connection, transaction
+from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
-from api.models import AboutStatsCache, Job
-
-KCAT_COL = "kcat (1/s)"
-KM_COL = "KM (mM)"
-KCAT_KM_COL = "kcat/Km (1/(s*mM))"
-PROTEIN_SEQUENCE_COL = "Protein Sequence"
-CACHE_KEY = "about_stats"
-
-
-def _has_non_empty_value(value: Any) -> bool:
-    if value is None:
-        return False
-    return str(value).strip() != ""
-
-
-def _iter_available_completed_output_paths() -> tuple[int, list[str]]:
-    completed_jobs = Job.objects.filter(status="Completed").only("output_file")
-    jobs_completed = int(completed_jobs.count())
-
-    output_paths: list[str] = []
-    for job in completed_jobs.iterator(chunk_size=200):
-        output_file = getattr(job, "output_file", None)
-        if not output_file:
-            continue
-        try:
-            file_path = output_file.path
-        except Exception:
-            continue
-        if file_path and os.path.isfile(file_path):
-            output_paths.append(file_path)
-
-    return jobs_completed, output_paths
+log = logging.getLogger(__name__)
+CACHE_KEY = "about_stats_v2"
+MEMORY_KEY = "about_stats_payload_v2"
+VERSION = 2
+MAX_AGE = 20 * 60
+COUNTS = (
+    "jobs_completed",
+    "reactions_completed",
+    "unique_protein_sequences",
+    "parameter_predictions_completed",
+    "kcat_predictions_completed",
+    "km_predictions_completed",
+    "kcat_km_predictions_completed",
+)
+_NUMBER = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?"
+_RANGE = re.compile(rf"^({_NUMBER})\s+to\s+({_NUMBER})\s+(?:s\^-1|M)$", re.I)
 
 
-def _compute_about_stats_payload(now_iso: str) -> dict[str, Any]:
-    jobs_completed, output_paths = _iter_available_completed_output_paths()
+class StatsNotReady(Exception):
+    pass
 
-    reactions_completed = 0
-    kcat_predictions_completed = 0
-    km_predictions_completed = 0
-    kcat_km_predictions_completed = 0
-    unique_sequences: set[str] = set()
 
-    for file_path in output_paths:
-        try:
-            with open(file_path, "r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle)
-                for row in reader:
-                    kcat_has = _has_non_empty_value(row.get(KCAT_COL))
-                    km_has = _has_non_empty_value(row.get(KM_COL))
-                    kcat_km_has = _has_non_empty_value(row.get(KCAT_KM_COL))
+@lru_cache(maxsize=1)
+def _columns():
+    from api.methods.registry import all_methods
 
-                    if kcat_has:
-                        kcat_predictions_completed += 1
-                    if km_has:
-                        km_predictions_completed += 1
-                    if kcat_km_has:
-                        kcat_km_predictions_completed += 1
-                    if kcat_has or km_has or kcat_km_has:
-                        reactions_completed += 1
-
-                    sequence = str(row.get(PROTEIN_SEQUENCE_COL, "")).strip()
-                    if sequence:
-                        unique_sequences.add(sequence)
-        except Exception:
-            # Policy choice: silently skip missing/unreadable/invalid output files.
-            continue
-
-    parameter_predictions_completed = (
-        kcat_predictions_completed
-        + km_predictions_completed
-        + kcat_km_predictions_completed
-    )
-
-    return {
-        "scope": "all_time",
-        "generated_at": now_iso,
-        "jobs_completed": jobs_completed,
-        "reactions_completed": reactions_completed,
-        "unique_protein_sequences": len(unique_sequences),
-        "parameter_predictions_completed": parameter_predictions_completed,
-        "kcat_predictions_completed": kcat_predictions_completed,
-        "km_predictions_completed": km_predictions_completed,
-        "kcat_km_predictions_completed": kcat_km_predictions_completed,
+    columns = {
+        "kcat": {"kcat (1/s)"},
+        "Km": {"KM (mM)"},
+        "kcat/Km": {"kcat/Km (1/(s*mM))", "kcat/Km (1/(s·M))"},
     }
+    for descriptor in all_methods().values():
+        for target, column in descriptor.output_cols.items():
+            columns[target].add(column)
+    return columns
 
 
-def _with_derived_about_stats(payload: dict[str, Any]) -> dict[str, Any]:
-    """Add derived fields to older cached payloads without forcing a refresh."""
-    if "parameter_predictions_completed" in payload:
-        return payload
+def _value_count(value):
+    """Count returned parameter values; a CatRange interval is one estimate."""
+    if value is None or isinstance(value, bool):
+        return 0
+    if isinstance(value, (list, tuple)):
+        return sum(_value_count(item) for item in value)
+    text = str(value).strip()
+    if text.startswith("["):
+        try:
+            decoded = json.loads(text)
+        except (ValueError, RecursionError):
+            return 0
+        return _value_count(decoded) if isinstance(decoded, list) else 0
+    match = _RANGE.fullmatch(text)
+    if match:
+        return int(all(math.isfinite(float(v)) for v in match.groups()))
+    try:
+        return int(bool(text) and math.isfinite(float(text)))
+    except (ValueError, OverflowError):
+        return 0
 
-    prediction_counts = [
-        payload.get("kcat_predictions_completed"),
-        payload.get("km_predictions_completed"),
-        payload.get("kcat_km_predictions_completed"),
-    ]
-    if all(isinstance(value, int) and not isinstance(value, bool) for value in prediction_counts):
-        return {
-            **payload,
-            "parameter_predictions_completed": sum(prediction_counts),
-        }
+
+def _sequence_hashes(value):
+    for sequence in str(value or "").split(";"):
+        sequence = sequence.strip()
+        if sequence and sequence.lower() not in {"nan", "none", "null", "<na>"}:
+            yield hashlib.sha256(sequence.encode()).digest()
+
+
+def summarise_output(path):
+    """Stream one CSV; retain only distinct sequence hashes, not its rows."""
+    counts = dict(reactions=0, kcat=0, km=0, kcat_km=0)
+    proteins = set()
+    columns = _columns()
+    csv.field_size_limit(8 * 1024**2)
+    before = path.stat()
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        header = set(reader.fieldnames or [])
+        if "Protein Sequence" not in header or not header.intersection(
+            set.union(*columns.values())
+        ):
+            raise ValueError("Result CSV has no recognised prediction schema")
+        selected = {target: sorted(header & names) for target, names in columns.items()}
+        for row in reader:
+            # A row/target is represented by one method column. Do not double count aliases.
+            values = {
+                target: max((_value_count(row.get(c)) for c in names), default=0)
+                for target, names in selected.items()
+            }
+            counts["kcat"] += values["kcat"]
+            counts["km"] += values["Km"]
+            counts["kcat_km"] += values["kcat/Km"]
+            if any(values.values()):
+                counts["reactions"] += 1
+                # Multi-sequence metadata identifies successful candidates, including
+                # non-selected successful candidates, while excluding failed ones.
+                found = set()
+                has_sequence_metadata = False
+                for target, number in (
+                    values.items() if ";" in str(row.get("Protein Sequence", "")) else ()
+                ):
+                    if not number:
+                        continue
+                    try:
+                        metadata = json.loads(row.get("Extra Info " + target) or "null")
+                    except (ValueError, TypeError):
+                        continue
+                    stack = [(metadata, None)]
+                    while stack:
+                        item, sequence = stack.pop()
+                        if isinstance(item, list):
+                            stack.extend((value, sequence) for value in item)
+                        elif isinstance(item, dict):
+                            if "sequence" in item and "sequenceIndex" in item:
+                                has_sequence_metadata = True
+                                sequence = item["sequence"]
+                            if (
+                                sequence
+                                and not item.get("error")
+                                and _value_count(item.get("prediction"))
+                            ):
+                                found.update(_sequence_hashes(sequence))
+                            stack.extend(
+                                (value, sequence)
+                                for value in item.values()
+                                if isinstance(value, (dict, list))
+                            )
+                proteins.update(
+                    found
+                    if has_sequence_metadata
+                    else _sequence_hashes(row.get("Protein Sequence"))
+                )
+    after = path.stat()
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise OSError("Result changed while being summarised")
+    return counts, proteins
+
+
+def _pending_jobs():
+    same_completion = Q(about_stats__completion_time=F("completion_time")) | Q(
+        completion_time__isnull=True, about_stats__completion_time__isnull=True
+    )
+    current = (
+        Q(about_stats__version=VERSION, about_stats__output_name=F("output_file")) & same_completion
+    )
+    return Job.objects.filter(status="Completed").exclude(current)
+
+
+def sync_completed_jobs(*, limit=20):
+    """Bounded reconciliation also catches lost completion notifications and retries."""
+    jobs = list(
+        _pending_jobs()
+        .exclude(about_stats__retry_after__gt=timezone.now())
+        .order_by("pk")
+        .only("output_file", "completion_time")[: max(1, min(limit, 200))]
+    )
+    for job in jobs:
+        signature = (job.completion_time, job.output_file.name)
+        try:
+            counts, proteins = summarise_output(Path(job.output_file.path))
+            error = ""
+        except (OSError, ValueError, csv.Error, UnicodeError, SuspiciousFileOperation) as exc:
+            counts, proteins = {}, set()
+            error = type(exc).__name__ + ": result unavailable or unreadable"
+            log.warning("About result summary unavailable", extra={"job_id": job.pk})
+        with transaction.atomic():
+            current = Job.objects.select_for_update().filter(pk=job.pk, status="Completed").first()
+            if current is None or (current.completion_time, current.output_file.name) != signature:
+                continue
+            summary, _ = AboutJobStats.objects.get_or_create(job=current)
+            # Another reconciler may already have committed the same result.
+            if (
+                summary.version == VERSION
+                and (summary.completion_time, summary.output_name) == signature
+            ):
+                continue
+            summary.proteins.all().delete()
+            summary.completion_time, summary.output_name = signature
+            summary.version = 0 if error else VERSION
+            summary.error = error
+            summary.retry_after = timezone.now() + timedelta(minutes=20) if error else None
+            for key in ("reactions", "kcat", "km", "kcat_km"):
+                setattr(summary, key, counts.get(key, 0))
+            summary.save()
+            hashes = sorted(proteins)
+            for offset in range(0, len(hashes), 1000):
+                AboutJobProtein.objects.bulk_create(
+                    [
+                        AboutJobProtein(summary=summary, sequence_sha256=h)
+                        for h in hashes[offset : offset + 1000]
+                    ],
+                    batch_size=1000,
+                )
+    return len(jobs)
+
+
+def mark_about_stats_cache_stale():
+    """Cheap hint only; periodic reconciliation is authoritative."""
+    try:
+        AboutStatsCache.objects.filter(key=CACHE_KEY, is_stale=False).update(is_stale=True)
+    except Exception:
+        log.warning("About statistics invalidation deferred", exc_info=True)
+
+
+def refresh_about_stats_cache(*, force=False):
+    """Consistent snapshot of summaries; no files are opened here."""
+    with transaction.atomic():
+        if connection.vendor == "postgresql" and len(connection.atomic_blocks) == 1:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        return _publish_snapshot(force=force)
+
+
+def _publish_snapshot(*, force=False):
+    row, _ = AboutStatsCache.objects.get_or_create(key=CACHE_KEY)
+    now = timezone.now()
+    if not force and row.generated_at and now - row.generated_at < timedelta(minutes=5):
+        return _deserialise_payload(row.payload)
+    pending = _pending_jobs()
+    unprocessed = pending.filter(Q(about_stats__isnull=True) | Q(about_stats__error="")).exists()
+    if unprocessed:
+        # Do not publish an apparently complete, partially backfilled snapshot.
+        return None
+    summaries = AboutJobStats.objects.filter(job__status="Completed", version=VERSION)
+    totals = summaries.aggregate(
+        reactions=Sum("reactions"),
+        kcat=Sum("kcat"),
+        km=Sum("km"),
+        kcat_km=Sum("kcat_km"),
+        jobs=Count("pk"),
+    )
+    completed = Job.objects.filter(status="Completed").count()
+    payload = {
+        "schema_version": VERSION,
+        "scope": "all_time",
+        "generated_at": now.isoformat(),
+        "jobs_completed": completed,
+        "reactions_completed": totals["reactions"] or 0,
+        "unique_protein_sequences": AboutJobProtein.objects.filter(
+            summary__job__status="Completed", summary__version=VERSION
+        ).aggregate(n=Count("sequence_sha256", distinct=True))["n"],
+        "kcat_predictions_completed": totals["kcat"] or 0,
+        "km_predictions_completed": totals["km"] or 0,
+        "kcat_km_predictions_completed": totals["kcat_km"] or 0,
+        "jobs_with_unavailable_results": completed - totals["jobs"],
+    }
+    payload["parameter_predictions_completed"] = sum(
+        payload[k]
+        for k in (
+            "kcat_predictions_completed",
+            "km_predictions_completed",
+            "kcat_km_predictions_completed",
+        )
+    )
+    row.payload = json.dumps(payload, separators=(",", ":"))
+    row.generated_at, row.is_stale = now, False
+    row.save(update_fields=["payload", "generated_at", "is_stale", "updated_at"])
+    try:
+        cache.delete(MEMORY_KEY)
+    except Exception:
+        log.warning("About statistics memory cache unavailable")
     return payload
 
 
-def _deserialise_payload(raw: str) -> dict[str, Any] | None:
-    if not raw:
-        return None
+def _deserialise_payload(raw):
     try:
-        payload = json.loads(raw)
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _fresh(payload):
+    try:
+        generated = timezone.datetime.fromisoformat(payload["generated_at"])
+        age = (timezone.now() - generated).total_seconds()
+        return (
+            payload.get("schema_version") == VERSION
+            and 0 <= age < MAX_AGE
+            and all(isinstance(payload[k], int) and payload[k] >= 0 for k in COUNTS)
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def get_about_stats():
+    """At most one small row lookup on cache miss; no file or aggregate queries."""
+    try:
+        payload = cache.get(MEMORY_KEY)
     except Exception:
-        return None
-    return _with_derived_about_stats(payload) if isinstance(payload, dict) else None
-
-
-def _compute_fallback_without_db() -> dict[str, Any]:
-    return _compute_about_stats_payload(timezone.now().isoformat())
-
-
-def _get_or_create_cache_row() -> AboutStatsCache:
-    row, _ = AboutStatsCache.objects.get_or_create(
-        key=CACHE_KEY,
-        defaults={
-            "payload": "",
-            "is_stale": True,
-            "generated_at": None,
-        },
-    )
-    return row
-
-
-def mark_about_stats_cache_stale() -> None:
-    """Mark cache stale so next refresh recomputes payload."""
-    try:
-        row = _get_or_create_cache_row()
-        if row.is_stale:
-            return
-        row.is_stale = True
-        row.save(update_fields=["is_stale", "updated_at"])
-    except (OperationalError, ProgrammingError):
-        # Database schema may not be migrated yet.
-        return
-
-
-def refresh_about_stats_cache(*, force: bool = False) -> dict[str, Any]:
-    """
-    Refresh and persist About stats cache.
-
-    If force=False and cache is fresh, return cached payload as-is.
-    """
-    now = timezone.now()
-
-    try:
-        row = _get_or_create_cache_row()
-        cached_payload = _deserialise_payload(row.payload)
-
-        if not force and not row.is_stale and cached_payload is not None:
-            return cached_payload
-
-        payload = _compute_about_stats_payload(now.isoformat())
-        row.payload = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-        row.generated_at = now
-        row.is_stale = False
-        row.save(update_fields=["payload", "generated_at", "is_stale", "updated_at"])
+        payload = None
+    if _fresh(payload):
         return payload
-    except (OperationalError, ProgrammingError):
-        # Graceful fallback until migration exists.
-        return _compute_fallback_without_db()
-
-
-def get_about_stats() -> dict[str, Any]:
-    """Return cached About stats, recomputing only when stale/missing."""
+    row = AboutStatsCache.objects.filter(key=CACHE_KEY).only("payload").first()
+    payload = _deserialise_payload(row.payload) if row else None
+    if not _fresh(payload):
+        raise StatsNotReady("Usage statistics are being updated")
     try:
-        row = _get_or_create_cache_row()
-        payload = _deserialise_payload(row.payload)
-        if not row.is_stale and payload is not None:
-            return payload
-        return refresh_about_stats_cache(force=True)
-    except (OperationalError, ProgrammingError):
-        return _compute_fallback_without_db()
+        cache.set(MEMORY_KEY, payload, timeout=60)
+    except Exception:
+        pass
+    return payload

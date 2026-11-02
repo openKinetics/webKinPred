@@ -6,7 +6,6 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from api.models import Job
-from api.services.about_stats_service import mark_about_stats_cache_stale
 from api.tasks import run_multi_prediction, run_recon_xkg_cache_prediction
 from api.utils.job_utils import (
     canonical_prediction_type,
@@ -232,8 +231,6 @@ def process_job_submission_from_params(
     if settings.EXECUTION_V2_ENABLED:
         from api.execution.quota import bind
         bind(job)
-    # New jobs can affect About-page totals once processed; mark cache stale.
-    mark_about_stats_cache_stale()
 
     job_dir = create_job_directory(job.public_id)
     save_job_input_file(file, job_dir)

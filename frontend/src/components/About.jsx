@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Check2, Clipboard, Download, Envelope, GeoAlt } from 'react-bootstrap-icons';
 import { useLocation } from 'react-router-dom';
-import apiClient from './appClient';
+import useAboutStats from '../hooks/useAboutStats';
 import './ApiDocs/ApiDocs.css';
 
 const teamInstitutions = [
@@ -122,7 +122,6 @@ const PARAMETER_BREAKDOWN = [
 ];
 
 const numberFormatter = new Intl.NumberFormat('en-US');
-const ABOUT_STATS_STORAGE_KEY = 'about_stats_payload_v1';
 const CITATION_BIB_PATH = '/citations/openkineticspredictor.bib';
 const citationText = String.raw`@article{alwer2026accessing,
   author = {Alwer, Saleh and Escoffier, Hugues and Taha, Karim and Boorla, Veda and Yu, Han and Santra, Somtirtha and Wang, Zechen and Egwu, Chidi and Osinuga, Abraham and Dey, Supantha and Srinivasan Raghunath, Vaishnavey and Zare, Farid and McGoldrick, Jack and Weder, Jan-Niklas and Kerkhoven, Eduard and Luo, Xiaozhou and Maranas, Costas D. and Zheng, Liangzhen and Wittig, Ulrike and Chowdhury, Ratul and Saha, Rajib and T{\"o}pfer, Nadine and Sauter, Thomas and Fleming, Ronan M. T.},
@@ -136,40 +135,7 @@ const citationText = String.raw`@article{alwer2026accessing,
 const About = () => {
   const location = useLocation();
   const [copied, setCopied] = useState(false);
-  const [stats, setStats] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem(ABOUT_STATS_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch {
-      return null;
-    }
-  });
-
-  useEffect(() => {
-    let isMounted = true;
-
-    apiClient.get('/about-stats/')
-      .then((response) => {
-        if (!isMounted) return;
-        const payload = response.data || {};
-        setStats(payload);
-        try {
-          window.localStorage.setItem(ABOUT_STATS_STORAGE_KEY, JSON.stringify(payload));
-        } catch {
-          // Best effort only.
-        }
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setStats(prev => prev ?? {});
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const stats = useAboutStats();
 
   useEffect(() => {
     if (location.hash !== '#contact') return;
@@ -241,11 +207,20 @@ const About = () => {
           </p>
         </header>
 
-        <section className="about-section about-metrics-section" aria-label="Platform usage metrics">
+        <section className="about-section about-metrics-section" aria-label="Platform usage metrics" title="Completed jobs only. Reactions have at least one returned value. Parameter totals count individual returned values, including supplied experimental values; a predicted range counts once. Distinct proteins have at least one successful result.">
           <div className="about-section-heading">
             <h2>Activity</h2>
+            <p className="about-detail-text" aria-live="polite">
+              {stats ? `Updated ${new Date(stats.generated_at).toLocaleString()}` : 'Usage statistics are being updated.'}
+            </p>
           </div>
 
+          {stats?.jobs_with_unavailable_results > 0 && (
+            <p className="about-detail-text">
+              Prediction totals exclude {numberFormatter.format(stats.jobs_with_unavailable_results)} completed jobs
+              whose result files are unavailable.
+            </p>
+          )}
           <div className="about-metrics-grid">
             {METRIC_CARDS.map((metric) => (
               <article key={metric.key} className="about-metric-card">

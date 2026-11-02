@@ -87,6 +87,27 @@ services:
       execution-db:
         condition: service_healthy
 
+  about-stats-worker:
+    image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
+    environment:
+      <<: *execution-env
+      DJANGO_SETTINGS_MODULE: webKinPred.settings_docker
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      WEBKINPRED_SERVICE: about-stats-worker
+    volumes:
+      - ./media:/app/media:ro
+    command: ["python", "manage.py", "about_stats_worker"]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: unless-stopped
+    depends_on:
+      execution-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   execution-control-worker:
     image: ${EXECUTION_WEB_IMAGE:?Pin the release web image}
     environment:

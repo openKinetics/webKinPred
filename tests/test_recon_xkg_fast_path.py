@@ -617,8 +617,8 @@ class SubmissionDispatchTests(unittest.TestCase):
         ), patch(
             "api.services.job_service.get_experimental_results", return_value={}
         ), patch("api.services.job_service.create_job_record", return_value=job), patch(
-            "api.services.job_service.mark_about_stats_cache_stale"
-        ), patch("api.services.job_service.create_job_directory", return_value="/tmp/job-1"), patch(
+            "api.services.job_service.create_job_directory", return_value="/tmp/job-1"
+        ), patch(
             "api.services.job_service.save_job_input_file"
         ), patch(
             "api.services.job_service.dispatch_recon_xkg_cache_task"

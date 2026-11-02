@@ -36,10 +36,7 @@ from api.methods.registry import get as get_method
 from api.models import Job, JobProgressStage
 from api.observability.context import log_context
 from api.prediction_engines.generic_subprocess import run_generic_subprocess_prediction
-from api.services.about_stats_service import (
-    mark_about_stats_cache_stale,
-    refresh_about_stats_cache,
-)
+from api.services.about_stats_service import mark_about_stats_cache_stale
 from api.services.catrange_reporting import (
     build_prediction_result_frame,
     completed_reaction_count,
@@ -129,7 +126,7 @@ def _safe_clear_gpu_precompute_status(public_id: str) -> None:
 
 def _safe_refresh_about_stats_cache() -> None:
     """
-    Force-refresh the About stats cache, silently ignoring any errors.
+    Request a background About statistics refresh without scanning results.
 
     Args:
         None.
@@ -139,7 +136,7 @@ def _safe_refresh_about_stats_cache() -> None:
 
     """
     try:
-        refresh_about_stats_cache(force=True)
+        mark_about_stats_cache_stale()
     except Exception:
         # About stats are non-critical and should never break jobs.
         pass

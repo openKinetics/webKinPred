@@ -646,3 +646,31 @@ class SimilarityStore(models.Model):
 
         """
         return f"sim:{self.dataset_label}:{self.lookup_key[:12]}"
+
+
+class AboutJobStats(models.Model):
+    """Idempotent summary of one completed result; never used for job execution."""
+
+    job = models.OneToOneField(Job, on_delete=models.CASCADE, related_name="about_stats")
+    version = models.PositiveSmallIntegerField(default=0)
+    completion_time = models.DateTimeField(null=True)
+    output_name = models.CharField(max_length=512, blank=True)
+    reactions = models.PositiveBigIntegerField(default=0)
+    kcat = models.PositiveBigIntegerField(default=0)
+    km = models.PositiveBigIntegerField(default=0)
+    kcat_km = models.PositiveBigIntegerField(default=0)
+    error = models.CharField(max_length=256, blank=True)
+    retry_after = models.DateTimeField(null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class AboutJobProtein(models.Model):
+    summary = models.ForeignKey(AboutJobStats, on_delete=models.CASCADE, related_name="proteins")
+    sequence_sha256 = models.BinaryField(max_length=32)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["summary", "sequence_sha256"], name="about_job_protein_unique"
+            )
+        ]
