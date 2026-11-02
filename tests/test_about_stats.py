@@ -297,3 +297,14 @@ def test_unrequested_parameter_columns_do_not_count_as_predictions(tmp_path):
     Job.objects.filter(pk=job.pk).update(prediction_type="kcat", kcat_method="DLKcat")
     payload = publish()
     assert payload["parameter_predictions_completed"] == 1
+
+
+def test_database_work_is_batched_across_jobs(tmp_path, django_assert_num_queries):
+    path = result(tmp_path, rows=[{"Protein Sequence": "AAA", "kcat (1/s)": "1"}])
+    for index in range(20):
+        completed(path, "batch" + str(index))
+    # Includes selection, locks, reads/upsert, one membership delete/insert, and transaction.
+    with django_assert_num_queries(9):
+        assert stats.sync_completed_jobs(limit=20) == 20
+    assert AboutJobStats.objects.count() == AboutJobProtein.objects.count() == 20
+    assert stats.refresh_about_stats_cache(force=True)["unique_protein_sequences"] == 1

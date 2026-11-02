@@ -197,6 +197,8 @@ def sync_completed_jobs(*, limit=20):
             "kcat_km_method",
         )[: max(1, min(limit, 200))]
     )
+    parsed = {}
+    memberships = 0
     for job in jobs:
         signature = (job.completion_time, job.output_file.name)
         try:
@@ -213,35 +215,79 @@ def sync_completed_jobs(*, limit=20):
             counts, proteins = {}, set()
             error = type(exc).__name__ + ": result unavailable or unreadable"
             log.warning("About result summary unavailable", extra={"job_id": job.pk})
-        with transaction.atomic():
-            current = Job.objects.select_for_update().filter(pk=job.pk, status="Completed").first()
-            if current is None or (current.completion_time, current.output_file.name) != signature:
+        parsed[job.pk] = (signature, counts, proteins, error)
+        memberships += len(proteins)
+        if memberships >= 100_000:
+            break
+    if not parsed:
+        return 0
+    with transaction.atomic():
+        # One lock/read per bounded batch, not a query loop across completed jobs.
+        current_jobs = {
+            j.pk: j
+            for j in Job.objects.select_for_update()
+            .filter(pk__in=parsed, status="Completed")
+            .only("output_file", "completion_time")
+            .order_by("pk")
+        }
+        existing = {
+            summary.job_id: summary
+            for summary in AboutJobStats.objects.filter(job_id__in=current_jobs)
+        }
+        changed = []
+        for job_id, (signature, counts, _proteins, error) in parsed.items():
+            job = current_jobs.get(job_id)
+            if job is None or (job.completion_time, job.output_file.name) != signature:
                 continue
-            summary, _ = AboutJobStats.objects.get_or_create(job=current)
-            # Another reconciler may already have committed the same result.
+            summary = existing.get(job_id)
             if (
-                summary.version == VERSION
+                summary
+                and summary.version == VERSION
                 and (summary.completion_time, summary.output_name) == signature
             ):
                 continue
-            summary.proteins.all().delete()
+            summary = summary or AboutJobStats(job=job)
             summary.completion_time, summary.output_name = signature
             summary.version = 0 if error else VERSION
             summary.error = error
             summary.retry_after = timezone.now() + timedelta(minutes=20) if error else None
             for key in ("reactions", "kcat", "km", "kcat_km"):
                 setattr(summary, key, counts.get(key, 0))
-            summary.save()
-            hashes = sorted(proteins)
-            for offset in range(0, len(hashes), 1000):
-                AboutJobProtein.objects.bulk_create(
-                    [
-                        AboutJobProtein(summary=summary, sequence_sha256=h)
-                        for h in hashes[offset : offset + 1000]
-                    ],
-                    batch_size=1000,
-                )
-    return len(jobs)
+            changed.append(summary)
+        if changed:
+            AboutJobStats.objects.bulk_create(
+                changed,
+                update_conflicts=True,
+                unique_fields=["job"],
+                update_fields=[
+                    "version",
+                    "completion_time",
+                    "output_name",
+                    "reactions",
+                    "kcat",
+                    "km",
+                    "kcat_km",
+                    "error",
+                    "retry_after",
+                    "updated_at",
+                ],
+            )
+            summary_ids = dict(
+                AboutJobStats.objects.filter(
+                    job_id__in=[summary.job_id for summary in changed]
+                ).values_list("job_id", "pk")
+            )
+            AboutJobProtein.objects.filter(summary_id__in=summary_ids.values()).delete()
+            batch = []
+            for job_id, summary_id in summary_ids.items():
+                for sha in sorted(parsed[job_id][2]):
+                    batch.append(AboutJobProtein(summary_id=summary_id, sequence_sha256=sha))
+                    if len(batch) == 1000:
+                        AboutJobProtein.objects.bulk_create(batch, batch_size=1000)
+                        batch = []
+            if batch:
+                AboutJobProtein.objects.bulk_create(batch, batch_size=1000)
+    return len(parsed)
 
 
 def mark_about_stats_cache_stale():

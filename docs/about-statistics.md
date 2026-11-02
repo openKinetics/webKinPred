@@ -31,7 +31,9 @@ selects at most 20 new/changed completed jobs, streams their CSVs, and stores a
 summary plus unique SHA-256 protein memberships. Parsing runs outside database
 transactions. Before committing, it rechecks the job's status/completion identity
 under a row lock. Repeated delivery is idempotent; changed results replace their
-old contributions. Protein inserts are bounded to 1,000 per SQL statement.
+old contributions. Database reads/upserts/deletes are batched across up to 20 jobs; the small-job
+test uses nine queries for 20 jobs. Protein inserts are bounded to 1,000 per SQL
+statement and buffered memberships are capped between files.
 
 Completed status and output name/completion time are reconciled from the database;
 notifications are only hints. Lost broker events do not lose statistics. Status
