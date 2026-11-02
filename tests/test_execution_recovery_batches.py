@@ -284,3 +284,25 @@ def test_held_recovery_stays_held_and_later_loss_uses_new_generation():
     assert len(new.stage.payload["seq_id_to_seq"]) == 1
     batch.refresh_from_db()
     assert batch.state == "completed"
+
+
+def test_stopped_attempt_keeps_its_retry_payload_and_profile():
+    _, artifacts = fixture(4)
+    first = consumer("retry-first", artifacts[:2])
+    second = consumer("retry-next", artifacts[2:])
+    missing_dependencies(first.pk, None)
+    batch = RecoveryBatch.objects.get().stage
+    before = deepcopy(batch.payload)
+    host = ExecutorHost.objects.create(id="gpu")
+    ExecutionAttempt.objects.create(
+        stage=batch,
+        host=host,
+        state="stopped",
+        lease_until=timezone.now(),
+        finished_at=timezone.now(),
+        outcome={"category": "oom"},
+    )
+    missing_dependencies(second.pk, None)
+    batch.refresh_from_db()
+    assert batch.payload == before
+    assert RecoveryBatch.objects.get().generation == 2

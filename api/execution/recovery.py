@@ -124,7 +124,7 @@ def _schedule(execution, entries):
         mutable = (
             restored is not None
             and restored.state == "ready"
-            and not _live(restored)
+            and not restored.attempts.exists()
             and not restored.execution.paused
             and (
                 not restored.execution.job_id
