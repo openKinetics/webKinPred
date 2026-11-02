@@ -8,6 +8,7 @@ from functools import wraps
 from pathlib import Path
 
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from api.execution.artifacts import ArtifactStore, sha256_file
@@ -108,7 +109,44 @@ def artifact_identity(spec, method, target, path, *, context=None):
 
 def declare(identity):
     from api.execution.artifact_policy import retention_for
+    from api.execution.representation_aliases import alternate_identity
 
+    alternate = alternate_identity(identity)
+    if alternate is not None:
+        primary_id, alternate_id = digest(identity), digest(alternate)
+        live = (
+            WorkStage.objects.filter(
+                pk=OuterRef("producer_id"),
+                state__in=["ready", "running"],
+                execution__paused=False,
+            )
+            .exclude(execution__job__status__in=["Completed", "Failed"])
+            .filter(Q(profile__isnull=True) | Q(profile__suspended=False))
+        )
+        ready = ArtifactLocation.objects.filter(artifact_id=OuterRef("pk"), ready=True)
+        candidates = {
+            a.pk: a
+            for a in Artifact.objects.filter(pk__in=[primary_id, alternate_id]).annotate(
+                alias_ready=Exists(ready), alias_live=Exists(live)
+            )
+        }
+        # Existing manifests retain their exact artifact and producer identities.
+        if primary_id in candidates:
+            return candidates[primary_id]
+        shared = candidates.get(alternate_id)
+        if shared and ((shared.alias_ready and shared.checksum) or shared.alias_live):
+            return shared
+        try:
+            with transaction.atomic():
+                return Artifact.objects.create(
+                    id=primary_id,
+                    identity=identity,
+                    checksum="",
+                    size=0,
+                    retention=retention_for(identity),
+                )
+        except IntegrityError:
+            return Artifact.objects.get(pk=primary_id)
     artifact, _ = Artifact.objects.get_or_create(
         id=digest(identity),
         defaults={
@@ -126,7 +164,32 @@ def attach(stage, artifact, path):
         stage=stage, path=path, defaults={"artifact": artifact}
     )
     if artifact.producer_id and artifact.producer_id != stage.pk:
-        stage.dependencies.add(artifact.producer)
+        stage.dependencies.add(artifact.producer_id)
+
+
+def attach_many(stage, entries):
+    entries = {path: artifact for artifact, path in entries}
+    existing = dict(stage.artifacts.values_list("path", "artifact_id"))
+    if any(
+        path in existing and existing[path] != artifact.pk for path, artifact in entries.items()
+    ):
+        raise ValueError("Immutable stage input path changed")
+    ArtifactDependency.objects.bulk_create(
+        [
+            ArtifactDependency(stage=stage, artifact=artifact, path=path)
+            for path, artifact in entries.items()
+            if path not in existing
+        ],
+        batch_size=256,
+        ignore_conflicts=True,
+    )
+    stage.dependencies.add(
+        *{
+            artifact.producer_id
+            for artifact in entries.values()
+            if artifact.producer_id and artifact.producer_id != stage.pk
+        }
+    )
 
 
 def embedding_sequences(descriptor, batch):
@@ -245,14 +308,20 @@ def embedding_stage(execution, method, target, seq_map, paths_by_seq, extra=None
                 },
             },
         )
+        changed = Artifact.objects.filter(
+            pk__in=[a.pk for a, _, _ in partition], producer__isnull=True
+        ).update(producer=stage)
+        if changed != len(partition):
+            raise IntegrityError("Embedding producer changed during planning")
         for artifact, _, _ in partition:
             artifact.producer = stage
-            artifact.save(update_fields=["producer"])
     return needed
 
 
 @graph_transaction
 def kinform_graph(execution, method, target, seq_map):
+    from api.execution.representation_aliases import alternate_identity
+
     roots = {
         "kinform_t5_residues": ["prot_t5_layer_19", "prot_t5_last"],
         "kinform_esm2_residues": ["esm2_layer_26", "esm2_layer_29"],
@@ -260,7 +329,7 @@ def kinform_graph(execution, method, target, seq_map):
     }
     binding_path = "pseq2sites/binding_sites_all.tsv"
     ids = sorted(seq_map)
-    vector_paths = {
+    paths = {
         sid: {
             f"sequence_info/{root}/{kind}_vecs/{sid}.npy"
             for names in roots.values()
@@ -271,71 +340,127 @@ def kinform_graph(execution, method, target, seq_map):
     }
     wanted = [
         (artifact_identity(execution.specification, method, target, path), path, sid)
-        for sid, paths in vector_paths.items()
-        for path in paths
+        for sid, names in paths.items()
+        for path in names
     ]
     binding_identity = artifact_identity(
         execution.specification, method, target, binding_path, context={"sequences": ids}
     )
     wanted.append((binding_identity, binding_path, ""))
-    identities = {digest(identity): (path, sid) for identity, path, sid in wanted}
-    ready = list(Artifact.objects.filter(pk__in=identities, locations__ready=True).distinct())
-    if len(ready) == len(identities):
-        # Permanent vectors and binding scores are sufficient. Full residue
-        # matrices have deliberately expired and must not be regenerated here.
-        by_id = {a.pk: a for a in ready}
-        return [(by_id[digest(identity)], path, sid) for identity, path, sid in wanted]
-    residues = []
-    for step, names in roots.items():
-        paths = {
-            sid: {f"sequence_info/{root}/residue_vecs/{sid}.npy" for root in names}
-            for sid in seq_map
-        }
-        residues.extend(embedding_stage(execution, method, target, seq_map, paths, {"step": step}))
-    binding_path = "pseq2sites/binding_sites_all.tsv"
-    pieces = []
-    ids = sorted(seq_map)
-    for offset in range(0, len(ids), EMBEDDING_STAGE_SEQUENCES):
-        part = {sid: seq_map[sid] for sid in ids[offset : offset + EMBEDDING_STAGE_SEQUENCES]}
-        context = {"sequences": sorted(part)}
-        path = "pseq2sites/parts/" + digest(context) + ".tsv"
-        artifact = declare(
-            artifact_identity(execution.specification, method, target, path, context=context)
-        )
-        if not artifact.producer_id and not artifact.locations.filter(ready=True).exists():
-            stage, _ = WorkStage.objects.get_or_create(
-                execution=execution,
-                key="binding:" + artifact.pk,
-                defaults={
-                    "kind": "embedding",
-                    "method": method,
-                    "target": target,
-                    "payload": {
-                        "step": "kinform_pseq2sites",
-                        "seq_id_to_seq": part,
-                        "shape": {
-                            "sequences": len(part),
-                            "max_length": max(map(len, part.values()), default=0),
-                        },
-                        "outputs": [
-                            {"id": artifact.pk, "identity": artifact.identity, "path": path}
-                        ],
-                        "output_artifacts": [artifact.pk],
-                    },
-                },
-            )
-            for residue, residue_path, sid in residues:
-                if sid in part and "/prot_t5_last/" in residue_path:
-                    attach(stage, residue, residue_path)
-            artifact.producer = stage
-            artifact.save(update_fields=["producer"])
-        pieces.append((artifact, path))
-    binding = declare(
-        artifact_identity(
-            execution.specification, method, target, binding_path, context={"sequences": ids}
+    alternatives = {digest(identity): alternate_identity(identity) for identity, _, _ in wanted}
+    all_ids = set(alternatives) | {
+        digest(other) for other in alternatives.values() if other is not None
+    }
+    ready = ArtifactLocation.objects.filter(artifact_id=OuterRef("pk"), ready=True)
+    known = {
+        a.pk: a
+        for a in Artifact.objects.filter(pk__in=all_ids).annotate(catalog_ready=Exists(ready))
+    }
+    cached = []
+    for identity, path, sid in wanted:
+        primary = digest(identity)
+        artifact = known.get(primary)
+        if artifact is None and alternatives[primary] is not None:
+            artifact = known.get(digest(alternatives[primary]))
+        if artifact is None or not artifact.catalog_ready or not artifact.checksum:
+            break
+        cached.append((artifact, path, sid))
+    if len(cached) == len(wanted):
+        return cached
+
+    # Resolve pooled outputs first. An existing producer already owns all of its
+    # dependencies; rebuilding expired residue inputs would create unused work.
+    outputs = embedding_stage(execution, method, target, seq_map, paths, {"step": "kinform_pool"})
+    pools = list(
+        WorkStage.objects.filter(
+            pk__in={a.producer_id for a, _, _ in outputs if a.producer_id},
+            execution=execution,
+            kind="embedding",
+            method=method,
+            target=target,
+            state="ready",
+            payload__step="kinform_pool",
+            attempts__isnull=True,
         )
     )
-    if not binding.producer_id and not binding.locations.filter(ready=True).exists():
+    pool_needs = {}
+    for producer in pools:
+        for output in producer.payload["outputs"]:
+            path = Path(output["path"])
+            pool_needs.setdefault(path.stem, set()).add(path.parts[1])
+    binding = declare(binding_identity)
+    build_binding = not binding.producer_id and not binding.locations.filter(ready=True).exists()
+    pieces, pending = [], []
+    if build_binding:
+        for offset in range(0, len(ids), EMBEDDING_STAGE_SEQUENCES):
+            part = {sid: seq_map[sid] for sid in ids[offset : offset + EMBEDDING_STAGE_SEQUENCES]}
+            context = {"sequences": sorted(part)}
+            path = "pseq2sites/parts/" + digest(context) + ".tsv"
+            artifact = declare(
+                artifact_identity(execution.specification, method, target, path, context=context)
+            )
+            if not artifact.producer_id and not artifact.locations.filter(ready=True).exists():
+                stage, _ = WorkStage.objects.get_or_create(
+                    execution=execution,
+                    key="binding:" + artifact.pk,
+                    defaults={
+                        "kind": "embedding",
+                        "method": method,
+                        "target": target,
+                        "payload": {
+                            "step": "kinform_pseq2sites",
+                            "seq_id_to_seq": part,
+                            "shape": {
+                                "sequences": len(part),
+                                "max_length": max(map(len, part.values()), default=0),
+                            },
+                            "outputs": [
+                                {"id": artifact.pk, "identity": artifact.identity, "path": path}
+                            ],
+                            "output_artifacts": [artifact.pk],
+                        },
+                    },
+                )
+                artifact.producer = stage
+                artifact.save(update_fields=["producer"])
+                pending.append(stage)
+            pieces.append((artifact, path))
+    binding_ids = {sid for stage in pending for sid in stage.payload["seq_id_to_seq"]}
+    residues = []
+    for step, names in roots.items():
+        members = {sid for sid, needed in pool_needs.items() if needed.intersection(names)}
+        if step == "kinform_t5_residues":
+            members |= binding_ids
+        residue_paths = {
+            sid: {
+                f"sequence_info/{root}/residue_vecs/{sid}.npy"
+                for root in names
+                if root in pool_needs.get(sid, set())
+                or (root == "prot_t5_last" and sid in binding_ids)
+            }
+            for sid in members
+        }
+        if residue_paths:
+            residues.extend(
+                embedding_stage(
+                    execution,
+                    method,
+                    target,
+                    {sid: seq_map[sid] for sid in members},
+                    residue_paths,
+                    {"step": step},
+                )
+            )
+    for stage in pending:
+        attach_many(
+            stage,
+            [
+                (artifact, path)
+                for artifact, path, sid in residues
+                if sid in stage.payload["seq_id_to_seq"] and "/prot_t5_last/" in path
+            ],
+        )
+    if build_binding:
         stage, _ = WorkStage.objects.get_or_create(
             execution=execution,
             key="binding-merge:" + binding.pk,
@@ -358,39 +483,22 @@ def kinform_graph(execution, method, target, seq_map):
                 },
             },
         )
-        for artifact, path in pieces:
-            attach(stage, artifact, path)
+        attach_many(stage, pieces)
         binding.producer = stage
         binding.save(update_fields=["producer"])
-    final = [(binding, binding_path, "")]
-    paths = {
-        sid: {
-            f"sequence_info/{root}/{kind}_vecs/{sid}.npy"
-            for names in roots.values()
-            for root in names
-            for kind in ["mean", "weighted"]
-        }
-        for sid in seq_map
-    }
-    outputs = embedding_stage(execution, method, target, seq_map, paths, {"step": "kinform_pool"})
-    for producer in {a.producer for a, _, _ in outputs if a.producer_id}:
-        if (
-            producer.execution_id != execution.pk
-            or producer.state != "ready"
-            or producer.attempts.exists()
-        ):
-            continue  # Historical or in-flight producers retain their original graph.
-        producer.kind = (
-            "predict"  # Pooling is a separately admitted CPU stage, not hidden CUDA work.
+    for producer in pools:
+        attach_many(
+            producer,
+            [
+                (artifact, path)
+                for artifact, path, sid in residues
+                if sid in producer.payload["seq_id_to_seq"]
+            ]
+            + [(binding, binding_path)],
         )
-        producer.method = "KinForm-pool"
+        producer.kind, producer.method = "predict", "KinForm-pool"
         producer.save(update_fields=["kind", "method"])
-        for artifact, path, sid in residues:
-            if sid in producer.payload["seq_id_to_seq"]:
-                attach(producer, artifact, path)
-        attach(producer, binding, binding_path)
-    final.extend(outputs)
-    return final
+    return [(binding, binding_path, "")] + outputs
 
 
 @graph_transaction

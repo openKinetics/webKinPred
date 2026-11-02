@@ -90,7 +90,10 @@ def coalesce(limit=16):
     if connection.vendor != "postgresql":
         return []
     with connection.cursor() as cursor:
-        cursor.execute("SET LOCAL statement_timeout = %s", ["3000ms"])
+        cursor.execute(
+            "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+            "SET LOCAL work_mem = '16MB'; SET LOCAL statement_timeout = '3000ms'"
+        )
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return []

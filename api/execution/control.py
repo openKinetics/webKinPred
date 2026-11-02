@@ -287,7 +287,7 @@ def claim(host_id: str):
     with connection.cursor() as cursor:
         cursor.execute(
             "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
-            "SET LOCAL statement_timeout = '3000ms'"
+            "SET LOCAL work_mem = '16MB'; SET LOCAL statement_timeout = '3000ms'"
         )
     host = ExecutorHost.objects.select_for_update().get(pk=host_id)
     now = timezone.now()
