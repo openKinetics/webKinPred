@@ -17,7 +17,7 @@ export default function useAboutStats() {
       controller = new AbortController();
       lastAttempt = Date.now();
       try {
-        const { data } = await apiClient.get('/about-stats/', { signal: controller.signal });
+        const { data } = await apiClient.get('/about-stats/', { signal: controller.signal, timeout: 10_000 });
         if (disposed || !isFreshAboutStats(data)) return;
         lastSuccess = Date.now();
         setStats(data);
@@ -28,7 +28,12 @@ export default function useAboutStats() {
         controller = null;
       }
     };
-    const onVisible = () => { if (!document.hidden) refresh(); };
+    const onVisible = () => {
+      if (!document.hidden) {
+        setStats(previous => isFreshAboutStats(previous) ? previous : null);
+        refresh();
+      }
+    };
     refresh(); // Revalidate on every visit, even when a local preview was available.
     const timer = window.setInterval(() => {
       setStats(previous => isFreshAboutStats(previous) ? previous : null);
