@@ -1,0 +1,11 @@
+method,jobs,rows,unique_sequences,cross_job_sequence_repeat_slots,cross_job_pair_repeat_slots,max_sequence_length
+CatPred,793,78009,78009,0,0,1098
+CatRange,836,82133,82133,0,0,1021
+DLKcat,586,57601,57601,0,0,1094
+EITLEM,788,77314,77314,0,0,1024
+IECata,793,77782,77782,0,0,1000
+KinForm-H,794,79913,79913,0,0,1098
+KinForm-L,794,79911,79911,0,0,1098
+OmniESI,786,77107,77107,0,0,1000
+OmniESI-O2DENet,789,77399,77399,0,0,1000
+TurNup,792,77786,77786,0,0,1024
