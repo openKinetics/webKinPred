@@ -326,7 +326,9 @@ def claim(host_id: str):
     # Apply host eligibility and completed dependencies before the bounded
     # scan. Thousands of blocked or other-host stages must not hide fitting
     # work beyond the first page, or consume its row locks.
-    available_profiles = list(ResourceProfile.objects.filter(validated=True, suspended=False))
+    available_profiles = list(
+        ResourceProfile.objects.filter(validated=True, suspended=False).defer("evidence")
+    )
     from api.execution.gpu_families import families as gpu_families
 
     families = gpu_families(available_profiles)

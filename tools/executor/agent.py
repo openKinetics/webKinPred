@@ -744,15 +744,6 @@ class Agent:
             if key.endswith("headroom") and key not in self.config["budgets"]:
                 self.config["budgets"][key] = value
 
-    def has_capacity(self):
-        # Every executable profile consumes positive CPU/RAM. Avoid a costly
-        # backlog scan when neither another GPU nor CPU allocation could fit.
-        return all(
-            sum(j["request"]["resources"].get(key, 0) for j in self.jobs.values())
-            < self.config["budgets"].get(key, float("inf"))
-            for key in ("cpu", "ram")
-        )
-
     def run(self):
         from tools.executor.runtime_identity import identity
 
@@ -813,9 +804,10 @@ class Agent:
                                 ident,
                             )
                             del self.jobs[ident]
+                # Saturated hosts must still poll: new foreground demand may
+                # need a background allocation to yield its resources.
                 if (
                     not reply.get("paused", False)
-                    and self.has_capacity()
                     and time.monotonic() - self.last_contact < 5
                     and sum(not j["container"] for j in self.jobs.values()) < 4
                 ):

@@ -297,3 +297,62 @@ def test_cpu_pool_cohort_keeps_distinct_binding_contexts_separate():
     assert len(ids) == 2 and all(
         WorkStage.objects.get(pk=i).payload["shape"]["sequences"] == 16 for i in ids
     )
+
+
+def test_recovered_binding_cohort_splits_original_tables_instead_of_sequence_filenames():
+    from api.execution.cohorts import split_cohort
+
+    host, old, parent, large, _, _ = setup_cohort()
+    parent.settings["step"] = large.settings["step"] = "kinform_pseq2sites"
+    parent.save()
+    large.save()
+    original = WorkStage.objects.get(pk=coalesce()[0])
+    original.state = "completed"
+    original.save()
+    old.job.status = "Completed"
+    old.job.save()
+    job = Job.objects.create(public_id="bindretry", prediction_type="kcat", status="Processing")
+    execution = control.ingest(job.public_id, old.specification, "f" * 64, paused=False)
+    mapping = original.payload["seq_id_to_seq"]
+    outputs = []
+    for i in range(2):
+        members = list(mapping)[i * 16 : (i + 1) * 16]
+        identity = {"context": {"sequences": members}, "partition": i}
+        ident = control.digest(identity)
+        outputs.append({"id": ident, "identity": identity, "path": "parts/" + ident + ".tsv"})
+    payload = {
+        **deepcopy(original.payload),
+        "step": "kinform_pseq2sites",
+        "outputs": outputs,
+        "output_artifacts": [o["id"] for o in outputs],
+    }
+    recovery = WorkStage.objects.create(
+        execution=execution,
+        key="binding-recovery",
+        kind="embedding",
+        method=parent.method,
+        target="kcat",
+        profile=large,
+        state="recovering",
+        payload=payload,
+    )
+    for output in outputs:
+        Artifact.objects.create(
+            id=output["id"], identity=output["identity"], producer=recovery, size=0
+        )
+    assert split_cohort(recovery.pk)
+    small = list(execution.stages.filter(kind="embedding", state="ready"))
+    assert len(small) == 2
+    assert all(
+        s.payload["shape"]["sequences"] == 16 and len(s.payload["outputs"]) == 1 for s in small
+    )
+    assert {o["id"] for s in small for o in s.payload["outputs"]} == set(
+        payload["output_artifacts"]
+    )
+    assert all(
+        set(s.payload["seq_id_to_seq"])
+        == set(s.payload["outputs"][0]["identity"]["context"]["sequences"])
+        for s in small
+    )
+    old.job.refresh_from_db()
+    assert old.job.status == "Completed"

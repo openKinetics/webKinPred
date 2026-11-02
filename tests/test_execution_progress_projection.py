@@ -72,7 +72,5 @@ def test_control_calibration_ceilings_can_be_restored_without_restart(tmp_path):
         }
         agent.apply_control_budgets({"budgets": {"cpu": 16, "ram": 96, "cpu_headroom": 2}})
         assert agent.config["budgets"] == {"cpu": 16, "ram": 96, "cpu_headroom": 2}
-        agent.jobs = {"a": {"request": {"resources": {"cpu": 16, "ram": 32}}}}
-        assert not agent.has_capacity()
     finally:
         agent.transfers.shutdown(wait=True)

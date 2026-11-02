@@ -85,7 +85,7 @@ def merged_payload(stages, profile):
 
 
 @transaction.atomic
-def coalesce(limit=128):
+def coalesce(limit=16):
     """Bounded reconciliation. Empty until measured cohort profiles are enabled."""
     if connection.vendor != "postgresql":
         return []
@@ -97,7 +97,7 @@ def coalesce(limit=128):
     for ident in WorkStage.objects.filter(
         state="ready",
         profile__suspended=True,
-        payload__cohort_source_stages__isnull=False,
+        profile__settings__cohort_sources__isnull=False,
     ).values_list("pk", flat=True)[:8]:
         split_cohort(ident)
     fingerprints = set()
@@ -159,13 +159,6 @@ def coalesce(limit=128):
                 has_inputs=Exists(ArtifactDependency.objects.filter(stage_id=OuterRef("pk"))),
             )
             .filter(tried=False, blocked=False)
-            .prefetch_related(
-                Prefetch(
-                    "artifacts",
-                    queryset=ArtifactDependency.objects.only("artifact_id", "path", "stage_id"),
-                    to_attr="cohort_inputs",
-                )
-            )
             .order_by(
                 "execution__background",
                 "-execution__priority",
@@ -175,7 +168,21 @@ def coalesce(limit=128):
         )
         if profile.settings.get("step") not in INPUT_STEPS:
             query = query.filter(has_inputs=False)
-        candidates = list(query[: max(2, min(limit, 512))])
+        # Lock/rank IDs before fetching manifests. Sorting all queued payloads
+        # can spill gigabytes of immutable JSON for a sixteen-row planning pass.
+        ids = list(query.values_list("pk", flat=True)[: max(2, min(limit, 512))])
+        selected_rows = {
+            stage.pk: stage
+            for stage in WorkStage.objects.filter(pk__in=ids).prefetch_related(
+                Prefetch(
+                    "artifacts",
+                    queryset=ArtifactDependency.objects.only("artifact_id", "path", "stage_id"),
+                    to_attr="cohort_inputs",
+                )
+            )
+        }
+        candidates = [selected_rows[ident] for ident in ids]
+
         groups = defaultdict(list)
         for stage in candidates:
             if stage.payload.get("seq_id_to_seq") and stage.payload.get("outputs"):
@@ -323,7 +330,31 @@ def split_cohort(ident):
             mapping = list(stage.payload["seq_id_to_seq"].items())
             width = max(1, min(16, parent.limits["sequences"]))
             sources = []
-            for offset in range(0, len(mapping), width):
+            if stage.payload.get("step") == "kinform_pseq2sites":
+                partitions = []
+                for output in stage.payload["outputs"]:
+                    members = output["identity"]["context"]["sequences"]
+                    if (
+                        not members
+                        or len(members) > width
+                        or len(set(members)) != len(members)
+                        or not set(members) <= dict(mapping).keys()
+                    ):
+                        raise ValueError(
+                            "Binding partition cannot fit its original measured profile"
+                        )
+                    partitions.append(({sid: dict(mapping)[sid] for sid in members}, [output]))
+            else:
+                partitions = []
+                for offset in range(0, len(mapping), width):
+                    subset = dict(mapping[offset : offset + width])
+                    outputs = [
+                        o
+                        for o in stage.payload["outputs"]
+                        if PurePosixPath(o["path"]).stem in subset
+                    ]
+                    partitions.append((subset, outputs))
+            for ordinal, (subset, outputs) in enumerate(partitions):
                 payload = deepcopy(stage.payload)
                 for key in (
                     "cohort_source_stages",
@@ -332,8 +363,6 @@ def split_cohort(ident):
                     "admission_wait_started_at",
                 ):
                     payload.pop(key, None)
-                subset = dict(mapping[offset : offset + width])
-                outputs = [o for o in payload["outputs"] if PurePosixPath(o["path"]).stem in subset]
                 payload.update(
                     seq_id_to_seq=subset,
                     outputs=outputs,
@@ -346,7 +375,7 @@ def split_cohort(ident):
                 )
                 source = WorkStage.objects.create(
                     execution_id=stage.execution_id,
-                    key=f"split:{stage.pk}:{offset}",
+                    key=f"split:{stage.pk}:{ordinal}",
                     kind=stage.kind,
                     method=stage.method,
                     target=stage.target,
