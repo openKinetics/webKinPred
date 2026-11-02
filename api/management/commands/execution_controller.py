@@ -8,7 +8,7 @@ from api.execution.models import ExecutionOutbox, ExecutionSpec
 from api.execution.planning import prepare
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -30,6 +30,7 @@ class Command(BaseCommand):
                 return
         try:
             last_priority_refresh = 0
+            last_cohort_refresh = 0
             while True:
                 if settings.EXECUTION_V2_ENABLED:
                     if time.monotonic() - last_priority_refresh >= 5:
@@ -99,6 +100,18 @@ class Command(BaseCommand):
                                 extra={"job_public_id": execution.job.public_id},
                             )
                     bind_profiles()
+                    if time.monotonic() - last_cohort_refresh >= 10:
+                        from api.execution.cohorts import coalesce
+
+                        try:
+                            coalesce()
+                        except OperationalError:
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                "Protein cohort planning deferred; existing stages remain eligible"
+                            )
+                        last_cohort_refresh = time.monotonic()
                     from api.services.prediction_store import upsert_many, upsert_similarity_many
 
                     for event in ExecutionOutbox.objects.filter(published_at__isnull=True).order_by(

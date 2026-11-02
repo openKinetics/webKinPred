@@ -485,6 +485,10 @@ def claim(host_id: str):
         if stage.execution.job_id and stage.execution.job.status in {"Completed", "Failed"}:
             continue
         profile = stage.profile
+        if stage.kind == "embedding" and not profile.resources.get("vram"):
+            stage.waiting_reason = "profiling_required"
+            stage.save(update_fields=["waiting_reason"])
+            continue
         if gpu_barrier and profile.resources.get("vram", 0):
             continue
         if profile.fingerprint not in host.capabilities.get("profiles", []):

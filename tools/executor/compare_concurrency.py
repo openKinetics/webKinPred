@@ -54,22 +54,32 @@ def compare(configuration, destination):
     results = []
 
     def ensure_capacity(indices):
-        telemetry = snapshot(destination, gpu_uuid)
-        telemetry["cpu_external"] = telemetry["cpu_used"]
-        active = []
-        for index in indices:
-            check_availability(probes[index]["runtime"])
-            decision = admit(
-                envelopes[index],
-                active,
-                configuration["budgets"],
-                telemetry,
-                gpu=bool(probes[index]["runtime"].get("gpu_uuid")),
-            )
-            if not decision.fits:
+        # Driver memory accounting can settle after a container exits. Observe
+        # fresh availability rather than treating that transient as a failed
+        # comparison or launching into a still-resident CUDA context.
+        deadline = time.monotonic() + configuration.get("capacity_wait_seconds", 30)
+        while True:
+            telemetry = snapshot(destination, gpu_uuid)
+            telemetry["cpu_external"] = telemetry["cpu_used"]
+            active = []
+            decision = None
+            for index in indices:
+                check_availability(probes[index]["runtime"])
+                decision = admit(
+                    envelopes[index],
+                    active,
+                    configuration["budgets"],
+                    telemetry,
+                    gpu=bool(probes[index]["runtime"].get("gpu_uuid")),
+                )
+                if not decision.fits:
+                    break
+                active.append({"resources": envelopes[index], "observed": {}})
+            if decision and decision.fits:
+                return telemetry
+            if time.monotonic() >= deadline:
                 raise RuntimeError("Concurrency probe is waiting: " + decision.reason)
-            active.append({"resources": envelopes[index], "observed": {}})
-        return telemetry
+            time.sleep(1)
 
     def run(index, directory):
         probe = probes[index]
