@@ -347,3 +347,35 @@ def test_all_invalid_native_batches_preserve_rows_without_loading_a_model(
     assert result["extra"] == [""] * rows
     assert set(result["failed_reactions"]) == set(range(rows))
     assert all("Invalid substrate" in value for value in result["sources"])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ready_kinform_vectors_do_not_regenerate_expired_residues_or_modify_history():
+    from api.execution.models import Artifact, ArtifactLocation, ExecutorHost
+    from api.execution.planning import kinform_graph
+
+    old_job = Job.objects.create(public_id="poolold", status="Completed", prediction_type="kcat")
+    old = control.ingest(old_job.public_id, specification("KinForm-H"), "a" * 64)
+    mapping = {"seq": "MAAA"}
+    outputs = kinform_graph(old, "KinForm-H", "kcat", mapping)
+    old.stages.update(state="completed")
+    host = ExecutorHost.objects.create(id="gpu")
+    for artifact, _, _ in outputs:
+        artifact.checksum = "b" * 64
+        artifact.size = 12
+        artifact.save()
+        ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+    before = list(old.stages.order_by("pk").values("id", "kind", "method", "payload"))
+    job = Job.objects.create(public_id="poolnew", status="Pending", prediction_type="kcat")
+    new = control.ingest(job.public_id, specification("KinForm-H"), "a" * 64)
+    assert {a.pk for a, _, _ in kinform_graph(new, "KinForm-H", "kcat", mapping)} == {
+        a.pk for a, _, _ in outputs
+    }
+    assert not new.stages.exclude(kind="prepare").exists()
+    assert list(old.stages.order_by("pk").values("id", "kind", "method", "payload")) == before
+    assert (
+        Artifact.objects.filter(
+            identity__path__contains="residue_vecs", locations__ready=True
+        ).count()
+        == 0
+    )

@@ -258,6 +258,33 @@ def kinform_graph(execution, method, target, seq_map):
         "kinform_esm2_residues": ["esm2_layer_26", "esm2_layer_29"],
         "kinform_esmc_residues": ["esmc_layer_24", "esmc_layer_32"],
     }
+    binding_path = "pseq2sites/binding_sites_all.tsv"
+    ids = sorted(seq_map)
+    vector_paths = {
+        sid: {
+            f"sequence_info/{root}/{kind}_vecs/{sid}.npy"
+            for names in roots.values()
+            for root in names
+            for kind in ["mean", "weighted"]
+        }
+        for sid in seq_map
+    }
+    wanted = [
+        (artifact_identity(execution.specification, method, target, path), path, sid)
+        for sid, paths in vector_paths.items()
+        for path in paths
+    ]
+    binding_identity = artifact_identity(
+        execution.specification, method, target, binding_path, context={"sequences": ids}
+    )
+    wanted.append((binding_identity, binding_path, ""))
+    identities = {digest(identity): (path, sid) for identity, path, sid in wanted}
+    ready = list(Artifact.objects.filter(pk__in=identities, locations__ready=True).distinct())
+    if len(ready) == len(identities):
+        # Permanent vectors and binding scores are sufficient. Full residue
+        # matrices have deliberately expired and must not be regenerated here.
+        by_id = {a.pk: a for a in ready}
+        return [(by_id[digest(identity)], path, sid) for identity, path, sid in wanted]
     residues = []
     for step, names in roots.items():
         paths = {
@@ -347,6 +374,12 @@ def kinform_graph(execution, method, target, seq_map):
     }
     outputs = embedding_stage(execution, method, target, seq_map, paths, {"step": "kinform_pool"})
     for producer in {a.producer for a, _, _ in outputs if a.producer_id}:
+        if (
+            producer.execution_id != execution.pk
+            or producer.state != "ready"
+            or producer.attempts.exists()
+        ):
+            continue  # Historical or in-flight producers retain their original graph.
         producer.kind = (
             "predict"  # Pooling is a separately admitted CPU stage, not hidden CUDA work.
         )
