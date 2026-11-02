@@ -23,6 +23,7 @@ def generate(directory):
             "ram_headroom": (4 if host == "production" else 16) * GIB,
             "disk_headroom": (15 if host == "production" else 50) * GIB,
             "gpu_slots": 1,
+            "gpu_cpu_reserve": 0 if host == "production" else 4,
         }
         config = {
             "host_id": host,

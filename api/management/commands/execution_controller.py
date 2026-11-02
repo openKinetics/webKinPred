@@ -58,6 +58,9 @@ class Command(BaseCommand):
                                 "Shared dependency queue-age refresh deferred"
                             )
                         last_dependency_order_refresh = time.monotonic()
+                    from api.execution.preparation import candidate_rules
+
+                    preparation_rules = candidate_rules()
                     for execution in (
                         ExecutionSpec.objects.filter(
                             paused=False,
@@ -65,6 +68,7 @@ class Command(BaseCommand):
                             stages__state="ready",
                             stages__available_at__lte=timezone.now(),
                         )
+                        .filter(preparation_rules)
                         .select_related("job")
                         .distinct()
                         .order_by(
@@ -76,7 +80,7 @@ class Command(BaseCommand):
                     ):
                         # A priority request arriving during this batch should
                         # not wait behind the other prefetched normal requests.
-                        if higher_preparation(execution).exists():
+                        if higher_preparation(execution).filter(preparation_rules).exists():
                             break
                         from api.execution.preparation import waiting_reason
 

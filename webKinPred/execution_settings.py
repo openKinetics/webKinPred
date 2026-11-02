@@ -27,6 +27,9 @@ def configure(namespace):
     namespace["EXECUTION_PREPARED_BACKGROUND_LIMIT"] = int(
         os.getenv("EXECUTION_PREPARED_BACKGROUND_LIMIT", "128")
     )
+    namespace["EXECUTION_PREPARED_CPU_LIMIT"] = int(
+        os.getenv("EXECUTION_PREPARED_CPU_LIMIT", "32")
+    )
     namespace["EXECUTION_PREPARATION_RESERVE_BYTES"] = int(
         os.getenv("EXECUTION_PREPARATION_RESERVE_BYTES", str(2 * 1024**3))
     )

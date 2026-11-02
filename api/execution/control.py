@@ -448,6 +448,31 @@ def claim(host_id: str):
         ).fits and _gpu_profile_allowed(p, retained, host, families):
             foreground_fitting.append(p)
 
+    # A large CPU-only backlog must not continually take the CPU capacity
+    # needed to start GPU workers. Reserve this share only while queued GPU
+    # work could fit after background allocations finish. Foreground requests
+    # retain their full admission/preemption rights.
+    gpu_waiting = oldest[1] is not None and any(p.resources.get("vram") for p in foreground_fitting)
+    cpu_only_used = sum(
+        row["resources"].get("cpu", 0) for row in active if not row["resources"].get("vram")
+    )
+
+    def background_cpu_fits(resources):
+        return (
+            not gpu_waiting
+            or resources.get("vram")
+            or cpu_only_used + resources.get("cpu", 0)
+            <= host.budgets["cpu"] - host.budgets.get("gpu_cpu_reserve", 0)
+        )
+
+    fitting = [
+        p
+        for p in fitting
+        if background_cpu_fits(
+            {key: max(value, p.runtime_floor.get(key, value)) for key, value in p.resources.items()}
+        )
+    ]
+
     def profile_capacity(profiles):
         # Resolve the small profile registry once, not large JSON identities for
         # each of tens of thousands of queued stages. Keep the exact admission
@@ -558,6 +583,10 @@ def claim(host_id: str):
             key: max(value, profile.runtime_floor.get(key, value))
             for key, value in profile.resources.items()
         }
+        if background and not background_cpu_fits(resources):
+            stage.waiting_reason = "waiting_cpu"
+            stage.save(update_fields=["waiting_reason"])
+            continue
         # Reject unavailable capacity and unvalidated combinations before
         # per-artifact queries. A saturated 5,000-job queue must not spend
         # thousands of queries holding the host lock and delay heartbeats.
