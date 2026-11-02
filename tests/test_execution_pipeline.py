@@ -256,6 +256,8 @@ def test_lost_embedding_is_regenerated_for_consumer_without_reopening_completed_
     }
     old_stage.save()
     ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+    # The executor reports the specific missing location before reconciliation.
+    ArtifactLocation.objects.filter(artifact=artifact, host=host).update(ready=False)
     job = Job.objects.create(public_id="new-user", status="Processing", prediction_type="kcat")
     execution = control.ingest(job.public_id, specification("UniKP"), "a" * 64)
     consumer = WorkStage.objects.create(
@@ -277,7 +279,7 @@ def test_lost_embedding_is_regenerated_for_consumer_without_reopening_completed_
     assert artifact.checksum == "" and artifact.size == 0
     assert artifact.metadata["previous_checksums"] == ["b" * 64]
     missing_dependencies(consumer.pk, host.pk)
-    assert execution.stages.filter(key="restore:" + artifact.pk).count() == 1
+    assert execution.stages.filter(key__startswith="restore-batch:").count() == 1
 
 
 @pytest.mark.django_db(transaction=True)

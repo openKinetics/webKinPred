@@ -112,7 +112,7 @@ def execution_status(job):
     execution = ExecutionSpec.objects.filter(job=job).first()
     if not execution:
         return {}
-    stages = list(execution.stages.all())
+    stages = list(execution.stages.exclude(state="canceled"))
     waiting = list(stages)
     seen = {stage.pk for stage in stages}
     frontier = [stage.pk for stage in stages if stage.state != "completed"]

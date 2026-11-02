@@ -314,16 +314,17 @@ def claim(host_id: str):
     # Apply host eligibility and completed dependencies before the bounded
     # scan. Thousands of blocked or other-host stages must not hide fitting
     # work beyond the first page, or consume its row locks.
-    advertised = list(
-        ResourceProfile.objects.filter(
-            validated=True,
-            suspended=False,
-            fingerprint__in=host.capabilities.get("profiles", []),
-        )
+    available_profiles = list(ResourceProfile.objects.filter(validated=True, suspended=False))
+    advertised_fingerprints = set(host.capabilities.get("profiles", []))
+    advertised = [p for p in available_profiles if p.fingerprint in advertised_fingerprints]
+    methods = {(p.stage_kind, p.method) for p in advertised}
+    eligible = Q(
+        profile_id__in=[
+            p.pk
+            for p in available_profiles
+            if p.fingerprint in advertised_fingerprints or (p.stage_kind, p.method) in methods
+        ]
     )
-    eligible = Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
-    for kind, method in {(p.stage_kind, p.method) for p in advertised}:
-        eligible |= Q(kind=kind, method=method)
     blocked = WorkStage.dependencies.through.objects.filter(
         from_workstage_id=OuterRef("pk")
     ).exclude(to_workstage__state="completed")
@@ -425,20 +426,23 @@ def claim(host_id: str):
             foreground_fitting.append(p)
 
     def profile_capacity(profiles):
-        capacity = Q(profile_id__in=[p.pk for p in profiles])
+        # Resolve the small profile registry once, not large JSON identities for
+        # each of tens of thousands of queued stages. Keep the exact admission
+        # and compatibility checks below, after locking a candidate.
+        ids = {p.pk for p in profiles}
         for p in profiles:
             if not p.resources.get("vram"):
                 identity = p.settings.get("model_identity")
-                same_identity = Q(profile__settings__model_identity=identity)
-                if identity is None:
-                    same_identity |= Q(profile__settings__model_identity__isnull=True)
-                capacity |= (
-                    cpu_stage
-                    & same_identity
-                    & Q(kind=p.stage_kind, method=p.method)
-                    & ~Q(profile__fingerprint__in=host.capabilities.get("profiles", []))
+                ids.update(
+                    source.pk
+                    for source in available_profiles
+                    if not source.resources.get("vram")
+                    and source.fingerprint not in advertised_fingerprints
+                    and source.stage_kind == p.stage_kind
+                    and source.method == p.method
+                    and source.settings.get("model_identity") == identity
                 )
-        return capacity
+        return Q(profile_id__in=ids)
 
     foreground_capacity = profile_capacity(foreground_fitting)
     normal_executions = list(

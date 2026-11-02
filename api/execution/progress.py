@@ -12,7 +12,7 @@ def refresh(execution):
     # Serialize target summaries across completions/heartbeats from both hosts.
     with transaction.atomic():
         job = Job.objects.select_for_update().get(pk=execution.job_id)
-        stages = list(execution.stages.all())
+        stages = list(execution.stages.exclude(state="canceled"))
         total, done = 0, 0
         for target in execution.specification.get("targets", []):
             predictions = [

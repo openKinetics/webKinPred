@@ -91,6 +91,22 @@ class WorkStage(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["execution", "key"], name="execution_stage_key")
         ]
+        indexes = [
+            models.Index(
+                fields=["profile", "available_at"],
+                condition=models.Q(state="ready"),
+                name="stage_ready_profile_time",
+            ),
+            models.Index(fields=["completed_at"], name="stage_completed_time"),
+        ]
+
+
+class RecoveryBatch(models.Model):
+    """Current recovery generation for an immutable producer input context."""
+
+    id = models.CharField(primary_key=True, max_length=64)
+    stage = models.OneToOneField(WorkStage, null=True, on_delete=models.PROTECT)
+    generation = models.PositiveIntegerField(default=0)
 
 
 class ExecutionAttempt(models.Model):
@@ -111,6 +127,10 @@ class ExecutionAttempt(models.Model):
     outcome = models.JSONField(default=dict)
 
     class Meta:
+        indexes = [
+            models.Index(models.F("outcome__category"), name="attempt_outcome_category"),
+            models.Index(fields=["finished_at"], name="attempt_finished_time"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["stage"],
