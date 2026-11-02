@@ -73,6 +73,7 @@ class WorkStage(models.Model):
     execution = models.ForeignKey(ExecutionSpec, on_delete=models.PROTECT, related_name="stages")
     priority = models.PositiveIntegerField(default=0, db_default=0, db_index=True)
     key = models.CharField(max_length=160)
+    oldest_consumer_at = models.DateTimeField(null=True)
     kind = models.CharField(max_length=32)
     method = models.CharField(max_length=64, blank=True)
     target = models.CharField(max_length=16, blank=True)

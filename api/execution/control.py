@@ -407,7 +407,9 @@ def claim(host_id: str):
             "-effective_priority",
             "has_offline_input",
             "job_has_active",
-            Coalesce("execution__job__submission_time", "execution__created_at"),
+            Coalesce(
+                "oldest_consumer_at", "execution__job__submission_time", "execution__created_at"
+            ),
             "created_at",
         )
     )
@@ -421,7 +423,9 @@ def claim(host_id: str):
         .order_by(
             "effective_background",
             "-effective_priority",
-            Coalesce("execution__job__submission_time", "execution__created_at"),
+            Coalesce(
+                "oldest_consumer_at", "execution__job__submission_time", "execution__created_at"
+            ),
             "created_at",
         )
         .values_list("pk", flat=True)

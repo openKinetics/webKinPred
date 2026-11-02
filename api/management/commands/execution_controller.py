@@ -31,6 +31,8 @@ class Command(BaseCommand):
         try:
             last_priority_refresh = 0
             last_cohort_refresh = 0
+            last_dependency_order_refresh = 0
+            dependency_order_cursor = 0
             while True:
                 if settings.EXECUTION_V2_ENABLED:
                     if time.monotonic() - last_priority_refresh >= 5:
@@ -38,6 +40,20 @@ class Command(BaseCommand):
 
                         refresh_stage_priorities()
                         last_priority_refresh = time.monotonic()
+                    if time.monotonic() - last_dependency_order_refresh >= 5:
+                        from api.execution.dependency_order import refresh_dependency_order
+
+                        try:
+                            dependency_order_cursor, _ = refresh_dependency_order(
+                                dependency_order_cursor
+                            )
+                        except OperationalError:
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                "Shared dependency queue-age refresh deferred"
+                            )
+                        last_dependency_order_refresh = time.monotonic()
                     for execution in (
                         ExecutionSpec.objects.filter(
                             paused=False,

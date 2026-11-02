@@ -165,7 +165,9 @@ def coalesce(limit=16):
             .order_by(
                 "execution__background",
                 "-execution__priority",
-                Coalesce("execution__job__submission_time", "execution__created_at"),
+                Coalesce(
+                    "oldest_consumer_at", "execution__job__submission_time", "execution__created_at"
+                ),
                 "created_at",
             )
         )
@@ -232,6 +234,9 @@ def replace(stages, profile):
         profile=profile,
         payload=payload,
         priority=max(s.priority for s in stages),
+        oldest_consumer_at=min(
+            (s.oldest_consumer_at for s in stages if s.oldest_consumer_at), default=None
+        ),
         created_at=min(s.created_at for s in stages),
     )
     inputs = {
