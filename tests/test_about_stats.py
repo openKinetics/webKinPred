@@ -308,3 +308,43 @@ def test_database_work_is_batched_across_jobs(tmp_path, django_assert_num_querie
         assert stats.sync_completed_jobs(limit=20) == 20
     assert AboutJobStats.objects.count() == AboutJobProtein.objects.count() == 20
     assert stats.refresh_about_stats_cache(force=True)["unique_protein_sequences"] == 1
+
+
+def test_stats_worker_lock_does_not_disable_metrics_scraping(settings):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from api.execution.metrics import metrics
+    from api.management.commands.about_stats_worker import ABOUT_STATS_WORKER_LOCK
+    from django.db import close_old_connections, connection
+
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL advisory locks required")
+    ready, release = Event(), Event()
+
+    def hold_worker_lock():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_lock(%s)", [ABOUT_STATS_WORKER_LOCK])
+                ready.set()
+                assert release.wait(10)
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [ABOUT_STATS_WORKER_LOCK])
+        finally:
+            connection.close()
+
+    settings.EXECUTION_METRICS_TOKEN = "test-metrics-key"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(hold_worker_lock)
+        try:
+            assert ready.wait(5)
+            with patch("api.execution.metrics.render", return_value="healthy 1\n"):
+                response = metrics(
+                    RequestFactory().get(
+                        "/internal/v2/metrics", HTTP_AUTHORIZATION="Bearer test-metrics-key"
+                    )
+                )
+            assert response.status_code == 200
+        finally:
+            release.set()
+        future.result()
