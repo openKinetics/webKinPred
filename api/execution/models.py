@@ -106,6 +106,7 @@ class RecoveryBatch(models.Model):
 
     id = models.CharField(primary_key=True, max_length=64)
     stage = models.OneToOneField(WorkStage, null=True, on_delete=models.PROTECT)
+    source = models.ForeignKey(WorkStage, on_delete=models.PROTECT, related_name="recovery_batches")
     generation = models.PositiveIntegerField(default=0)
 
 

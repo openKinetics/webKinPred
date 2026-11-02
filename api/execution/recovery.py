@@ -108,7 +108,9 @@ def _schedule(execution, entries):
         groups[signature].append((artifact, source, output, template, producer.priority))
     replacements = defaultdict(set)
     for signature, group in groups.items():
-        registry, _ = RecoveryBatch.objects.get_or_create(pk=signature)
+        registry, _ = RecoveryBatch.objects.get_or_create(
+            pk=signature, defaults={"source": group[0][1]}
+        )
         registry = RecoveryBatch.objects.select_for_update().get(pk=signature)
         restored = (
             (
@@ -129,7 +131,8 @@ def _schedule(execution, entries):
                 or restored.execution.job.status not in {"Completed", "Failed"}
             )
         )
-        source, template = group[0][1], group[0][3]
+        source = registry.source
+        _, template = _context(source)
         outputs = {o["id"]: o for o in restored.payload["outputs"]} if mutable else {}
         outputs.update({a.pk: out for a, _, out, _, _ in group})
         payload = _payload(template, list(outputs.values()), source, signature)
