@@ -880,3 +880,70 @@ def test_validated_gpu_mixtures_allow_startup_subsets_and_preserve_multiplicity(
     host.capabilities["validated_gpu_combinations"] = [[a, b], [b, c]]
     profile.fingerprint = c
     assert not control._gpu_profile_allowed(profile, active, host)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_serializing_many_checkpointed_outputs_uses_bounded_queries(
+    ready_work, django_assert_num_queries
+):
+    from api.execution.models import Artifact, ArtifactLocation
+
+    host, stages = ready_work
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        record = control.claim(host.pk)
+    stage = stages[0]
+    artifacts = [
+        Artifact(id=f"{i:064x}", identity={}, checksum="b" * 64, size=12) for i in range(200)
+    ]
+    Artifact.objects.bulk_create(artifacts)
+    ArtifactLocation.objects.bulk_create(
+        [ArtifactLocation(artifact=a, host=host, ready=True) for a in artifacts]
+    )
+    stage.payload = {"outputs": [{"id": a.pk, "path": f"{i}.npy"} for i, a in enumerate(artifacts)]}
+    stage.save(update_fields=["payload"])
+    attempt = ExecutionAttempt.objects.select_related(
+        "stage__execution__job", "stage__profile"
+    ).get(pk=record["id"])
+    with django_assert_num_queries(4, exact=False):
+        request = control.serialize_attempt(attempt)
+    assert len(request["artifacts"]) == 200
+
+
+@pytest.mark.django_db(transaction=True)
+def test_claim_reserves_disk_for_verified_retry_outputs_too(ready_work):
+    from api.execution.models import Artifact, ArtifactLocation
+
+    host, stages = ready_work
+    stages[1].execution.paused = True
+    stages[1].execution.save(update_fields=["paused"])
+    artifact = Artifact.objects.create(
+        id="e" * 64, identity={}, checksum="f" * 64, size=4 * GIB, producer=stages[0]
+    )
+    ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+    stages[0].payload = {
+        "output_artifacts": [artifact.pk],
+        "outputs": [{"id": artifact.pk, "path": "cached.npy"}],
+    }
+    stages[0].save(update_fields=["payload"])
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        assert control.claim(host.pk) is None
+    stages[0].refresh_from_db()
+    assert stages[0].waiting_reason == "waiting_disk"
+    assert not ExecutionAttempt.objects.exists()
+
+
+def test_extra_gpu_headroom_reserves_capacity_for_controlled_external_probes():
+    candidate = {"cpu": 2, "ram": GIB, "disk": GIB, "vram": 6 * GIB}
+    budgets = {"cpu": 16, "ram": 96 * GIB, "disk": 128 * GIB, "gpu_slots": 5}
+    telemetry = {
+        "ram_available": 120 * GIB,
+        "disk_free": 200 * GIB,
+        "gpu_uuid": "gpu",
+        "vram_total": 20 * GIB,
+        "vram_free": 14 * GIB,
+    }
+    assert admit(candidate, [], budgets, telemetry, gpu=True).fits
+    assert not admit(candidate, [], {**budgets, "vram_headroom": 9 * GIB}, telemetry, gpu=True).fits
+    assert not admit(
+        candidate, [], {**budgets, "vram_headroom": float("nan")}, telemetry, gpu=True
+    ).fits

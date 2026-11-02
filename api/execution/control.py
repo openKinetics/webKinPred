@@ -10,7 +10,7 @@ from itertools import combinations
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import BooleanField, Case, Exists, OuterRef, Q, Value, When
+from django.db.models import BooleanField, Case, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -594,6 +594,17 @@ def claim(host_id: str):
         # Each input needs a private working copy and may also need a new local
         # immutable blob. Reserve both even when an eligible peer owns the data.
         input_bytes = sum(stage.artifacts.values_list("artifact__size", flat=True))
+        cached_output_bytes = (
+            Artifact.objects.filter(
+                pk__in=stage.payload.get("output_artifacts", []),
+                locations__ready=True,
+            )
+            .exclude(pk__in=stage.artifacts.values("artifact_id"))
+            .distinct()
+            .aggregate(size=Sum("size"))["size"]
+            or 0
+        )
+        input_bytes += cached_output_bytes
         resources["disk"] = resources.get("disk", 0) + 2 * input_bytes
         from api.execution.locality import prefer_peer
 
@@ -671,10 +682,23 @@ def serialize_attempt(attempt):
                 "hosts": [location.host_id for location in dependency.artifact.verified_locations],
             }
         )
-    for output in stage.payload.get("outputs", []):
-        artifact = (
-            Artifact.objects.filter(pk=output["id"], locations__ready=True).distinct().first()
+    outputs = stage.payload.get("outputs", [])
+    ready_outputs = {
+        artifact.pk: artifact
+        for artifact in Artifact.objects.filter(
+            pk__in=[o["id"] for o in outputs], locations__ready=True
         )
+        .distinct()
+        .prefetch_related(
+            Prefetch(
+                "locations",
+                queryset=ArtifactLocation.objects.filter(ready=True),
+                to_attr="verified_locations",
+            )
+        )
+    }
+    for output in outputs:
+        artifact = ready_outputs.get(output["id"])
         if artifact:
             artifacts.append(
                 {
@@ -682,9 +706,7 @@ def serialize_attempt(attempt):
                     "checksum": artifact.checksum,
                     "size": artifact.size,
                     "path": output["path"],
-                    "hosts": list(
-                        artifact.locations.filter(ready=True).values_list("host_id", flat=True)
-                    ),
+                    "hosts": [location.host_id for location in artifact.verified_locations],
                 }
             )
     return {
@@ -1066,6 +1088,13 @@ def fail(host_id, attempt_id, data):
         for previous in recent
     )
     stage.state = "held" if repeated and not temporary and not adjusted else "ready"
+    if stage.waiting_reason == "oom" and stage.payload.get("cohort_source_stages"):
+        stage.state = "recovering"
+        if stage.profile.settings.get("cohort_sources"):
+            ResourceProfile.objects.filter(pk=stage.profile_id).update(suspended=True)
+        ExecutionOutbox.objects.get_or_create(
+            key=f"split-cohort:{attempt.pk}", defaults={"event": {"split_cohort": str(stage.pk)}}
+        )
     if stage.waiting_reason == "missing_embedding" and stage.state != "held":
         stage.state = "recovering"
         ExecutionOutbox.objects.get_or_create(

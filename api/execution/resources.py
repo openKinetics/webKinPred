@@ -34,7 +34,7 @@ def admit(
     candidate: dict, active: list[dict], budgets: dict, telemetry: dict, *, gpu: bool
 ) -> Admission:
     # NaN and missing telemetry must never accidentally compare as available capacity.
-    for key in ("ram", "cpu", "disk", "ram_headroom", "disk_headroom"):
+    for key in ("ram", "cpu", "disk", "ram_headroom", "disk_headroom", "vram_headroom"):
         value = budgets.get(key, 0) if key.endswith("headroom") else budgets.get(key)
         if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
             return Admission(False, "invalid_budget")
@@ -93,7 +93,9 @@ def admit(
             or "vram_total" not in telemetry
         ):
             return Admission(False, "gpu_unavailable")
-        guard = max(2 * GIB, math.ceil(telemetry["vram_total"] / 10))
+        guard = max(
+            2 * GIB, math.ceil(telemetry["vram_total"] / 10), budgets.get("vram_headroom", 0)
+        )
         unspent = sum(
             max(0, x["resources"].get("vram", 0) - x.get("observed", {}).get("vram", 0))
             for x in active

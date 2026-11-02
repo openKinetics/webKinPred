@@ -9,6 +9,7 @@ import logging
 from collections import defaultdict
 from copy import deepcopy
 from datetime import timedelta
+from pathlib import PurePosixPath
 
 from django.db import connection, transaction
 from django.db.models import Exists, OuterRef
@@ -87,6 +88,12 @@ def coalesce(limit=128):
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return []
+    for ident in WorkStage.objects.filter(
+        state="ready",
+        profile__suspended=True,
+        payload__cohort_source_stages__isnull=False,
+    ).values_list("pk", flat=True)[:8]:
+        split_cohort(ident)
     fingerprints = set()
     for capabilities in ExecutorHost.objects.filter(
         paused=False,
@@ -182,6 +189,7 @@ def replace(stages, profile):
             extra={"profile": profile.pk},
         )
         return None
+    payload["cohort_source_stages"] = list(map(str, ids))
     stage = WorkStage.objects.create(
         execution_id=stages[0].execution_id,
         key="cohort:" + digest(sorted(map(str, ids))),
@@ -214,3 +222,117 @@ def replace(stages, profile):
         state="canceled", waiting_reason="coalesced"
     )
     return str(stage.pk)
+
+
+def split_cohort(ident):
+    """Undo an enlarged unit after a confirmed OOM; retain committed checkpoints."""
+    from api.execution.planning import graph_transaction
+    from api.execution.resources import LIVE_STATES
+
+    @graph_transaction
+    def split():
+        stage = (
+            WorkStage.objects.select_for_update(of=("self",))
+            .select_related("profile")
+            .get(pk=ident)
+        )
+        if stage.state == "canceled":
+            return False
+        allowed = stage.state == "recovering" or (
+            stage.state == "ready" and stage.profile.suspended
+        )
+        if not allowed or stage.attempts.filter(state__in=LIVE_STATES).exists():
+            raise ValueError("Cohort must be stopped before splitting")
+        ids = stage.payload["cohort_source_stages"]
+        sources = list(WorkStage.objects.select_for_update().filter(pk__in=ids).order_by("pk"))
+        if len(sources) != len(ids) or any(
+            s.execution_id != stage.execution_id or s.state != "canceled" or s.attempts.exists()
+            for s in sources
+        ):
+            # Recovery may be owned by a newer job after the original job
+            # completed. Create small units in that job; never reopen historical
+            # jobs or move their stopped attempts.
+            parent = ResourceProfile.objects.filter(
+                fingerprint__in=stage.profile.settings.get(
+                    "cohort_sources", [s.profile.fingerprint for s in sources if s.profile_id]
+                ),
+                validated=True,
+                stage_kind=stage.kind,
+                method=stage.method,
+                image=stage.profile.image,
+                settings__model_identity=stage.profile.settings.get("model_identity"),
+            ).first()
+            if parent is None:
+                stage.state = "held"
+                stage.waiting_reason = "profiling_required"
+                stage.save(update_fields=["state", "waiting_reason"])
+                return False
+            mapping = list(stage.payload["seq_id_to_seq"].items())
+            width = max(1, min(16, parent.limits["sequences"]))
+            sources = []
+            for offset in range(0, len(mapping), width):
+                payload = deepcopy(stage.payload)
+                for key in (
+                    "cohort_source_stages",
+                    "recovery_origin",
+                    "recovery_group",
+                    "admission_wait_started_at",
+                ):
+                    payload.pop(key, None)
+                subset = dict(mapping[offset : offset + width])
+                outputs = [o for o in payload["outputs"] if PurePosixPath(o["path"]).stem in subset]
+                payload.update(
+                    seq_id_to_seq=subset,
+                    outputs=outputs,
+                    output_artifacts=[o["id"] for o in outputs],
+                    shape={
+                        **payload["shape"],
+                        "sequences": len(subset),
+                        "max_length": max(map(len, subset.values())),
+                    },
+                )
+                source = WorkStage.objects.create(
+                    execution_id=stage.execution_id,
+                    key=f"split:{stage.pk}:{offset}",
+                    kind=stage.kind,
+                    method=stage.method,
+                    target=stage.target,
+                    profile=parent,
+                    payload=payload,
+                    created_at=stage.created_at,
+                )
+                source.dependencies.add(*stage.dependencies.all())
+                sources.append(source)
+            if {a for source in sources for a in source.payload["output_artifacts"]} != set(
+                stage.payload["output_artifacts"]
+            ):
+                raise ValueError("Protein split cannot preserve output identities")
+        for source in sources:
+            Artifact.objects.filter(
+                pk__in=source.payload["output_artifacts"], producer=stage
+            ).update(producer=source)
+            source.state = "ready"
+            source.waiting_reason = "retrying"
+            source.available_at = stage.available_at
+            source.priority = max(source.priority, stage.priority)
+            source.save(update_fields=["state", "waiting_reason", "available_at", "priority"])
+        edge = WorkStage.dependencies.through
+        consumers = list(stage.dependants.all())
+        source_ids = {s.pk for s in sources}
+        for consumer in consumers:
+            required = set(
+                consumer.artifacts.filter(artifact__producer_id__in=source_ids).values_list(
+                    "artifact__producer_id", flat=True
+                )
+            )
+            consumer.dependencies.add(*(required or source_ids))
+        edge.objects.filter(to_workstage_id=stage.pk).delete()
+        stage.state = "canceled"
+        stage.waiting_reason = "cohort_split"
+        stage.save(update_fields=["state", "waiting_reason"])
+        from api.execution.progress import refresh
+
+        refresh(stage.execution)
+        return True
+
+    return split()

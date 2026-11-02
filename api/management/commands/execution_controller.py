@@ -117,6 +117,10 @@ class Command(BaseCommand):
                     for event in ExecutionOutbox.objects.filter(published_at__isnull=True).order_by(
                         "id"
                     )[:100]:
+                        if event.event.get("split_cohort"):
+                            from api.execution.cohorts import split_cohort
+
+                            split_cohort(event.event["split_cohort"])
                         if event.event.get("recover_stage"):
                             from api.execution.recovery import missing_dependencies
 

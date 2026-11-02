@@ -155,3 +155,96 @@ def test_cohort_never_bypasses_missing_input_or_changed_options():
         stage.payload["extra_option"] = i
         stage.save(update_fields=["payload"])
     assert coalesce() == []
+
+
+def test_cohort_oom_restores_small_units_and_preserves_committed_artifacts():
+    from api.execution.cohorts import split_cohort
+    from api.execution.models import ArtifactLocation, ExecutionOutbox
+
+    host, _, original, large, stages, head = setup_cohort()
+    cohort = WorkStage.objects.get(pk=coalesce()[0])
+    artifact = Artifact.objects.filter(producer=cohort).first()
+    artifact.checksum = "e" * 64
+    artifact.size = 12
+    artifact.save(update_fields=["checksum", "size"])
+    ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+    third = WorkStage.objects.create(execution=head.execution, key="later-consumer", kind="predict")
+    third.dependencies.add(cohort)
+    ArtifactDependency.objects.create(stage=third, artifact=artifact, path="same.npy")
+    attempt = ExecutionAttempt.objects.create(
+        stage=cohort,
+        host=host,
+        state="running",
+        profile_fingerprint=large.fingerprint,
+        lease_until=timezone.now(),
+    )
+    control.fail(
+        host.pk, attempt.pk, {"token": str(attempt.token), "stopped": True, "category": "oom"}
+    )
+    cohort.refresh_from_db()
+    large.refresh_from_db()
+    assert cohort.state == "recovering" and large.suspended
+    assert ExecutionOutbox.objects.filter(event__split_cohort=str(cohort.pk)).exists()
+    assert split_cohort(cohort.pk)
+    assert not split_cohort(cohort.pk)
+    cohort.refresh_from_db()
+    assert cohort.state == "canceled"
+    assert set(head.dependencies.values_list("pk", flat=True)) == {s.pk for s in stages}
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 4
+    artifact.refresh_from_db()
+    assert artifact.checksum == "e" * 64 and artifact.locations.get().ready
+    assert set(third.dependencies.values_list("pk", flat=True)) == {artifact.producer_id}
+    original.refresh_from_db()
+    assert not original.suspended
+
+
+def test_suspended_cohort_profile_does_not_strand_other_unstarted_cohorts():
+    _, _, _, large, stages, _ = setup_cohort()
+    ident = coalesce()[0]
+    large.suspended = True
+    large.save(update_fields=["suspended"])
+    assert coalesce() == []
+    assert WorkStage.objects.get(pk=ident).state == "canceled"
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 4
+
+
+def test_recovery_cohort_splits_without_reopening_original_completed_job():
+    from api.execution.cohorts import split_cohort
+
+    host, old, _, large, stages, _ = setup_cohort()
+    original = WorkStage.objects.get(pk=coalesce()[0])
+    original.state = "completed"
+    original.save(update_fields=["state"])
+    old.job.status = "Completed"
+    old.job.save(update_fields=["status"])
+    job = Job.objects.create(public_id="newrecover", prediction_type="kcat", status="Processing")
+    execution = control.ingest(job.public_id, old.specification, "f" * 64, paused=False)
+    payload = deepcopy(original.payload)
+    payload["recovery_origin"] = str(original.pk)
+    recovery = WorkStage.objects.create(
+        execution=execution,
+        key="recovery",
+        kind="embedding",
+        method=original.method,
+        target=original.target,
+        profile=large,
+        payload=payload,
+        state="running",
+    )
+    Artifact.objects.filter(producer=original).update(producer=recovery)
+    consumer = WorkStage.objects.create(execution=execution, key="prediction", kind="predict")
+    consumer.dependencies.add(recovery)
+    attempt = ExecutionAttempt.objects.create(
+        stage=recovery, host=host, profile_fingerprint=large.fingerprint, lease_until=timezone.now()
+    )
+    control.fail(
+        host.pk, attempt.pk, {"token": str(attempt.token), "stopped": True, "category": "oom"}
+    )
+    assert split_cohort(recovery.pk)
+    small = list(execution.stages.filter(kind="embedding", state="ready"))
+    assert len(small) == 2 and all(s.payload["shape"]["sequences"] == 16 for s in small)
+    assert sum(Artifact.objects.filter(producer=s).count() for s in small) == 32
+    assert set(consumer.dependencies.values_list("pk", flat=True)) == {s.pk for s in small}
+    old.job.refresh_from_db()
+    assert old.job.status == "Completed"
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="canceled").count() == 4
