@@ -109,16 +109,22 @@ def queue_estimate(job, state, priority=0, background=False):
 def execution_status(job):
     if not settings.EXECUTION_V2_ENABLED:
         return {}
-    execution = ExecutionSpec.objects.filter(job=job).first()
+    execution = (
+        ExecutionSpec.objects.only("id", "paused", "priority", "background", "created_at")
+        .filter(job=job)
+        .first()
+    )
     if not execution:
         return {}
-    stages = list(execution.stages.exclude(state="canceled"))
+    counters = ("id", "kind", "state", "waiting_reason", "failures")
+    stages = list(execution.stages.exclude(state="canceled").only("execution", *counters))
     waiting = list(stages)
     seen = {stage.pk for stage in stages}
     frontier = [stage.pk for stage in stages if stage.state != "completed"]
     while frontier:
         dependencies = list(
-            WorkStage.objects.filter(dependants__pk__in=frontier)
+            WorkStage.objects.only(*counters)
+            .filter(dependants__pk__in=frontier)
             .exclude(state="completed")
             .exclude(pk__in=seen)
             .distinct()
@@ -142,8 +148,10 @@ def execution_status(job):
         state = "waiting_cpu"
     now = timezone.now()
     intervals = sorted(
-        (a.started_at, min(a.finished_at or now, a.lease_until))
-        for a in ExecutionAttempt.objects.filter(stage__execution=execution)
+        (started, min(finished or now, lease))
+        for started, finished, lease in ExecutionAttempt.objects.filter(
+            stage__execution=execution
+        ).values_list("started_at", "finished_at", "lease_until")
     )
     merged = []
     for start, end in intervals:

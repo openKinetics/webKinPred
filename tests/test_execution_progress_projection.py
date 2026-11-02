@@ -74,3 +74,40 @@ def test_control_calibration_ceilings_can_be_restored_without_restart(tmp_path):
         assert agent.config["budgets"] == {"cpu": 16, "ram": 96, "cpu_headroom": 2}
     finally:
         agent.transfers.shutdown(wait=True)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_public_status_never_loads_stage_manifests_or_attempt_logs(ready_work):
+    from datetime import timedelta
+
+    from api.execution.models import ExecutionAttempt
+    from api.execution.status import execution_status
+    from django.test import override_settings
+    from django.utils import timezone
+
+    host, stages = ready_work
+    stage = stages[0]
+    stage.payload = {"private_manifest": "x" * 100000}
+    stage.checkpoint = {"large_result": "y" * 100000}
+    stage.state = "running"
+    stage.save()
+    job = stage.execution.job
+    job.status = "Processing"
+    job.start_time = timezone.now()
+    job.save()
+    ExecutionAttempt.objects.create(
+        stage=stage,
+        host=host,
+        state="running",
+        lease_until=timezone.now() + timedelta(seconds=30),
+        outcome={"log": "z" * 100000},
+    )
+    with override_settings(EXECUTION_V2_ENABLED=True), CaptureQueriesContext(connection) as queries:
+        result = execution_status(job)
+    assert result["execution_state"] == "running"
+    assert len(queries) == 4
+    sql = "\n".join(row["sql"] for row in queries)
+    assert '"api_workstage"."payload"' not in sql
+    assert '"api_workstage"."checkpoint"' not in sql
+    assert '"api_executionattempt"."outcome"' not in sql
+    assert '"api_executionspec"."specification"' not in sql
