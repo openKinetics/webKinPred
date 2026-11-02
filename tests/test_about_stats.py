@@ -29,7 +29,7 @@ def completed(path, name="statsjob"):
     return Job.objects.create(
         public_id=name,
         status="Completed",
-        prediction_type="kcat",
+        prediction_type="",
         completion_time=timezone.now(),
         output_file=str(path),
     )
@@ -135,9 +135,9 @@ def test_completion_during_file_read_is_rechecked_before_commit(tmp_path):
     job = completed(path)
     real = stats.summarise_output
 
-    def changed(p):
+    def changed(p, **kwargs):
         Job.objects.filter(pk=job.pk).update(status="Processing")
-        return real(p)
+        return real(p, **kwargs)
 
     with patch.object(stats, "summarise_output", side_effect=changed):
         stats.sync_completed_jobs()
@@ -268,3 +268,32 @@ def test_legacy_completion_refresh_only_marks_dirty_without_reading_files():
         _safe_refresh_about_stats_cache()
     row.refresh_from_db()
     assert row.is_stale
+
+
+def test_legacy_realkcat_units_and_requested_targets_ignore_input_measurements(tmp_path):
+    path = result(
+        tmp_path,
+        rows=[
+            {
+                "Protein Sequence": "AAA",
+                "Km (M)": "2",
+                "KM (mM)": "[100,200,300]",
+                "kcat (1/s)": "999",
+            }
+        ],
+    )
+    job = completed(path)
+    Job.objects.filter(pk=job.pk).update(prediction_type="Km", km_method="RealKcat")
+    payload = publish()
+    assert payload["km_predictions_completed"] == 1
+    assert payload["kcat_predictions_completed"] == 0
+
+
+def test_unrequested_parameter_columns_do_not_count_as_predictions(tmp_path):
+    path = result(
+        tmp_path, rows=[{"Protein Sequence": "AAA", "kcat (1/s)": "1", "KM (mM)": "[10,20]"}]
+    )
+    job = completed(path)
+    Job.objects.filter(pk=job.pk).update(prediction_type="kcat", kcat_method="DLKcat")
+    payload = publish()
+    assert payload["parameter_predictions_completed"] == 1

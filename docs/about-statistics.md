@@ -18,7 +18,9 @@ or performs an all-job/protein aggregation during a web request.
   metadata falls back to splitting the successful row's protein list.
 
 Header aliases come from the method registry, including CatRange and IECata's
-current units and the older CataPro kcat/Km spelling. Version the summary format
+current units and the older CataPro kcat/Km spelling and RealKcat's `Km (M)` output.
+The job's requested targets and selected method determine which output columns
+count: extra user-supplied measurement columns are excluded. Version the summary format
 when changing these rules so historical results are reconciled again.
 
 ## Background reconciliation and freshness

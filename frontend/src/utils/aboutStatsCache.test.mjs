@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isFreshAboutStats, readAboutStats, ABOUT_STATS_MAX_AGE_MS } from './aboutStatsCache.mjs';
 const now = Date.parse('2026-11-02T12:00:00Z');
-const payload = { schema_version: 2, generated_at: new Date(now).toISOString(),
+const payload = { schema_version: 3, generated_at: new Date(now).toISOString(),
   jobs_completed: 1, reactions_completed: 2, unique_protein_sequences: 1,
   parameter_predictions_completed: 3, kcat_predictions_completed: 1,
   km_predictions_completed: 1, kcat_km_predictions_completed: 1 };

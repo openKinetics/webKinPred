@@ -24,9 +24,9 @@ from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
 log = logging.getLogger(__name__)
-CACHE_KEY = "about_stats_v2"
-MEMORY_KEY = "about_stats_payload_v2"
-VERSION = 2
+CACHE_KEY = "about_stats_v3"
+MEMORY_KEY = "about_stats_payload_v3"
+VERSION = 3
 MAX_AGE = 20 * 60
 COUNTS = (
     "jobs_completed",
@@ -51,7 +51,7 @@ def _columns():
 
     columns = {
         "kcat": {"kcat (1/s)"},
-        "Km": {"KM (mM)"},
+        "Km": {"KM (mM)", "Km (M)"},
         "kcat/Km": {"kcat/Km (1/(s*mM))", "kcat/Km (1/(s·M))"},
     }
     for descriptor in all_methods().values():
@@ -89,7 +89,7 @@ def _sequence_hashes(value):
             yield hashlib.sha256(sequence.encode()).digest()
 
 
-def summarise_output(path):
+def summarise_output(path, *, methods=None):
     """Stream one CSV; retain only distinct sequence hashes, not its rows."""
     counts = dict(reactions=0, kcat=0, km=0, kcat_km=0)
     proteins = set()
@@ -103,7 +103,20 @@ def summarise_output(path):
             set.union(*columns.values())
         ):
             raise ValueError("Result CSV has no recognised prediction schema")
-        selected = {target: sorted(header & names) for target, names in columns.items()}
+        from api.methods.registry import all_methods
+
+        selected = {}
+        for target, names in columns.items():
+            if methods is not None and target not in methods:
+                selected[target] = []
+                continue
+            descriptor = all_methods().get((methods or {}).get(target))
+            preferred = descriptor.output_cols.get(target) if descriptor else None
+            if (methods or {}).get(target) == "RealKcat" and target == "Km":
+                preferred = "Km (M)"
+            selected[target] = [preferred] if preferred in header else sorted(header & names)
+        if not any(selected.values()):
+            raise ValueError("Result CSV has no columns for its requested targets")
         for row in reader:
             # A row/target is represented by one method column. Do not double count aliases.
             values = {
@@ -175,12 +188,26 @@ def sync_completed_jobs(*, limit=20):
         _pending_jobs()
         .exclude(about_stats__retry_after__gt=timezone.now())
         .order_by("pk")
-        .only("output_file", "completion_time")[: max(1, min(limit, 200))]
+        .only(
+            "output_file",
+            "completion_time",
+            "prediction_type",
+            "kcat_method",
+            "km_method",
+            "kcat_km_method",
+        )[: max(1, min(limit, 200))]
     )
     for job in jobs:
         signature = (job.completion_time, job.output_file.name)
         try:
-            counts, proteins = summarise_output(Path(job.output_file.path))
+            fields = {"kcat": job.kcat_method, "Km": job.km_method, "kcat/Km": job.kcat_km_method}
+            targets = job.prediction_type.split("+")
+            methods = (
+                {t: fields[t] for t in targets}
+                if targets and all(t in fields for t in targets)
+                else {t: method for t, method in fields.items() if method}
+            )
+            counts, proteins = summarise_output(Path(job.output_file.path), methods=methods or None)
             error = ""
         except (OSError, ValueError, csv.Error, UnicodeError, SuspiciousFileOperation) as exc:
             counts, proteins = {}, set()
