@@ -190,6 +190,8 @@ def run_probe(config, output: Path) -> dict:
             for key in peaks:
                 peaks[key] = max(peaks[key], sample.get(key, 0))
             samples.append(sample)
+            if config.get("scratch_limit") and sample["disk"] > config["scratch_limit"]:
+                raise RuntimeError("Isolated profiling scratch limit exceeded")
             if not info["State"]["Running"]:
                 break
             if time.monotonic() - started > config.get("timeout_seconds", 3600):
@@ -197,6 +199,7 @@ def run_probe(config, output: Path) -> dict:
                 raise TimeoutError("Isolated profiling deadline exceeded")
             time.sleep(0.1)
         report = {
+            "container": ident,
             "configuration": config,
             "elapsed_seconds": time.monotonic() - started,
             "peaks": peaks,
@@ -218,6 +221,7 @@ def run_probe(config, output: Path) -> dict:
         atomic_json(
             output,
             {
+                "container": ident,
                 "configuration": config,
                 "elapsed_seconds": time.monotonic() - started,
                 "peaks": peaks,

@@ -84,7 +84,7 @@ def coalesce(limit=128):
         return []
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL statement_timeout = %s", ["3000ms"])
-        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726397])
+        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return []
     fingerprints = set()

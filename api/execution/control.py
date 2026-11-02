@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import uuid
+from collections import Counter
 from datetime import timedelta
 from itertools import combinations
 
@@ -181,7 +182,14 @@ def _gpu_profile_allowed(profile, active, host):
     if not gpu_profiles:
         return True
     combination = sorted(gpu_profiles + [profile.fingerprint])
-    return combination in host.capabilities.get("validated_gpu_combinations", [])
+    approved = host.capabilities.get("validated_gpu_combinations", [])
+    if combination in approved:
+        return True
+    # Any measured mixture must be reachable while its models are starting.
+    # Accept its smaller occupancy states, preserving multiplicity. This never
+    # combines separate pair approvals into an unmeasured larger mixture.
+    required = Counter(combination)
+    return any(len(row) > len(combination) and required <= Counter(row) for row in approved)
 
 
 def _after_stopping(active, removed, telemetry):

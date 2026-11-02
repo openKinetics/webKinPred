@@ -57,3 +57,50 @@ def test_comparison_waits_for_cuda_context_release_before_concurrent_launch(tmp_
         tmp_path / "results",
     )
     assert waits == [1] and len(launches) == 4 and result["repetitions"] == 1
+
+
+def test_profile_scratch_limit_stops_only_its_isolated_container(tmp_path):
+    import os
+    import subprocess
+
+    import pytest
+    from tools.executor.profile import run_probe
+
+    image = os.environ.get("WEBKINPRED_TEST_EXECUTOR_IMAGE")
+    if not image:
+        pytest.skip("Pinned Docker rehearsal image required")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    report = tmp_path / "report.json"
+    config = {
+        "isolated": True,
+        "dataset_checksum": "a" * 64,
+        "image": image,
+        "scratch": str(scratch),
+        "memory_limit": 64 * 1024**2,
+        "cpu": 1,
+        "scratch_limit": 1024,
+        "command": [
+            "python",
+            "-c",
+            "from pathlib import Path; import time; "
+            "Path('/work/probe').write_bytes(b'x'*4096); time.sleep(10)",
+        ],
+    }
+    try:
+        with pytest.raises(RuntimeError, match="scratch limit"):
+            run_probe(config, report)
+        evidence = json.loads(report.read_text())
+        assert evidence["peaks"]["disk"] >= 4096 and evidence["exit_code"] == -1
+        container = evidence["container"]
+        assert (
+            subprocess.check_output(
+                ["docker", "inspect", container, "--format", "{{.State.Running}}"], text=True
+            ).strip()
+            == "false"
+        )
+    finally:
+        if report.exists():
+            container = json.loads(report.read_text()).get("container", "")
+            if container.startswith("wk-profile-"):
+                subprocess.run(["docker", "rm", "-f", container], check=True, capture_output=True)

@@ -865,3 +865,18 @@ def test_gpu_drain_leaves_cpu_admission_enabled_and_survives_registration(ready_
     call_command("execution_admin", "resume-gpu", "--host", host.pk, stdout=io.StringIO())
     host.refresh_from_db()
     assert not host.gpu_paused
+
+
+def test_validated_gpu_mixtures_allow_startup_subsets_and_preserve_multiplicity():
+    from types import SimpleNamespace
+
+    a, b, c = ["a" * 64, "b" * 64, "c" * 64]
+    host = SimpleNamespace(capabilities={"validated_gpu_combinations": [[a, b, c]]})
+    profile = SimpleNamespace(resources={"vram": 1}, fingerprint=b)
+    active = [{"resources": {"vram": 1}, "profile_fingerprint": a}]
+    assert control._gpu_profile_allowed(profile, active, host)
+    active.append({"resources": {"vram": 1}, "profile_fingerprint": b})
+    assert not control._gpu_profile_allowed(profile, active, host)
+    host.capabilities["validated_gpu_combinations"] = [[a, b], [b, c]]
+    profile.fingerprint = c
+    assert not control._gpu_profile_allowed(profile, active, host)
