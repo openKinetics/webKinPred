@@ -111,6 +111,7 @@ def test_real_cpu_container_checkpoints_and_final_publication(tmp_path):
                     "complete": "finish",
                     "error": "fail",
                     "artifact-location": "artifact_location",
+                    "artifact-locations": "artifact_locations",
                 }.get(operation, operation),
             )(host.pk, attempt, data)
             if attempt

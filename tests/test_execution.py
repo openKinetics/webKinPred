@@ -710,3 +710,158 @@ def test_attempt_input_manifest_prefetches_verified_locations(ready_work):
     assert len(manifest["artifacts"]) == 32
     assert all(row["hosts"] == [host.pk] for row in manifest["artifacts"])
     assert len(captured) <= 3
+
+
+@pytest.mark.django_db(transaction=True)
+def test_many_small_artifacts_prefer_live_local_peer_and_backfill_after_grace(ready_work):
+    from api.execution.models import Artifact, ArtifactDependency, ArtifactLocation
+
+    host, stages = ready_work
+    stages[1].execution.paused = True
+    stages[1].execution.save(update_fields=["paused"])
+    peer = ExecutorHost.objects.create(
+        id="peer",
+        paused=False,
+        reconciled=True,
+        heartbeat_at=timezone.now(),
+        budgets=host.budgets,
+        telemetry=host.telemetry,
+        capabilities=host.capabilities,
+    )
+    artifacts = [
+        Artifact(id=f"{i:064x}", identity={}, checksum="b" * 64, size=1024) for i in range(200)
+    ]
+    Artifact.objects.bulk_create(artifacts)
+    ArtifactDependency.objects.bulk_create(
+        [
+            ArtifactDependency(stage=stages[0], artifact=a, path=f"{i}.npy")
+            for i, a in enumerate(artifacts)
+        ]
+    )
+    ArtifactLocation.objects.bulk_create(
+        [ArtifactLocation(artifact=a, host=peer, ready=True) for a in artifacts]
+    )
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        assert control.claim(host.pk) is None
+        WorkStage.objects.filter(pk=stages[0].pk).update(
+            created_at=timezone.now() - timedelta(seconds=31)
+        )
+        assert control.claim(host.pk) is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bulk_location_commit_is_atomic_bounded_and_owned(ready_work, django_assert_num_queries):
+    from api.execution.models import Artifact, ArtifactDependency, ArtifactLocation
+
+    host, stages = ready_work
+    artifacts = [
+        Artifact(id=f"{i:064x}", identity={}, checksum="b" * 64, size=12) for i in range(200)
+    ]
+    Artifact.objects.bulk_create(artifacts)
+    ArtifactDependency.objects.bulk_create(
+        [
+            ArtifactDependency(stage=stages[0], artifact=a, path=f"{i}.npy")
+            for i, a in enumerate(artifacts)
+        ]
+    )
+    ArtifactLocation.objects.bulk_create(
+        [ArtifactLocation(artifact=a, host=host, ready=True) for a in artifacts]
+    )
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        attempt = control.claim(host.pk)
+    rows = [
+        {"artifact_id": a.pk, "checksum": a.checksum, "size": 12, "ready": True} for a in artifacts
+    ]
+    ArtifactLocation.objects.all().update(ready=False)
+    with django_assert_num_queries(9, exact=False):
+        control.artifact_locations(
+            host.pk, attempt["id"], {"token": attempt["token"], "locations": rows}
+        )
+    assert ArtifactLocation.objects.filter(ready=True).count() == 200
+    rows[-1] = {**rows[-1], "checksum": "f" * 64}
+    ArtifactLocation.objects.all().update(ready=False)
+    with pytest.raises(ValueError, match="checksum"):
+        control.artifact_locations(
+            host.pk, attempt["id"], {"token": attempt["token"], "locations": rows}
+        )
+    assert not ArtifactLocation.objects.filter(ready=True).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_repeated_dependency_loss_never_suspends_cpu_profile(ready_work):
+    from api.execution.models import ExecutionOutbox
+
+    host, stages = ready_work
+    stage = stages[0]
+    for _ in range(3):
+        stage.state = "ready"
+        stage.available_at = timezone.now()
+        stage.save(update_fields=["state", "available_at"])
+        with override_settings(EXECUTION_V2_ENABLED=True):
+            attempt = control.claim(host.pk)
+        control.fail(
+            host.pk,
+            attempt["id"],
+            {"token": attempt["token"], "stopped": True, "category": "missing_embedding"},
+        )
+        stage.refresh_from_db()
+        assert stage.state == "recovering"
+        stage.profile.refresh_from_db()
+        assert not stage.profile.suspended
+    assert ExecutionOutbox.objects.filter(event__has_key="recover_stage").count() == 3
+
+
+@pytest.mark.django_db(transaction=True)
+def test_repair_dependency_holds_is_idempotent_and_leaves_oom_holds(ready_work):
+    from django.core.management import call_command
+
+    host, stages = ready_work
+    stage = stages[0]
+    stage.state = "held"
+    stage.waiting_reason = "missing_embedding"
+    stage.save(update_fields=["state", "waiting_reason"])
+    stage.profile.suspended = True
+    stage.profile.save(update_fields=["suspended"])
+    ExecutionAttempt.objects.create(
+        stage=stage,
+        host=host,
+        state="completed",
+        lease_until=timezone.now(),
+        profile_fingerprint=stage.profile.fingerprint,
+    )
+    call_command("execution_repair_dependencies", "--dry-run", stdout=io.StringIO())
+    stage.profile.refresh_from_db()
+    stage.refresh_from_db()
+    assert stage.profile.suspended and stage.state == "held"
+    call_command("execution_repair_dependencies", stdout=io.StringIO())
+    call_command("execution_repair_dependencies", stdout=io.StringIO())
+    stage.profile.refresh_from_db()
+    stage.refresh_from_db()
+    assert not stage.profile.suspended and stage.state == "recovering"
+    stage.state = "held"
+    stage.waiting_reason = "oom"
+    stage.save(update_fields=["state", "waiting_reason"])
+    stage.profile.suspended = True
+    stage.profile.save(update_fields=["suspended"])
+    call_command("execution_repair_dependencies", stdout=io.StringIO())
+    stage.profile.refresh_from_db()
+    stage.refresh_from_db()
+    assert stage.profile.suspended and stage.state == "held"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gpu_drain_leaves_cpu_admission_enabled_and_survives_registration(ready_work):
+    from django.core.management import call_command
+
+    host, stages = ready_work
+    call_command("execution_admin", "drain-gpu", "--host", host.pk, stdout=io.StringIO())
+    with override_settings(
+        EXECUTION_V2_ENABLED=True, EXECUTION_HOSTS={host.pk: {"budgets": host.budgets}}
+    ):
+        control.register(host.pk, {"capabilities": host.capabilities, "telemetry": host.telemetry})
+        host.refresh_from_db()
+        assert host.gpu_paused
+        assert control.claim(host.pk) is not None
+    call_command("execution_admin", "resume-gpu", "--host", host.pk, stdout=io.StringIO())
+    host.refresh_from_db()
+    assert not host.gpu_paused

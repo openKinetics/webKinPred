@@ -315,6 +315,8 @@ def claim(host_id: str):
     # scan. Thousands of blocked or other-host stages must not hide fitting
     # work beyond the first page, or consume its row locks.
     available_profiles = list(ResourceProfile.objects.filter(validated=True, suspended=False))
+    if host.gpu_paused:
+        available_profiles = [p for p in available_profiles if not p.resources.get("vram")]
     advertised_fingerprints = set(host.capabilities.get("profiles", []))
     advertised = [p for p in available_profiles if p.fingerprint in advertised_fingerprints]
     methods = {(p.stage_kind, p.method) for p in advertised}
@@ -691,6 +693,7 @@ def serialize_attempt(attempt):
         "settings": profile.settings,
         "artifacts": artifacts,
         "lease_seconds": 30,
+        "artifact_protocol": 2,
     }
 
 
@@ -774,33 +777,68 @@ def checkpoint(host_id, attempt_id, data):
 
 
 @transaction.atomic
-def artifact_location(host_id, attempt_id, data):
-    """Record verified transfers and confirmed 404/corruption for an owned dependency."""
+def artifact_locations(host_id, attempt_id, data):
+    """Validate a bounded location manifest once per attempt, then publish atomically."""
     attempt = _owned(host_id, attempt_id, data["token"])
     if attempt.state not in {"leased", "running"} or attempt.lease_until <= timezone.now():
         raise ValueError("Stale attempt cannot change artifact availability")
-    artifact_id = data["artifact_id"]
-    if not attempt.stage.artifacts.filter(
-        artifact_id=artifact_id
-    ).exists() and artifact_id not in attempt.stage.payload.get("output_artifacts", []):
+    rows = data.get("locations")
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 1024:
+        raise ValueError("Expected 1..1024 artifact locations")
+    ids = {row["artifact_id"] for row in rows}
+    allowed = set(
+        attempt.stage.artifacts.filter(artifact_id__in=ids).values_list("artifact_id", flat=True)
+    )
+    allowed.update(set(attempt.stage.payload.get("output_artifacts", [])) & ids)
+    if ids != allowed:
         raise PermissionError("Artifact is outside this attempt")
-    artifact = Artifact.objects.select_for_update().get(pk=artifact_id)
-    if artifact.checksum != data["checksum"]:
-        raise ValueError("Artifact checksum changed")
-    source_host = data.get("source_host", host_id)
-    if data.get("ready") is True:
-        if source_host != host_id or data.get("size") != artifact.size:
-            raise PermissionError("Only this executor can verify its own copy")
-        ArtifactLocation.objects.update_or_create(
-            artifact=artifact,
-            host_id=host_id,
-            defaults={"ready": True, "verified_at": timezone.now()},
+    artifacts = {
+        a.pk: a for a in Artifact.objects.select_for_update().filter(pk__in=ids).order_by("pk")
+    }
+    updates = {}
+    for row in rows:
+        artifact = artifacts[row["artifact_id"]]
+        if artifact.checksum != row["checksum"]:
+            raise ValueError("Artifact checksum changed")
+        source_host = row.get("source_host", host_id)
+        ready = row.get("ready")
+        if ready is True:
+            if source_host != host_id or row.get("size") != artifact.size:
+                raise PermissionError("Only this executor can verify its own copy")
+        elif ready is not False:
+            raise ValueError("Artifact readiness must be boolean")
+        updates[(artifact.pk, source_host)] = (artifact, ready)
+    now = timezone.now()
+    # All validation precedes writes. Confirmed absent remote locations are fenced
+    # by the same ownership token as verified local arrivals.
+    for source_host in {host for _, host in updates}:
+        missing = [
+            ident
+            for (ident, host), (_, ready) in updates.items()
+            if host == source_host and not ready
+        ]
+        if missing:
+            ArtifactLocation.objects.filter(artifact_id__in=missing, host_id=source_host).update(
+                ready=False
+            )
+    local = [
+        ArtifactLocation(artifact=artifact, host_id=host_id, ready=True, verified_at=now)
+        for (_, host), (artifact, ready) in updates.items()
+        if ready and host == host_id
+    ]
+    if local:
+        ArtifactLocation.objects.bulk_create(
+            local,
+            update_conflicts=True,
+            unique_fields=["artifact", "host"],
+            update_fields=["ready", "verified_at"],
+            batch_size=1000,
         )
-    elif data.get("ready") is False:
-        artifact.locations.filter(host_id=source_host).update(ready=False)
-    else:
-        raise ValueError("Artifact readiness must be boolean")
-    return {"recorded": True}
+    return {"recorded": len(rows)}
+
+
+def artifact_location(host_id, attempt_id, data):
+    return artifact_locations(host_id, attempt_id, {"token": data["token"], "locations": [data]})
 
 
 @transaction.atomic
@@ -965,6 +1003,7 @@ def fail(host_id, attempt_id, data):
         "host_pressure",
         "waiting_gpu_slot",
         "telemetry_unavailable",
+        "missing_embedding",
     }
     adjusted = False
     if stage.waiting_reason == "oom" and stage.profile_id:

@@ -71,6 +71,8 @@ def executor(request, host_id, operation, attempt_id=None):
             return JsonResponse(control.finish(host_id, attempt_id, data))
         if operation == "checkpoint" and attempt_id:
             return JsonResponse(control.checkpoint(host_id, attempt_id, data))
+        if operation == "artifact-locations" and attempt_id:
+            return JsonResponse(control.artifact_locations(host_id, attempt_id, data))
         if operation == "artifact-location" and attempt_id:
             return JsonResponse(control.artifact_location(host_id, attempt_id, data))
         if operation == "error" and attempt_id:

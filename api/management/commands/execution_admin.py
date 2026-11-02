@@ -21,6 +21,8 @@ class Command(BaseCommand):
                 "disable-profile",
                 "bind-profiles",
                 "drain",
+                "drain-gpu",
+                "resume-gpu",
                 "stop",
                 "explain",
                 "pause-submissions",
@@ -45,6 +47,17 @@ class Command(BaseCommand):
                 path.touch()
             else:
                 path.unlink(missing_ok=True)
+        elif action in {"drain-gpu", "resume-gpu"}:
+            if not options["host"]:
+                raise CommandError("--host required")
+            host = ExecutorHost.objects.select_for_update().get(pk=options["host"])
+            host.gpu_paused = action == "drain-gpu"
+            host.save(update_fields=["gpu_paused"])
+            self.stdout.write(
+                "GPU admissions paused; CPU work continues"
+                if host.gpu_paused
+                else "GPU admissions resumed"
+            )
         elif action in {"drain", "stop"}:
             if not options["host"]:
                 raise CommandError("--host required")

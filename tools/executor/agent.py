@@ -16,11 +16,11 @@ from pathlib import Path
 
 import psutil
 from api.execution.artifacts import ArtifactStore, atomic_json, safe_relative, sha256_file
-from api.execution.errors import MissingEmbedding, classify
+from api.execution.errors import classify
 from api.execution.resources import admit
 from api.execution.telemetry import container_observations, snapshot
 
-from tools.executor.checkpoints import partial_manifest, remember, restore
+from tools.executor.checkpoints import partial_manifest, remember
 
 LABEL = "org.webkinpred.executor"
 
@@ -256,68 +256,41 @@ class Agent:
         )
 
     def materialize(self, request, work):
-        started = time.monotonic()
-        transferred_bytes, local_cache_hits = 0, 0
-        for artifact in request["artifacts"]:
-            local_location_invalidated = False
-            destination = work / "media" / safe_relative(artifact["path"])
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            blob = self.store.path(artifact["checksum"])
-            if blob.exists() and (
-                blob.stat().st_size != artifact["size"] or sha256_file(blob) != artifact["checksum"]
-            ):
-                blob.unlink()  # A corrupt blob is never an approved dependency.
-            if not blob.exists():
-                error = None
-                missing = False
-                for host in artifact["hosts"]:
-                    if host == self.host:
-                        self.artifact_location(request, artifact, host, False)
-                        local_location_invalidated = True
-                        missing = True
-                        continue
-                    peer = self.config.get("peers", {}).get(host)
-                    if not peer:
-                        continue
-                    try:
-                        req = urllib.request.Request(
-                            peer["url"].rstrip("/") + "/blobs/" + artifact["checksum"],
-                            headers={"Authorization": "Bearer " + peer["token"]},
-                        )
-                        with urllib.request.urlopen(req, timeout=30) as response:
-                            blob = self.store.publish(
-                                response,
-                                artifact["checksum"],
-                                artifact["size"],
-                                minimum_free=self.config["budgets"]["disk_headroom"],
-                            )
-                        transferred_bytes += artifact["size"]
-                        break
-                    except (OSError, ValueError) as exc:
-                        error = exc
-                        if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
-                            self.artifact_location(request, artifact, host, False)
-                            missing = True
-                else:
-                    if missing:
-                        raise MissingEmbedding("Required artifact must be rescheduled") from error
-                    raise ConnectionError("Required artifact transfer unavailable") from error
-            else:
-                local_cache_hits += 1
-            # Existing verified locations need no network write after the
-            # local size/checksum check. Prediction stages can consume hundreds
-            # of embeddings already produced on this host.
-            if self.host not in artifact["hosts"] or local_location_invalidated:
-                self.artifact_location(request, artifact, self.host, True)
-            # Private copies prevent legacy writers from changing immutable cache files.
-            shutil.copyfile(blob, destination)
-        restore(self.root, request, work)
-        return {
-            "transfer_seconds": time.monotonic() - started,
-            "transferred_bytes": transferred_bytes,
-            "local_cache_hits": local_cache_hits,
-            "artifact_requests": len(request["artifacts"]),
-        }
+        from tools.executor.transfers import materialize
+
+        return materialize(self, request, work)
+
+    def refresh_capabilities(self):
+        """Reload only measured profiles/mixtures, never execution images or mounts."""
+        path = self.config.get("capabilities_file")
+        if not path:
+            return
+        path = Path(path)
+        if path.stat().st_size > 1024**2:
+            raise ValueError("Capability registry exceeds limit")
+        from api.execution.artifacts import HEX
+
+        registry = json.loads(path.read_text())
+        profiles = registry["profiles"]
+        combinations = registry["validated_gpu_combinations"]
+        if (
+            not isinstance(profiles, list)
+            or not isinstance(combinations, list)
+            or any(not isinstance(p, str) or not HEX.fullmatch(p) for p in profiles)
+        ):
+            raise ValueError("Invalid capability profiles")
+        allowed = set(profiles)
+        if any(
+            not isinstance(c, list)
+            or not 2 <= len(c) <= 8
+            or any(p not in allowed for p in c)
+            or sorted(c) != c
+            for c in combinations
+        ):
+            raise ValueError("Invalid capability combinations")
+        self.config["capabilities"].update(
+            profiles=profiles, validated_gpu_combinations=combinations
+        )
 
     def artifact_location(self, request, artifact, host, ready):
         self.request(
@@ -781,6 +754,7 @@ class Agent:
                 time.sleep(5)
         while True:
             try:
+                self.refresh_capabilities()
                 if identity(self.config.get("gpu_uuid", ""))["fingerprint"] != runtime[
                     "fingerprint"
                 ] or any(file_stamp(Path(path)) != stamp for path, stamp in stamps.items()):

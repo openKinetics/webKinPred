@@ -2,36 +2,43 @@
 
 from datetime import timedelta
 
-from django.db.models import Max, Sum
+from django.db.models import Count, Max, Sum
 
 from api.execution.models import ArtifactCleanup, ArtifactLocation, ExecutorHost, ResourceProfile
 from api.execution.resources import LIVE_STATES, admit
 
 
 def prefer_peer(stage, host, profile, input_bytes, now):
-    if stage.kind != "predict" or profile.resources.get("vram") or input_bytes < 8 * 1024**2:
+    if stage.kind not in {"predict", "embedding"} or profile.resources.get("vram"):
         return False
     ready_at = (
         stage.dependencies.aggregate(latest=Max("completed_at"))["latest"] or stage.created_at
     )
     # Keep backfilling possible when the preferred agent is slow or loses contact.
-    if now - ready_at >= timedelta(seconds=3):
-        return False
-    locations = dict(
-        ArtifactLocation.objects.filter(
+    locations = {
+        row["host_id"]: row
+        for row in ArtifactLocation.objects.filter(
             artifact_id__in=stage.artifacts.values("artifact_id"), ready=True
         )
         .values("host_id")
-        .annotate(size=Sum("artifact__size"))
-        .values_list("host_id", "size")
-    )
-    local = locations.get(host.pk, 0)
+        .annotate(size=Sum("artifact__size"), files=Count("artifact_id"))
+    }
+    local = locations.get(host.pk, {"size": 0, "files": 0})
     for peer in ExecutorHost.objects.filter(
         paused=False, reconciled=True, heartbeat_at__gte=now - timedelta(seconds=10)
     ).exclude(pk=host.pk):
-        if locations.get(peer.pk, 0) <= local + 8 * 1024**2 or peer.telemetry.get(
+        remote = locations.get(peer.pk, {"size": 0, "files": 0})
+        extra_bytes = remote["size"] - local["size"]
+        extra_files = remote["files"] - local["files"]
+        if (extra_bytes < 8 * 1024**2 and extra_files < 128) or peer.telemetry.get(
             "legacy_consumers"
         ):
+            continue
+        # Batch transfer removes per-file RPCs, but publication and copying still
+        # have per-file cost. Give a live, fitting peer time to claim tiny-file
+        # sets too; cap the preference so idle hosts can always backfill.
+        grace = min(30, max(3, extra_bytes / (16 * 1024**2), extra_files / 100))
+        if now - ready_at >= timedelta(seconds=grace):
             continue
         if ArtifactCleanup.objects.filter(host=peer, completed_at__isnull=True).exists():
             continue

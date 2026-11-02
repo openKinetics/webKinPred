@@ -42,6 +42,7 @@ class ExecutorHost(models.Model):
     heartbeat_at = models.DateTimeField(null=True)
     paused = models.BooleanField(default=True)
     reconciled = models.BooleanField(default=False)
+    gpu_paused = models.BooleanField(default=False, db_default=False)
 
 
 class EmbeddingSubmission(models.Model):
