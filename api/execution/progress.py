@@ -1,6 +1,6 @@
 """Project concurrent stage events into the existing target progress contract."""
 
-from django.db import connection, models, transaction
+from django.db import OperationalError, connection, models, transaction
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
@@ -35,6 +35,12 @@ def request_refresh(execution):
 def _project_one():
     from api.execution.models import ExecutionOutbox, ExecutionSpec
 
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+                "SET LOCAL lock_timeout = '250ms'; SET LOCAL statement_timeout = '1000ms'"
+            )
     event = (
         ExecutionOutbox.objects.select_for_update(skip_locked=True)
         .filter(published_at__isnull=True, event__has_key="progress_execution_ids")
@@ -66,7 +72,13 @@ def project_pending(limit=4, seconds=0.5):
     deadline = time.monotonic() + seconds
     count = 0
     while count < limit and time.monotonic() < deadline:
-        if not _project_one():
+        try:
+            projected = _project_one()
+        except OperationalError:
+            # Projection is optional; its transaction has rolled back and the
+            # durable event remains pending. Do not delay control reconciliation.
+            break
+        if not projected:
             break
         count += 1
     return count

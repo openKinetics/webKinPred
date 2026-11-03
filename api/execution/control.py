@@ -823,6 +823,8 @@ def _stopped_at(attempt, data):
 
 @transaction.atomic
 def heartbeat(host_id, attempt_id, data):
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0")
     attempt = _owned(host_id, attempt_id, data["token"])
     now = timezone.now()
     if attempt.state not in {"leased", "running"} or attempt.lease_until <= now:
@@ -954,6 +956,8 @@ def artifact_location(host_id, attempt_id, data):
 
 @transaction.atomic
 def finish(host_id, attempt_id, data):
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0")
     attempt = _owned(host_id, attempt_id, data["token"])
     if attempt.state == "completed":
         if digest(attempt.outcome) != digest(data):

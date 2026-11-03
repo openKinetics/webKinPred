@@ -64,6 +64,28 @@ def test_shared_progress_is_durable_bounded_and_refreshes_again_after_later_even
     assert ExecutionOutbox.objects.filter(key=f"progress:{shared.pk}").count() == 1
 
 
+@pytest.mark.django_db(transaction=True)
+def test_busy_optional_projection_preserves_pending_owner_and_retries(ready_work, monkeypatch):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox, ExecutionSpec
+    from django.db import OperationalError
+
+    owner = ready_work[1][0].execution
+    shared = ExecutionSpec.objects.create(
+        specification={"shared_protein_batch": {"source_requests": [{"id": owner.pk}]}},
+        checksum="a" * 64,
+        input_checksum="b" * 64,
+    )
+    progress.request_refresh(shared)
+    refresh = progress.refresh
+    monkeypatch.setattr(progress, "refresh", Mock(side_effect=OperationalError("busy")))
+    assert progress.project_pending() == 0
+    event = ExecutionOutbox.objects.get(key=f"progress:{shared.pk}")
+    assert event.published_at is None and event.event["progress_execution_ids"] == [owner.pk]
+    monkeypatch.setattr(progress, "refresh", refresh)
+    assert progress.project_pending() == 1
+
+
 def test_running_heartbeat_cadence_preserves_fencing(tmp_path, monkeypatch):
     agent = Agent({"root": str(tmp_path), "host_id": "test", "budgets": {"disk_headroom": 0}})
     agent.docker = Mock(return_value=json.dumps([{"State": {"Running": True}}]))
