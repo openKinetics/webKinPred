@@ -380,6 +380,26 @@ def test_cohort_respects_maximum_work_size():
     assert all(WorkStage.objects.get(pk=i).payload["shape"]["sequences"] == 16 for i in ids)
 
 
+def test_long_stage_does_not_fragment_other_compatible_measured_work():
+    _, _, _, large, sources, head = setup_cohort()
+    large.limits["max_length"] = 100
+    large.save(update_fields=["limits"])
+    long = sources[1]
+    long.payload["shape"]["max_length"] = 150
+    long.save(update_fields=["payload"])
+    unchanged = deepcopy(long.payload)
+    ids = coalesce()
+    assert len(ids) == 1
+    cohort = WorkStage.objects.get(pk=ids[0])
+    assert cohort.payload["shape"]["sequences"] == 24
+    assert cohort.payload["shape"]["max_length"] <= 100
+    long.refresh_from_db()
+    assert long.state == "ready" and long.payload == unchanged
+    assert set(head.dependencies.values_list("pk", flat=True)) == {cohort.pk, long.pk}
+    assert Artifact.objects.filter(producer=long).count() == 8
+    assert Artifact.objects.filter(producer=cohort).count() == 24
+
+
 def test_batch_creation_budget_leaves_original_work_eligible_for_following_pass():
     _, _, _, large, stages, _ = setup_cohort()
     large.limits["sequences"] = 16

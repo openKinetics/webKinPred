@@ -88,7 +88,7 @@ def merged_payload(stages, profile):
 
 
 @transaction.atomic
-def coalesce(limit=16, *, cross_jobs=None, profile_id=None, batch_limit=4):
+def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
     """Bounded reconciliation. Empty until measured cohort profiles are enabled."""
     if connection.vendor != "postgresql":
         return []
@@ -233,6 +233,12 @@ def coalesce(limit=16, *, cross_jobs=None, profile_id=None, batch_limit=4):
         groups = defaultdict(list)
         for stage in candidates:
             if stage.payload.get("seq_id_to_seq") and stage.payload.get("outputs"):
+                # Longer work must keep its original measured profile. It is
+                # not a separator between otherwise compatible short stages;
+                # skipping it lets those stages fill the validated larger unit.
+                shape = stage.payload.get("shape", {})
+                if any(shape.get(k, float("inf")) > v for k, v in profile.limits.items()):
+                    continue
                 execution = executions.get(stage.execution_id)
                 if execution and execution.background and stage.pk not in needed:
                     stage.cohort_execution = execution
