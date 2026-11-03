@@ -97,6 +97,60 @@ def test_missing_sixteen_outputs_create_one_complete_batch_and_preserve_history(
     assert original.execution.job.status == "Completed"
 
 
+@pytest.mark.parametrize("verified_input", [False, True])
+def test_identical_runtime_misses_without_recoverable_dependencies_stop_retrying(verified_input):
+    host = ExecutorHost.objects.create(id="gpu")
+    head = consumer("incomplete-plan", [])
+    if verified_input:
+        artifact = Artifact.objects.create(
+            id="a" * 64,
+            identity={"job_input": "a"},
+            checksum="b" * 64,
+            size=12,
+            regenerable=False,
+        )
+        ArtifactLocation.objects.create(artifact=artifact, host=host, ready=True)
+        attach(head, artifact, "jobs/input.csv")
+    for index in range(3):
+        head.state = "recovering"
+        head.save(update_fields=["state"])
+        ExecutionAttempt.objects.create(
+            stage=head,
+            host=host,
+            state="stopped",
+            lease_until=timezone.now(),
+            finished_at=timezone.now(),
+            profile_fingerprint="a" * 64,
+            outcome={"category": "missing_embedding"},
+        )
+        missing_dependencies(head.pk, host.pk)
+        head.refresh_from_db()
+        assert head.state == ("held" if index == 2 else "ready")
+    assert head.waiting_reason == "dependency_plan_requires_attention"
+    assert head.execution.job.status == "Processing"
+    assert not RecoveryBatch.objects.exists()
+
+
+def test_missing_declared_artifacts_still_recover_after_repeated_runtime_misses():
+    host = ExecutorHost.objects.create(id="gpu")
+    _, artifacts = fixture(1)
+    head = consumer("recover-real-loss", artifacts)
+    for _ in range(3):
+        ExecutionAttempt.objects.create(
+            stage=head,
+            host=host,
+            state="stopped",
+            lease_until=timezone.now(),
+            finished_at=timezone.now(),
+            profile_fingerprint="a" * 64,
+            outcome={"category": "missing_embedding"},
+        )
+    missing_dependencies(head.pk, host.pk)
+    head.refresh_from_db()
+    assert head.state == "ready" and head.waiting_reason == "waiting_embeddings"
+    assert RecoveryBatch.objects.count() == 1
+
+
 def test_partial_protein_batch_is_narrowed_and_other_consumer_coalesces():
     _, artifacts = fixture()
     first = consumer("recovery-first", artifacts[:3])

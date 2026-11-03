@@ -182,7 +182,7 @@ def missing_dependencies(stage_id, host_id):
     stage = WorkStage.objects.select_for_update().get(pk=stage_id)
     if stage.state != "recovering":
         return
-    missing, unrecoverable = [], False
+    missing, unrecoverable, pending = [], False, False
     for dependency in stage.artifacts.select_related(
         "artifact__producer__profile", "artifact__producer__execution"
     ):
@@ -197,6 +197,7 @@ def missing_dependencies(stage_id, host_id):
             continue
         if _live(original) or original.state == "held":
             stage.dependencies.add(original)
+            pending = True
             continue
         output = next(
             (v for v in original.payload.get("outputs", []) if v["id"] == artifact.pk), None
@@ -208,11 +209,24 @@ def missing_dependencies(stage_id, host_id):
             owner = original.execution.job
             if owner is None or owner.status not in {"Completed", "Failed"}:
                 stage.dependencies.add(original)
+                pending = True
                 continue
         missing.append((artifact, original, output))
     _schedule(stage.execution, missing)
     stage.state = "held" if unrecoverable else "ready"
     stage.waiting_reason = "artifact_requires_attention" if unrecoverable else "waiting_embeddings"
+    if not (unrecoverable or missing or pending):
+        # A runtime cache miss with no missing declared artifacts cannot be
+        # repaired by launching the same attempt indefinitely. Preserve the
+        # request and healthy profile; expose an incomplete/mismatched plan.
+        recent = list(stage.attempts.order_by("-started_at")[:3])
+        if len(recent) == 3 and all(
+            a.state == "stopped"
+            and a.outcome.get("category") == "missing_embedding"
+            and a.profile_fingerprint == recent[0].profile_fingerprint
+            for a in recent
+        ):
+            stage.state, stage.waiting_reason = "held", "dependency_plan_requires_attention"
     stage.save(update_fields=["state", "waiting_reason"])
 
 
