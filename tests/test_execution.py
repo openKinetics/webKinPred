@@ -712,13 +712,14 @@ def test_saturated_claim_has_bounded_queries_and_does_not_rewrite_waiting_stages
     )
     with override_settings(EXECUTION_V2_ENABLED=True):
         assert control.claim(host.pk) is not None
-        assert control.claim(host.pk) is None  # Publish the initial waiting reason once.
+        assert control.claim(host.pk) is None
         with CaptureQueriesContext(connection) as captured:
             assert control.claim(host.pk) is None
     # Fixed availability lookups and fetching only inspected candidate contexts
     # avoid expensive correlated sorting; query count stays independent of backlog.
     assert len(captured) <= 16
     assert not any(query["sql"].startswith("UPDATE") for query in captured)
+    assert not any("DISTINCT ON" in query["sql"] for query in captured)
 
 
 @pytest.mark.django_db(transaction=True)

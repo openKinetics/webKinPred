@@ -336,6 +336,21 @@ def claim(host_id: str):
         available_profiles = [p for p in available_profiles if not p.resources.get("vram")]
     advertised_fingerprints = set(host.capabilities.get("profiles", []))
     advertised = [p for p in available_profiles if p.fingerprint in advertised_fingerprints]
+    retained, projected = _after_stopping(
+        active, [row["id"] for row in active if row["background"]], host.telemetry
+    )
+    # A busy host that cannot fit any advertised profile cannot admit work or
+    # preempt for a foreground request. Avoid ranking its entire backlog just
+    # to return an empty claim. The ordinary path still checks actual demand,
+    # profile compatibility and ownership before preemption or admission.
+    if attempts and not any(
+        admit(resources, active, host.budgets, host.telemetry, gpu=gpu).fits
+        or admit(resources, retained, host.budgets, projected, gpu=gpu).fits
+        for p in advertised
+        for resources in [{k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}]
+        for gpu in [bool(resources.get("vram"))]
+    ):
+        return None
     methods = {(p.stage_kind, p.method) for p in advertised}
     eligible = Q(
         profile_id__in=[
@@ -447,9 +462,6 @@ def claim(host_id: str):
     oldest = [oldest_by_kind.get(False), oldest_by_kind.get(True)]
     fitting = []
     foreground_fitting = []
-    retained, projected = _after_stopping(
-        active, [row["id"] for row in active if row["background"]], host.telemetry
-    )
     for p in advertised:
         resources = {k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}
         if admit(
