@@ -135,6 +135,53 @@ def test_old_project_residues_vectors_and_unknown_aliases_survive_pressure():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("research_alias", [False, True])
+def test_shared_batch_residues_are_transient_after_all_consumers_and_preserve_research(
+    research_alias,
+):
+    from api.execution.models import ExecutionSpec
+
+    host, spec, _ = context()
+    shared = ExecutionSpec.objects.create(
+        specification={"shared_protein_batch": {"source_requests": [{"id": spec.pk}]}},
+        checksum="e" * 64,
+        input_checksum="f" * 64,
+    )
+    producer = WorkStage.objects.create(
+        execution=shared, key="shared", kind="embedding", state="completed"
+    )
+    residue = blob(host, producer, "b")
+    vector = blob(host, producer, "c", "permanent", "prot_t5_last/weighted_vecs")
+    legacy = ExecutionSpec.objects.create(
+        specification={}, checksum="d" * 64, input_checksum="a" * 64
+    )
+    external = WorkStage.objects.create(
+        execution=legacy, key="research", kind="embedding", state="completed"
+    )
+    research = blob(host, external, "a")  # Even an unclassified standalone request stays protected.
+    if research_alias:
+        research.checksum = residue.checksum
+        research.retention = "protected"
+        research.save(update_fields=["checksum", "retention"])
+    consumer = WorkStage.objects.create(
+        execution=spec, key="use-shared", kind="predict", state="ready"
+    )
+    ArtifactDependency.objects.create(stage=consumer, artifact=residue, path="residue.npy")
+    assert claim_cleanup(host.pk) is None
+    consumer.state = "completed"
+    consumer.save(update_fields=["state"])
+    cleanup = claim_cleanup(host.pk)
+    if research_alias:
+        assert cleanup is None
+        assert residue.locations.get().ready
+    else:
+        assert cleanup["blobs"] == [{"checksum": residue.checksum, "size": 100}]
+        assert not residue.locations.get().ready
+        finish_cleanup(host.pk, cleanup)
+    assert research.locations.get().ready and vector.locations.get().ready
+
+
+@pytest.mark.django_db(transaction=True)
 def test_backfill_uses_verified_platform_provenance_and_retains_standalone_requests():
     host, spec, producer = context()
     residue = blob(host, producer, "a", "protected")

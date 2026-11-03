@@ -79,7 +79,10 @@ def _claim_cleanup(host_id, *, version=1):
     # Full residue matrices are work files, not a reusable long-term cache.
     # Only classified, newly generated platform artifacts in the managed blob
     # store qualify; standalone/project requests and unknown legacy files do not.
-    policy = Q(artifact__retention="transient", artifact__producer__execution__job__isnull=False)
+    prediction_owned = Q(artifact__producer__execution__job__isnull=False) | Q(
+        artifact__producer__execution__specification__shared_protein_batch__isnull=False
+    )
+    policy = Q(artifact__retention="transient") & prediction_owned
     if pressure:
         policy |= Q(artifact__retention="cache", verified_at__lt=cutoff)
     sweep, _ = ArtifactSweep.objects.select_for_update().get_or_create(host=host)
