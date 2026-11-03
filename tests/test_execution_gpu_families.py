@@ -2,7 +2,6 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from api.execution.control import _gpu_profile_allowed
 from api.execution.gpu_families import families
 
 
@@ -29,15 +28,10 @@ def profiles():
     return parent, child
 
 
-def test_work_unit_growth_inherits_only_a_measured_resident_model_mixture():
+def test_work_unit_growth_preserves_historical_resident_model_family():
     parent, child = profiles()
     mapping = families([parent, child])
     assert mapping == {"large": "small"}
-    host = SimpleNamespace(capabilities={"validated_gpu_combinations": [["other", "small"]]})
-    active = [{"resources": {"vram": 1}, "profile_fingerprint": "other"}]
-    assert _gpu_profile_allowed(child, active, host, mapping)
-    active.append({"resources": {"vram": 1}, "profile_fingerprint": "large"})
-    assert not _gpu_profile_allowed(child, active, host, mapping)
 
 
 @pytest.mark.parametrize(

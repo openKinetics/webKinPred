@@ -173,7 +173,7 @@ def test_prioritized_gpu_work_drains_lower_gpu_admissions_but_allows_cpu_work(
     host, stages = ready_work
     urgent, normal = stages
     p = urgent.profile
-    p.resources = {"cpu": 1, "ram": 20 * GIB if oversized else GIB, "disk": GIB, "vram": 2 * GIB}
+    p.resources = {"cpu": 1, "ram": 20 * GIB if oversized else GIB, "disk": GIB, "vram": 12 * GIB}
     p.save()
     compatible = ResourceProfile.objects.create(
         id="compatible",
@@ -181,7 +181,7 @@ def test_prioritized_gpu_work_drains_lower_gpu_admissions_but_allows_cpu_work(
         image=p.image,
         stage_kind="predict",
         validated=True,
-        resources={**p.resources, "ram": GIB},
+        resources={**p.resources, "ram": GIB, "vram": 2 * GIB},
     )
     cpu = ResourceProfile.objects.create(
         id="cpu-small",
@@ -208,10 +208,9 @@ def test_prioritized_gpu_work_drains_lower_gpu_admissions_but_allows_cpu_work(
         lease_until=timezone.now() + timedelta(seconds=30),
     )
     host.budgets.update(cpu=8, ram=8 * GIB, disk=8 * GIB, gpu_slots=2)
-    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=16 * GIB)
+    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=8 * GIB)
     host.capabilities.update(
         profiles=[p.fingerprint, compatible.fingerprint, cpu.fingerprint],
-        validated_gpu_combinations=[[compatible.fingerprint] * 2],
     )
     host.save()
     promote(urgent.execution.job.public_id)

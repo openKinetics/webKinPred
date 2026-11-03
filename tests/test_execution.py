@@ -629,17 +629,6 @@ def test_controller_bootstrap_creates_offline_hosts_without_resuming_them():
     assert not ExecutorHost.objects.get(pk="production").paused
 
 
-def test_cpu_prediction_can_overlap_gpu_execution_without_a_gpu_combination_profile():
-    from types import SimpleNamespace
-
-    cpu = SimpleNamespace(resources={"cpu": 1, "ram": GIB, "vram": 0}, fingerprint="cpu")
-    gpu = SimpleNamespace(resources={"cpu": 1, "ram": GIB, "vram": GIB}, fingerprint="gpu2")
-    active = [{"resources": {"vram": GIB}, "profile_fingerprint": "gpu1"}]
-    host = SimpleNamespace(capabilities={"validated_gpu_combinations": []})
-    assert control._gpu_profile_allowed(cpu, active, host)
-    assert not control._gpu_profile_allowed(gpu, active, host)
-
-
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("already_waited", [False, True])
 def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, already_waited):
@@ -656,17 +645,17 @@ def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, 
             "vram": 2 * GIB,
         },
     )
-    ResourceProfile.objects.filter(pk=older.profile_id).update(**common)
+    ResourceProfile.objects.filter(pk=older.profile_id).update(
+        **{**common, "resources": {**common["resources"], "vram": 12 * GIB}}
+    )
     compatible = ResourceProfile.objects.create(
         id="compatible-gpu", fingerprint="g" * 64, image=older.profile.image, **common
     )
     fitting.profile = compatible
     fitting.save()
     host.budgets.update(ram=8 * GIB, gpu_slots=2)
-    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=16 * GIB)
-    host.capabilities.update(
-        profiles=["f" * 64, "g" * 64], validated_gpu_combinations=[["g" * 64] * 2]
-    )
+    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=8 * GIB)
+    host.capabilities.update(profiles=["f" * 64, "g" * 64])
     host.save()
     WorkStage.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
     if already_waited:
@@ -685,7 +674,7 @@ def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, 
     with override_settings(EXECUTION_V2_ENABLED=True):
         result = control.claim(host.pk)
     older.refresh_from_db()
-    assert older.waiting_reason == "unvalidated_gpu_combination"
+    assert older.waiting_reason == "waiting_vram"
     assert "admission_wait_started_at" in older.payload
     if already_waited:
         assert result is None
@@ -756,7 +745,7 @@ def test_513_resource_blocked_stages_cannot_hide_fitting_cpu_work(ready_work, bl
             for i in range(513)
         ]
     )
-    host.budgets.update(ram=8 * GIB, cpu=8, disk=16 * GIB, gpu_slots=2)
+    host.budgets.update(ram=8 * GIB, cpu=8, disk=16 * GIB, gpu_slots=1 if blocked_gpu else 2)
     host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=16 * GIB)
     host.capabilities["profiles"] += [fitting.fingerprint]
     host.save()
@@ -957,21 +946,6 @@ def test_gpu_drain_leaves_cpu_admission_enabled_and_survives_registration(ready_
     call_command("execution_admin", "resume-gpu", "--host", host.pk, stdout=io.StringIO())
     host.refresh_from_db()
     assert not host.gpu_paused
-
-
-def test_validated_gpu_mixtures_allow_startup_subsets_and_preserve_multiplicity():
-    from types import SimpleNamespace
-
-    a, b, c = ["a" * 64, "b" * 64, "c" * 64]
-    host = SimpleNamespace(capabilities={"validated_gpu_combinations": [[a, b, c]]})
-    profile = SimpleNamespace(resources={"vram": 1}, fingerprint=b)
-    active = [{"resources": {"vram": 1}, "profile_fingerprint": a}]
-    assert control._gpu_profile_allowed(profile, active, host)
-    active.append({"resources": {"vram": 1}, "profile_fingerprint": b})
-    assert not control._gpu_profile_allowed(profile, active, host)
-    host.capabilities["validated_gpu_combinations"] = [[a, b], [b, c]]
-    profile.fingerprint = c
-    assert not control._gpu_profile_allowed(profile, active, host)
 
 
 @pytest.mark.django_db(transaction=True)

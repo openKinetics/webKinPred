@@ -46,8 +46,10 @@ of allocations still loading their models and at least 2 GiB/10% GPU headroom.
 Work requiring an artifact whose verified locations are all on offline hosts
 waits before reserving a container. Locations remain verified through an outage;
 a returning host or a verified local copy makes the work eligible again.
-Additional GPU processes require a measured compatible combination, not merely
-free VRAM. Default simultaneous GPU allocation count is one.
+GPU admission uses individually validated peak envelopes and the shared resource
+ledger; there is no model-combination allowlist. Historical mixture measurements
+remain performance evidence, not an admission gate. The configured simultaneous
+allocation cap still applies (the initial bootstrap default is one).
 
 The supervisor checks running attempt scratch usage and stops its own container
 when it exceeds its disk reservation or host headroom is breached. Transfers
@@ -188,8 +190,10 @@ python manage.py execution_profiles registry.json
 ```
 
 Runtime reservations can increase after an OOM and validated smaller batches
-can be selected. Reducing an envelope or adding a GPU combination requires new
-measurements. Profiles bind to semantic model identity, target step, input shape,
+can be selected. Reducing an envelope or supporting an unmeasured input shape
+requires new measurements. Mixed-workload benchmarks tune throughput without
+restricting admission to specific model combinations. Profiles bind to semantic
+model identity, target step, input shape,
 approved host fingerprint and immutable image. A runtime-file change removes
 the agent's advertised eligible profiles.
 

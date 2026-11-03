@@ -1,4 +1,7 @@
-"""Keep measured resident-model mixtures valid across bounded work-unit sizes.
+"""Describe historical resident-model families across bounded work-unit sizes.
+
+This metadata helper is not an admission gate. Admission uses each individually
+validated profile and the resource ledger, independent of mixture measurements.
 
 Only sequence count may grow. The new work unit must itself be profiled; its full
 RAM, VRAM and disk reservation is still charged by admission. Molecular encoders
