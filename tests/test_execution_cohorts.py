@@ -115,6 +115,22 @@ def test_cohort_preserves_every_artifact_consumer_and_immutable_request():
     assert coalesce() == []
 
 
+def test_candidate_ranking_does_not_read_large_payloads_before_bounded_selection():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    setup_cohort()
+    with CaptureQueriesContext(connection) as captured:
+        assert coalesce()
+    ranked = [
+        q["sql"]
+        for q in captured
+        if 'SELECT "api_workstage"."id"' in q["sql"] and "FOR UPDATE" in q["sql"]
+    ]
+    assert ranked
+    assert all('"payload"' not in sql for sql in ranked)
+
+
 def test_cohort_never_changes_active_retry_or_other_jobs():
     host, e, original, large, stages, _ = setup_cohort()
     stages[0].state = "running"

@@ -171,7 +171,6 @@ def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
                 has_inputs=Exists(ArtifactDependency.objects.filter(stage_id=OuterRef("pk"))),
             )
             .filter(tried=False, blocked=False)
-            .exclude(payload__contains={"do_not_coalesce": True})
             .order_by(
                 "execution__background",
                 "-execution__priority",
@@ -196,7 +195,11 @@ def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
                 )
             )
         }
-        candidates = [selected_rows[ident] for ident in ids]
+        candidates = [
+            selected_rows[ident]
+            for ident in ids
+            if not selected_rows[ident].payload.get("do_not_coalesce")
+        ]
 
         executions = {}
         if cross_jobs and gpu and profile.settings.get("step") not in INPUT_STEPS:
