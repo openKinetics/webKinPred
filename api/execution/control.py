@@ -353,9 +353,13 @@ def claim(host_id: str):
             "pk", flat=True
         ),
     ]
-    offline_locations = ArtifactLocation.objects.filter(ready=True).exclude(
-        host_id__in=reachable_hosts
+    # Locations reference registered hosts. Resolve the tiny host set first;
+    # a negative host predicate otherwise scans the entire location catalogue
+    # just to prove that every host is online.
+    offline_hosts = list(
+        ExecutorHost.objects.exclude(pk__in=reachable_hosts).values_list("pk", flat=True)
     )
+    offline_locations = ArtifactLocation.objects.filter(ready=True, host_id__in=offline_hosts)
     # Availability is a property of locations, not of every candidate/artifact
     # pair. The old nested correlated EXISTS ran millions of checks just to
     # order a backlog, including when every host was online.
@@ -418,9 +422,18 @@ def claim(host_id: str):
     # class for its waiting reason/fairness barrier, and preselect fitting
     # profiles before applying the bounded scan.
     cpu_stage = Q(profile__resources__vram__isnull=True) | Q(profile__resources__vram__lte=0)
-    oldest = [
-        candidates.filter(rule)
+    oldest_by_kind = dict(
+        candidates.annotate(
+            allocation_gpu=Case(
+                When(cpu_stage, then=Value(False)),
+                When(profile__resources__vram__gt=0, then=Value(True)),
+                default=Value(None),
+                output_field=BooleanField(),
+            )
+        )
+        .filter(allocation_gpu__isnull=False)
         .order_by(
+            "allocation_gpu",
             "effective_background",
             "-effective_priority",
             Coalesce(
@@ -428,10 +441,10 @@ def claim(host_id: str):
             ),
             "created_at",
         )
-        .values_list("pk", flat=True)
-        .first()
-        for rule in (cpu_stage, Q(profile__resources__vram__gt=0))
-    ]
+        .distinct("allocation_gpu")
+        .values_list("allocation_gpu", "pk")
+    )
+    oldest = [oldest_by_kind.get(False), oldest_by_kind.get(True)]
     fitting = []
     foreground_fitting = []
     retained, projected = _after_stopping(
@@ -641,10 +654,9 @@ def claim(host_id: str):
         cached_output_bytes = (
             Artifact.objects.filter(
                 pk__in=stage.payload.get("output_artifacts", []),
-                locations__ready=True,
             )
+            .filter(Exists(ArtifactLocation.objects.filter(artifact_id=OuterRef("pk"), ready=True)))
             .exclude(pk__in=stage.artifacts.values("artifact_id"))
-            .distinct()
             .aggregate(size=Sum("size"))["size"]
             or 0
         )
@@ -742,10 +754,9 @@ def serialize_attempt(attempt):
     outputs = stage.payload.get("outputs", [])
     ready_outputs = {
         artifact.pk: artifact
-        for artifact in Artifact.objects.filter(
-            pk__in=[o["id"] for o in outputs], locations__ready=True
-        )
-        .distinct()
+        for artifact in Artifact.objects.filter(pk__in=[o["id"] for o in outputs])
+        .filter(Exists(ArtifactLocation.objects.filter(artifact_id=OuterRef("pk"), ready=True)))
+        .only("id", "checksum", "size")
         .prefetch_related(
             Prefetch(
                 "locations",

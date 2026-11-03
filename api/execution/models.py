@@ -100,6 +100,11 @@ class WorkStage(models.Model):
                 name="stage_ready_profile_time",
             ),
             models.Index(fields=["completed_at"], name="stage_completed_time"),
+            models.Index(
+                fields=["id"],
+                condition=~models.Q(state="completed"),
+                name="stage_unfinished_id",
+            ),
         ]
 
 

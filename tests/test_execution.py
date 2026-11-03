@@ -932,6 +932,105 @@ def test_claim_reserves_disk_for_verified_retry_outputs_too(ready_work):
     assert not ExecutionAttempt.objects.exists()
 
 
+@pytest.mark.django_db(transaction=True)
+def test_cached_output_reservation_counts_ready_artifact_once_across_hosts(ready_work):
+    from api.execution.models import Artifact, ArtifactLocation
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, stages = ready_work
+    stages[1].execution.paused = True
+    stages[1].execution.save(update_fields=["paused"])
+    peer = ExecutorHost.objects.create(id="peer", heartbeat_at=timezone.now())
+    ready = Artifact.objects.create(
+        id="e" * 64,
+        identity={"large_private_identity": "x" * 100000},
+        checksum="a" * 64,
+        size=2 * GIB,
+        producer=stages[0],
+    )
+    absent = Artifact.objects.create(
+        id="d" * 64, identity={}, checksum="b" * 64, size=10 * GIB, producer=stages[0]
+    )
+    for h in [host, peer]:
+        ArtifactLocation.objects.create(artifact=ready, host=h, ready=True)
+    ArtifactLocation.objects.create(artifact=absent, host=host, ready=False)
+    stages[0].payload = {
+        "output_artifacts": [ready.pk, absent.pk],
+        "outputs": [{"id": ready.pk, "path": "ready.npy"}, {"id": absent.pk, "path": "absent.npy"}],
+    }
+    stages[0].save(update_fields=["payload"])
+    with (
+        override_settings(EXECUTION_V2_ENABLED=True),
+        CaptureQueriesContext(connection) as captured,
+    ):
+        request = control.claim(host.pk)
+    assert request and request["resources"]["disk"] == 5 * GIB
+    assert len(request["artifacts"]) == 1
+    assert request["artifacts"][0]["id"] == ready.pk
+    assert set(request["artifacts"][0]["hosts"]) == {host.pk, peer.pk}
+    sums = [q["sql"] for q in captured if "SUM(" in q["sql"] and "api_artifact" in q["sql"]]
+    assert sums and all('"identity"' not in sql and '"metadata"' not in sql for sql in sums)
+    selected = [q["sql"] for q in captured if q["sql"].startswith('SELECT "api_artifact".')]
+    assert selected and all('"identity"' not in sql and '"metadata"' not in sql for sql in selected)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_online_hosts_do_not_require_negative_location_catalogue_scan(ready_work):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, _ = ready_work
+    with (
+        override_settings(EXECUTION_V2_ENABLED=True),
+        CaptureQueriesContext(connection) as captured,
+    ):
+        assert control.claim(host.pk)
+    assert not any(
+        'FROM "api_artifactlocation"' in q["sql"]
+        and "NOT (" in q["sql"]
+        and '"host_id" IN' in q["sql"]
+        for q in captured
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_oldest_gpu_wait_does_not_hide_cpu_in_single_ranking_pass(ready_work):
+    from api.execution.models import ExecutionSpec
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, stages = ready_work
+    gpu_profile = ResourceProfile.objects.create(
+        id="gpu-wait",
+        fingerprint="g" * 64,
+        image=stages[0].profile.image,
+        stage_kind="embedding",
+        validated=True,
+        resources={"cpu": 1, "ram": GIB, "disk": GIB, "vram": 2 * GIB},
+    )
+    owner = ExecutionSpec.objects.create(
+        specification={}, checksum="c" * 64, input_checksum="d" * 64, paused=False, priority=100
+    )
+    gpu = WorkStage.objects.create(
+        execution=owner, key="oldest-gpu", kind="embedding", profile=gpu_profile
+    )
+    host.capabilities["profiles"].append(gpu_profile.fingerprint)
+    host.save(update_fields=["capabilities"])
+    with (
+        override_settings(EXECUTION_V2_ENABLED=True),
+        CaptureQueriesContext(connection) as captured,
+    ):
+        admitted = control.claim(host.pk)
+    assert admitted["stage_id"] == str(stages[0].pk)
+    gpu.refresh_from_db()
+    assert gpu.state == "ready" and gpu.waiting_reason == "telemetry_unavailable"
+    rankings = [
+        q["sql"] for q in captured if "DISTINCT ON" in q["sql"] and '"allocation_gpu"' in q["sql"]
+    ]
+    assert len(rankings) == 1
+
+
 def test_extra_gpu_headroom_reserves_capacity_for_controlled_external_probes():
     candidate = {"cpu": 2, "ram": GIB, "disk": GIB, "vram": 6 * GIB}
     budgets = {"cpu": 16, "ram": 96 * GIB, "disk": 128 * GIB, "gpu_slots": 5}
