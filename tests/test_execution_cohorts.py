@@ -380,6 +380,18 @@ def test_cohort_respects_maximum_work_size():
     assert all(WorkStage.objects.get(pk=i).payload["shape"]["sequences"] == 16 for i in ids)
 
 
+def test_batch_creation_budget_leaves_original_work_eligible_for_following_pass():
+    _, _, _, large, stages, _ = setup_cohort()
+    large.limits["sequences"] = 16
+    large.save(update_fields=["limits"])
+    first = coalesce(batch_limit=1)
+    assert len(first) == 1
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 2
+    second = coalesce(batch_limit=1)
+    assert len(second) == 1 and second != first
+    assert not WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").exists()
+
+
 def test_cohort_never_bypasses_missing_input_or_changed_options():
     _, _, _, _, stages, _ = setup_cohort()
     for i, stage in enumerate(stages):

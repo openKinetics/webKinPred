@@ -8,7 +8,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import OperationalError, connection, transaction
-from django.db.models import Count, Min, Sum
+from django.db.models import BigIntegerField, Count, Min, Sum
+from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -109,18 +110,19 @@ def render():
             totals["local_cache_hits"] / max(1, totals["artifact_requests"]),
             host=host,
         )
-    units = {}
     for stage in (
         WorkStage.objects.filter(
             kind="predict", state="completed", completed_at__gte=now - timedelta(hours=1)
         )
-        .values("method", "target", "payload")
-        .iterator()
+        .values("method", "target")
+        .annotate(units=Sum(Cast("payload__shape__units", BigIntegerField())))
     ):
-        key = (stage["method"], stage["target"])
-        units[key] = units.get(key, 0) + stage["payload"].get("shape", {}).get("units", 0)
-    for (method, target), count in units.items():
-        emit("prediction_units_completed_last_hour", count, method=method, target=target)
+        emit(
+            "prediction_units_completed_last_hour",
+            stage["units"] or 0,
+            method=stage["method"],
+            target=stage["target"],
+        )
     for host in ExecutorHost.objects.all():
         labels = {"host": host.pk}
         emit(

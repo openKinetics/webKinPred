@@ -31,7 +31,9 @@ services:
     volumes:
       - execution_pg:/var/lib/postgresql/data
       - ./deploy/execution/postgres-init.sh:/docker-entrypoint-initdb.d/10-databases.sh:ro
-    mem_limit: 1536m
+    # Include a useful filesystem cache for the large scheduling/artifact store.
+    mem_limit: ${EXECUTION_DB_MEMORY:-4g}
+    memswap_limit: ${EXECUTION_DB_MEMORY:-4g}
     # Claims and heartbeats from both hosts must not queue behind a single
     # throttled database CPU. Attempt admission also accounts for this external
     # CPU use, preserving the host's configured responsiveness headroom.

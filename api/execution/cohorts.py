@@ -44,6 +44,7 @@ STEPS = frozenset(
     }
 )
 INPUT_STEPS = frozenset({"kinform_pseq2sites", "kinform_pool"})
+_profile_cursor = 0
 
 
 def merged_payload(stages, profile):
@@ -87,7 +88,7 @@ def merged_payload(stages, profile):
 
 
 @transaction.atomic
-def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
+def coalesce(limit=16, *, cross_jobs=None, profile_id=None, batch_limit=4):
     """Bounded reconciliation. Empty until measured cohort profiles are enabled."""
     if connection.vendor != "postgresql":
         return []
@@ -120,6 +121,15 @@ def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
     )
     if profile_id is not None:
         profiles = profiles.filter(pk=profile_id)
+    # Graph rewrites compete with claims and user status on the same database.
+    # Keep each pass small and rotate families so one backlog cannot monopolize it.
+    global _profile_cursor
+    profiles = list(profiles.order_by("pk"))
+    if profiles:
+        offset = _profile_cursor % len(profiles)
+        profiles = profiles[offset:] + profiles[:offset]
+        _profile_cursor = (offset + 1) % len(profiles)
+    batch_limit = max(1, min(16, batch_limit))
     if cross_jobs is None:
         cross_jobs = getattr(settings, "EXECUTION_CROSS_JOB_PROTEIN_BATCHES", False)
     from api.execution.background import foreground_dependencies
@@ -242,12 +252,20 @@ def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
                 trial = selected + [stage]
                 if merged_payload(trial, profile) is None:
                     if len(selected) > 1:
-                        created.append(replace(selected, profile))
+                        ident = replace(selected, profile)
+                        if ident:
+                            created.append(ident)
+                        if len(created) >= batch_limit:
+                            return created
                     selected = [stage] if merged_payload([stage], profile) else []
                 else:
                     selected = trial
             if len(selected) > 1:
-                created.append(replace(selected, profile))
+                ident = replace(selected, profile)
+                if ident:
+                    created.append(ident)
+                if len(created) >= batch_limit:
+                    return created
     return [ident for ident in created if ident]
 
 

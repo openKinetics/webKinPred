@@ -66,3 +66,35 @@ def test_essential_metrics_query_timeout_returns_retryable_response(monkeypatch)
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
         assert cursor.fetchone()[0] == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_prediction_metrics_aggregate_counters_without_returning_full_manifests():
+    from api.execution.models import ExecutionSpec, WorkStage
+    from django.test.utils import CaptureQueriesContext
+
+    spec = ExecutionSpec.objects.create(
+        specification={}, checksum="a" * 64, input_checksum="b" * 64
+    )
+    for index, units in enumerate([3, 5]):
+        WorkStage.objects.create(
+            execution=spec,
+            key=str(index),
+            kind="predict",
+            method="test",
+            target="kcat",
+            state="completed",
+            completed_at=timezone.now(),
+            payload={"shape": {"units": units}, "rows": [{"private_large_input": "x" * 100000}]},
+        )
+    with CaptureQueriesContext(connection) as captured:
+        response = scrape()
+    assert response.status_code == 200
+    assert (
+        b'webkinpred_execution_prediction_units_completed_last_hour{method="test",target="kcat"} 8'
+        in response.content
+    )
+    counters = [q["sql"] for q in captured if 'AS "units"' in q["sql"]]
+    assert len(counters) == 1 and "SUM(" in counters[0]
+    assert '"api_workstage"."payload",' not in counters[0]
+    assert b"private_large_input" not in response.content
