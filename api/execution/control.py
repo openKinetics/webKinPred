@@ -827,17 +827,22 @@ def heartbeat(host_id, attempt_id, data):
     now = timezone.now()
     if attempt.state not in {"leased", "running"} or attempt.lease_until <= now:
         raise ValueError("Attempt lease expired; executor must stop")
+    first_running_heartbeat = attempt.state == "leased"
     attempt.heartbeat_at = now
     attempt.lease_until = now + timedelta(seconds=30)
     attempt.state = "running"
     attempt.container_id = data.get("container_id", attempt.container_id)
     attempt.save(update_fields=["heartbeat_at", "lease_until", "state", "container_id"])
     stage = attempt.stage
-    stage.progress = max(stage.progress, int(data.get("progress", 0)))
-    stage.save(update_fields=["progress"])
-    from api.execution.progress import refresh
+    progress = max(stage.progress, int(data.get("progress", 0)))
+    advanced = progress > stage.progress
+    if advanced:
+        stage.progress = progress
+        stage.save(update_fields=["progress"])
+    if first_running_heartbeat or advanced:
+        from api.execution.progress import refresh
 
-    refresh(stage.execution)
+        refresh(stage.execution)
     return {"lease_seconds": 30}
 
 

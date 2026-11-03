@@ -395,6 +395,49 @@ def test_expiry_does_not_free_reservations_and_stale_owner_cannot_commit(ready_w
 
 
 @pytest.mark.django_db(transaction=True)
+def test_unchanged_heartbeats_renew_ownership_without_reprojecting_job_progress(
+    ready_work, monkeypatch
+):
+    from api.execution import progress
+    from api.models import JobProgressStage
+
+    host, stages = ready_work
+    stage = stages[0]
+    stage.target = "kcat"
+    stage.payload = {"rows": 10, "shape": {"units": 10}}
+    stage.save(update_fields=["target", "payload"])
+    public = JobProgressStage.objects.create(
+        job=stage.execution.job, stage_index=1, target="kcat", method_key="test"
+    )
+    calls = []
+    refresh = progress.refresh
+
+    def project(execution):
+        calls.append(execution.pk)
+        refresh(execution)
+
+    monkeypatch.setattr(progress, "refresh", project)
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        claimed = control.claim(host.pk)
+    assert claimed["stage_id"] == str(stage.pk)
+    for value in [0, 0, 4, 4, 2]:
+        # An old near-expiry lease must be renewed even when the counter is unchanged.
+        ExecutionAttempt.objects.filter(pk=claimed["id"]).update(
+            lease_until=timezone.now() + timedelta(seconds=3)
+        )
+        control.heartbeat(host.pk, claimed["id"], {"token": claimed["token"], "progress": value})
+        attempt = ExecutionAttempt.objects.get(pk=claimed["id"])
+        assert attempt.state == "running" and attempt.lease_until > timezone.now() + timedelta(
+            seconds=20
+        )
+    stage.refresh_from_db()
+    public.refresh_from_db()
+    assert len(calls) == 2
+    assert stage.progress == public.predictions_made == 4
+    assert public.status == "running" and public.predictions_total == 10
+
+
+@pytest.mark.django_db(transaction=True)
 def test_resource_failures_hold_instead_of_failing_jobs(ready_work):
     stage = ready_work[1][0]
     with override_settings(EXECUTION_V2_ENABLED=True):
