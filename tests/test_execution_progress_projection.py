@@ -29,6 +29,41 @@ def test_progress_reads_counters_without_loading_input_manifests(ready_work):
     assert "large_private_manifest" not in json.dumps(rows)
 
 
+@pytest.mark.django_db(transaction=True)
+def test_shared_progress_is_durable_bounded_and_refreshes_again_after_later_events(
+    ready_work, monkeypatch
+):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox, ExecutionSpec
+
+    _, stages = ready_work
+    owners = [s.execution for s in stages]
+    shared = ExecutionSpec.objects.create(
+        specification={"shared_protein_batch": {"source_requests": [{"id": x.pk} for x in owners]}},
+        checksum="a" * 64,
+        input_checksum="b" * 64,
+    )
+    refresh = Mock()
+    monkeypatch.setattr(progress, "refresh", refresh)
+    progress.request_refresh(shared)
+    progress.request_refresh(shared)
+    refresh.assert_not_called()
+    event = ExecutionOutbox.objects.get(key=f"progress:{shared.pk}")
+    assert len(event.event["progress_execution_ids"]) == 2
+    assert progress.project_pending(limit=1) == 1
+    assert refresh.call_count == 1
+    # Completion while the initial projection is partially drained must not
+    # lose the final state update for an owner already visited.
+    progress.request_refresh(shared)
+    assert progress.project_pending(limit=1) == 1
+    assert progress.project_pending(limit=1) == 1
+    event.refresh_from_db()
+    assert event.published_at is not None
+    progress.request_refresh(shared)
+    assert progress.project_pending(limit=4) == 2
+    assert ExecutionOutbox.objects.filter(key=f"progress:{shared.pk}").count() == 1
+
+
 def test_running_heartbeat_cadence_preserves_fencing(tmp_path, monkeypatch):
     agent = Agent({"root": str(tmp_path), "host_id": "test", "budgets": {"disk_headroom": 0}})
     agent.docker = Mock(return_value=json.dumps([{"State": {"Running": True}}]))

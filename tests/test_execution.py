@@ -438,6 +438,54 @@ def test_unchanged_heartbeats_renew_ownership_without_reprojecting_job_progress(
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("bad", [False, True])
+def test_large_completion_batches_publication_and_rolls_back_a_conflicting_manifest(
+    ready_work, bad
+):
+    from api.execution.models import Artifact, ArtifactLocation
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, stages = ready_work
+    stage = stages[0]
+    declared = [
+        {"id": control.digest({"vector": i}), "identity": {"vector": i}, "path": f"vectors/{i}.npy"}
+        for i in range(600)
+    ]
+    Artifact.objects.bulk_create(
+        [Artifact(id=o["id"], identity=o["identity"], producer=stage, size=0) for o in declared]
+    )
+    stage.payload = {"outputs": declared, "output_artifacts": [o["id"] for o in declared]}
+    stage.save(update_fields=["payload"])
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        request = control.claim(host.pk)
+    output = [{**o, "checksum": "a" * 64, "size": 4} for o in declared]
+    if bad:
+        last = Artifact.objects.get(pk=declared[-1]["id"])
+        last.checksum, last.size = "b" * 64, 4
+        last.save(update_fields=["checksum", "size"])
+        with pytest.raises(ValueError, match="conflict"):
+            control.finish(
+                host.pk,
+                request["id"],
+                {"token": request["token"], "stopped": True, "artifacts": output},
+            )
+        assert not ArtifactLocation.objects.exists()
+        assert Artifact.objects.exclude(checksum="").count() == 1
+        assert ExecutionAttempt.objects.get(pk=request["id"]).state == "leased"
+    else:
+        with CaptureQueriesContext(connection) as queries:
+            assert control.finish(
+                host.pk,
+                request["id"],
+                {"token": request["token"], "stopped": True, "artifacts": output},
+            ) == {"state": "completed"}
+        assert len(queries) < 35
+        assert ArtifactLocation.objects.filter(host=host, ready=True).count() == 600
+        assert Artifact.objects.exclude(checksum="").count() == 600
+
+
+@pytest.mark.django_db(transaction=True)
 def test_resource_failures_hold_instead_of_failing_jobs(ready_work):
     stage = ready_work[1][0]
     with override_settings(EXECUTION_V2_ENABLED=True):

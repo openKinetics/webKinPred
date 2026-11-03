@@ -840,9 +840,9 @@ def heartbeat(host_id, attempt_id, data):
         stage.progress = progress
         stage.save(update_fields=["progress"])
     if first_running_heartbeat or advanced:
-        from api.execution.progress import refresh
+        from api.execution.progress import request_refresh
 
-        refresh(stage.execution)
+        request_refresh(stage.execution)
     return {"lease_seconds": 30}
 
 
@@ -968,46 +968,80 @@ def finish(host_id, attempt_id, data):
     expected = set(stage.payload.get("output_artifacts", []))
     if expected != {output["id"] for output in outputs} or len(outputs) != len(expected):
         raise ValueError("Incomplete or undeclared output manifest")
-    for output in outputs:
-        from api.execution.artifact_policy import retention_for
+    from api.execution.artifact_policy import retention_for
 
-        identity = output["identity"]
-        if digest(identity) != output["id"] or len(output["checksum"]) != 64 or output["size"] < 0:
+    # Validate the complete manifest before writes. Fetch declared records once;
+    # loading every large scientific identity again is unnecessary after hashing
+    # the supplied identity against its declared immutable ID.
+    for output in outputs:
+        if (
+            digest(output["identity"]) != output["id"]
+            or len(output["checksum"]) != 64
+            or output["size"] < 0
+        ):
             raise ValueError("Invalid artifact manifest")
-        artifact, created = Artifact.objects.get_or_create(
-            pk=output["id"],
-            defaults={
-                "identity": identity,
-                "checksum": output["checksum"],
-                "size": output["size"],
-                "metadata": output.get("metadata", {}),
-                "retention": retention_for(identity),
-            },
-        )
-        if not created and artifact.checksum:
+    existing = {
+        artifact.pk: artifact
+        for artifact in Artifact.objects.select_for_update()
+        .filter(pk__in=expected)
+        .defer("identity")
+        .order_by("pk")
+    }
+    created, changed, locations = [], [], []
+    standalone = stage.execution.job_id is None and not stage.execution.specification.get(
+        "shared_protein_batch"
+    )
+    verified_at = timezone.now()
+    for output in outputs:
+        artifact = existing.get(output["id"])
+        update = False
+        if artifact is None:
+            artifact = Artifact(
+                id=output["id"],
+                identity=output["identity"],
+                checksum=output["checksum"],
+                size=output["size"],
+                metadata=output.get("metadata", {}),
+            )
+            created.append(artifact)
+        elif artifact.checksum:
             if artifact.checksum != output["checksum"] or artifact.size != output["size"]:
                 raise ValueError("Artifact identity conflict")
-        elif not created:
+        else:
             if artifact.producer_id != stage.pk:
                 raise ValueError("Artifact producer ownership mismatch")
-            artifact.checksum = output["checksum"]
-            artifact.size = output["size"]
+            artifact.checksum, artifact.size = output["checksum"], output["size"]
             artifact.metadata = {**artifact.metadata, **output.get("metadata", {})}
-            artifact.save(update_fields=["checksum", "size", "metadata"])
-        retention = retention_for(identity) if artifact.regenerable else "permanent"
-        if (
-            retention == "transient"
-            and stage.execution.job_id is None
-            and not stage.execution.specification.get("shared_protein_batch")
-        ):
+            update = True
+        retention = retention_for(output["identity"]) if artifact.regenerable else "permanent"
+        if retention == "transient" and standalone:
             retention = "protected"
         if artifact.retention != retention:
             artifact.retention = retention
-            artifact.save(update_fields=["retention"])
-        ArtifactLocation.objects.update_or_create(
-            artifact=artifact,
-            host_id=host_id,
-            defaults={"ready": True, "verified_at": timezone.now()},
+            update = True
+        if artifact.pk in existing and update:
+            changed.append(artifact)
+        locations.append(
+            ArtifactLocation(
+                artifact=artifact,
+                host_id=host_id,
+                ready=True,
+                verified_at=verified_at,
+            )
+        )
+    if created:
+        Artifact.objects.bulk_create(created, batch_size=256)
+    if changed:
+        Artifact.objects.bulk_update(
+            changed, ["checksum", "size", "metadata", "retention"], batch_size=256
+        )
+    if locations:
+        ArtifactLocation.objects.bulk_create(
+            locations,
+            batch_size=512,
+            update_conflicts=True,
+            unique_fields=["artifact", "host"],
+            update_fields=["ready", "verified_at"],
         )
     # A runner cannot declare an embedding complete without producing every required output.
     attempt.state = "completed"
@@ -1075,9 +1109,9 @@ def finish(host_id, attempt_id, data):
             }
         },
     )
-    from api.execution.progress import refresh
+    from api.execution.progress import request_refresh
 
-    refresh(stage.execution)
+    request_refresh(stage.execution)
     return {"state": "completed"}
 
 
@@ -1193,9 +1227,9 @@ def fail(host_id, attempt_id, data):
     stage.save(update_fields=["failures", "waiting_reason", "available_at", "state", "profile"])
     if stage.state == "held" and stage.profile_id:
         ResourceProfile.objects.filter(pk=stage.profile_id).update(suspended=True)
-    from api.execution.progress import refresh
+    from api.execution.progress import request_refresh
 
-    refresh(stage.execution)
+    request_refresh(stage.execution)
     log.warning(
         "Execution deferred",
         extra={

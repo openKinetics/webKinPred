@@ -7,6 +7,71 @@ from django.utils import timezone
 from api.models import Job, JobProgressStage
 
 
+@transaction.atomic
+def request_refresh(execution):
+    """Keep shared-consumer fanout out of ownership/lease transactions."""
+    if execution.job_id:
+        return refresh(execution)
+    shared = execution.specification.get("shared_protein_batch")
+    if not shared:
+        return
+    from api.execution.models import ExecutionOutbox
+
+    owners = [row["id"] for row in shared["source_requests"]]
+    event, _ = ExecutionOutbox.objects.get_or_create(
+        key=f"progress:{execution.pk}", defaults={"event": {"progress_execution_ids": owners}}
+    )
+    event = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
+    event.event = {
+        "progress_execution_ids": list(
+            dict.fromkeys([*event.event.get("progress_execution_ids", []), *owners])
+        )
+    }
+    event.published_at = None
+    event.save(update_fields=["event", "published_at"])
+
+
+@transaction.atomic
+def _project_one():
+    from api.execution.models import ExecutionOutbox, ExecutionSpec
+
+    event = (
+        ExecutionOutbox.objects.select_for_update(skip_locked=True)
+        .filter(published_at__isnull=True, event__has_key="progress_execution_ids")
+        .order_by("pk")
+        .first()
+    )
+    if event is None:
+        return False
+    owners = event.event["progress_execution_ids"]
+    if owners:
+        owner = (
+            ExecutionSpec.objects.filter(pk=owners[0])
+            .only("id", "job_id")
+            .annotate(projected_targets=models.F("specification__targets"))
+            .first()
+        )
+        if owner and owner.job_id:
+            refresh(owner)
+    event.event = {"progress_execution_ids": owners[1:]}
+    if len(owners) <= 1:
+        event.published_at = timezone.now()
+    event.save(update_fields=["event", "published_at"])
+    return True
+
+
+def project_pending(limit=4, seconds=0.5):
+    import time
+
+    deadline = time.monotonic() + seconds
+    count = 0
+    while count < limit and time.monotonic() < deadline:
+        if not _project_one():
+            break
+        count += 1
+    return count
+
+
 def shared_embedding_summaries(execution):
     """Count only this job's referenced outputs, without loading shared manifests."""
     from api.execution.models import ArtifactDependency

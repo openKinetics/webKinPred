@@ -146,9 +146,11 @@ class Command(BaseCommand):
                         last_cohort_refresh = time.monotonic()
                     from api.services.prediction_store import upsert_many, upsert_similarity_many
 
-                    for event in ExecutionOutbox.objects.filter(published_at__isnull=True).order_by(
-                        "id"
-                    )[:100]:
+                    for event in (
+                        ExecutionOutbox.objects.filter(published_at__isnull=True)
+                        .exclude(event__has_key="progress_execution_ids")
+                        .order_by("id")[:100]
+                    ):
                         if event.event.get("split_cohort"):
                             from api.execution.cohorts import split_cohort
 
@@ -174,6 +176,9 @@ class Command(BaseCommand):
                             continue
                         event.published_at = timezone.now()
                         event.save(update_fields=["published_at"])
+                    from api.execution.progress import project_pending
+
+                    project_pending()
                 if options["once"]:
                     return
                 time.sleep(1)
