@@ -16,6 +16,11 @@ groups:
         for: 1m
         labels: {severity: critical}
         annotations: {summary: "Reconcile executor ownership before releasing reservations"}
+      - alert: ExecutionHostUnreconciled
+        expr: webkinpred_execution_host_reconciled == 0 and webkinpred_execution_host_paused == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "An online executor is blocked pending ownership reconciliation"}
       - alert: ExecutionNoForwardProgress
         expr: webkinpred_execution_jobs_completed_last_hour == 0 and sum(webkinpred_execution_stages{state="ready"}) > 0 and sum(webkinpred_execution_observed{resource=~"cpu|vram"}) == 0 and sum(webkinpred_execution_host_paused) == 0
         for: 10m

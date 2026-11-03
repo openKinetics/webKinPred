@@ -228,7 +228,11 @@ class Agent:
         Known transfers and running attempts retain their reservations.
         """
         unknown = set(reply.get("owned_attempts", [])) - self.jobs.keys()
-        if not unknown:
+        # Reconciliation can flag an expired known attempt as uncertain. Its
+        # subsequent stop/error clears the attempt but does not itself reconcile
+        # the host. An empty owned list must still trigger a full inventory pass
+        # when the controller says this host needs reconciliation.
+        if not unknown and reply.get("reconciled", True):
             return
         stopped = {}
         for info in self.inventory():

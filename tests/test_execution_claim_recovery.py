@@ -34,6 +34,64 @@ def test_registration_reports_claims_even_if_the_claim_response_was_lost(ready_w
         reply = json.loads(executor(request, host.pk, "register").content)
     assert reply["owned_attempts"] == [claim["id"]]
     assert reply["stop_attempts"] == []
+    assert reply["reconciled"] is True
+
+
+@pytest.mark.django_db(transaction=True)
+def test_last_expired_attempt_cannot_leave_healthy_host_permanently_blocked(ready_work, tmp_path):
+    host, _ = ready_work
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        first = control.claim(host.pk)
+    ExecutionAttempt.objects.filter(pk=first["id"]).update(
+        lease_until=timezone.now() - timedelta(seconds=1)
+    )
+    control.reconcile(host.pk, {"running": [first["id"]]})
+    host.refresh_from_db()
+    assert not host.reconciled
+    control.fail(
+        host.pk, first["id"], {"token": first["token"], "stopped": True, "category": "interrupted"}
+    )
+    assert not host.attempts.filter(state__in=["leased", "running", "uncertain"]).exists()
+    request = RequestFactory().post(
+        "/internal/v2/executors/test/register",
+        data=json.dumps({"capabilities": host.capabilities, "telemetry": host.telemetry}),
+        content_type="application/json",
+        HTTP_AUTHORIZATION="Bearer test-token",
+    )
+    with override_settings(
+        EXECUTION_HOSTS={host.pk: {"token": "test-token", "budgets": host.budgets}}
+    ):
+        reply = json.loads(executor(request, host.pk, "register").content)
+    assert reply["reconciled"] is False and reply["owned_attempts"] == []
+    agent = Agent({"root": str(tmp_path), "host_id": host.pk})
+    checked = []
+    agent.inventory = lambda: checked.append(True) or []
+    agent.request = lambda operation, data: control.reconcile(host.pk, data)
+    try:
+        agent.reconcile_unreceived(reply)
+        assert checked == [True]
+        host.refresh_from_db()
+        assert host.reconciled
+        with override_settings(EXECUTION_V2_ENABLED=True):
+            assert control.claim(host.pk)
+    finally:
+        agent.transfers.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("known", [False, True])
+def test_unreconciled_host_reports_inventory_even_without_unknown_claims(tmp_path, known):
+    agent = Agent({"root": str(tmp_path), "host_id": "test"})
+    calls = []
+    if known:
+        agent.jobs["known"] = {"container": None}
+    agent.inventory = lambda: calls.append("inventory") or []
+    agent.request = lambda op, data: calls.append((op, data))
+    try:
+        agent.reconcile_unreceived({"owned_attempts": list(agent.jobs), "reconciled": False})
+        assert calls == ["inventory", ("reconcile", {"running": list(agent.jobs), "stopped": {}})]
+        assert bool(agent.jobs) is known
+    finally:
+        agent.transfers.shutdown(wait=True)
 
 
 def test_unreceived_claim_reconciles_without_releasing_known_transfers(tmp_path):

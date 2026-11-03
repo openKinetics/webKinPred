@@ -45,6 +45,7 @@ def executor(request, host_id, operation, attempt_id=None):
             return JsonResponse(
                 {
                     "paused": host.paused,
+                    "reconciled": host.reconciled,
                     "budgets": host.budgets,
                     "owned_attempts": [row["id"] for row in owned],
                     "stop_attempts": [row["id"] for row in owned if row["stop_requested"]],
