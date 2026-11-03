@@ -223,6 +223,49 @@ def embedding_sequences(descriptor, batch):
     return valid
 
 
+def validated_prediction_frame(frame, descriptor):
+    """Match single-molecule planning at the legacy runner boundary.
+
+    Legacy generic runners split semicolons during chemistry validation. A
+    single-molecule encoder cannot consume that text. Only private execution
+    copies blank unsupported cells so those runners emit their normal invalid
+    row result. Originals and valid chemistry (including dot components) remain
+    unchanged; plural Substrates expansion retains its existing semantics.
+    """
+    cfg = descriptor.subprocess
+    if not (
+        cfg
+        and cfg.validate_chemistry
+        and descriptor.input_format == "single"
+        and "Substrate" in descriptor.col_to_kwarg
+        and "Substrate" in frame.columns
+    ):
+        return frame, []
+    invalid = [i for i, value in enumerate(frame["Substrate"]) if convert_to_mol(value) is None]
+    if not invalid:
+        return frame, []
+    copied = frame.copy()
+    copied.loc[invalid, "Substrate"] = ""
+    return copied, invalid
+
+
+def attach_prediction_input(stage, artifact, path, *, repair=False):
+    from api.execution.resources import LIVE_STATES
+
+    existing = stage.artifacts.select_for_update().filter(path=path).first()
+    if existing and existing.artifact_id != artifact.pk:
+        if (
+            not repair
+            or stage.state != "held"
+            or stage.attempts.filter(state__in=LIVE_STATES).exists()
+        ):
+            raise ValueError("Cannot change an existing prediction input without a stopped repair")
+        existing.artifact = artifact
+        existing.save(update_fields=["artifact"])
+    else:
+        attach(stage, artifact, path)
+
+
 @graph_transaction
 def publish_file(path, identity, host_id, store):
     from django.conf import settings
@@ -584,7 +627,7 @@ def molecular_graph(execution, descriptor, target, batch, ordinal):
     return outputs, rows
 
 
-def prepare(execution, media: Path, blob_root: Path):
+def prepare(execution, media: Path, blob_root: Path, *, repair_validation=False):
     """Resume by deterministic keys. Each chunk is committed independently."""
     spec = execution.specification
     source = media / "jobs" / execution.job.public_id / "input.csv"
@@ -596,6 +639,7 @@ def prepare(execution, media: Path, blob_root: Path):
     prep = execution.stages.get(key="prepare")
     ordinal = {t: 0 for t in spec["targets"]}
     prediction_stages = []
+    original_chunks = {}
     offset = 0
     chunk_dir = blob_root.parent / "planning" / str(execution.pk)
     from api.execution.bounded import frames
@@ -603,7 +647,7 @@ def prepare(execution, media: Path, blob_root: Path):
     for chunk_index, frame in enumerate(frames(source)):
         from api.execution.background import higher_preparation
 
-        if higher_preparation(execution).exists():
+        if not repair_validation and higher_preparation(execution).exists():
             # Completed chunks keep their deterministic keys. Resume this
             # preparation after the urgent request has been prepared.
             return
@@ -624,6 +668,7 @@ def prepare(execution, media: Path, blob_root: Path):
                 "production",
                 store,
             )
+            original_chunks[chunk_index] = chunk
             for target, descriptor in descriptors.items():
                 batch = build_target_batch_plan(descriptor, target, frame, plan)
                 sequences = normalise_sequences_for_method(
@@ -654,7 +699,32 @@ def prepare(execution, media: Path, blob_root: Path):
                         },
                     },
                 )
-                attach(prediction, chunk, f"jobs/{execution.job.public_id}/input.csv")
+                runner_frame, invalid_cells = validated_prediction_frame(frame, descriptor)
+                runner_chunk = chunk
+                if invalid_cells:
+                    runner_path = chunk_dir / f"{chunk_index}.single-molecule.csv"
+                    runner_frame.to_csv(runner_path, index=False)
+                    runner_chunk = publish_file(
+                        runner_path,
+                        {
+                            "job_input": execution.input_checksum,
+                            "chunk": chunk_index,
+                            "validation": "single-molecule-v1",
+                        },
+                        "production",
+                        store,
+                    )
+                    prediction.payload["input_validation"] = {
+                        "policy": "single-molecule-v1",
+                        "invalid_cells": invalid_cells,
+                        "original_artifact": chunk.pk,
+                    }
+                attach_prediction_input(
+                    prediction,
+                    runner_chunk,
+                    f"jobs/{execution.job.public_id}/input.csv",
+                    repair=repair_validation,
+                )
                 prediction.dependencies.add(prep)
                 if descriptor.key in PROTEIN_STEPS:
                     expected = expected_paths_by_seq(
@@ -754,14 +824,11 @@ def prepare(execution, media: Path, blob_root: Path):
             output = prediction.payload["outputs"][0]
             attach(assembly, Artifact.objects.get(pk=output["id"]), output["path"])
             # Inputs are needed for final original-row serialization, without loading whole jobs.
-            for dependency in prediction.artifacts.filter(
-                path__endswith="/input.csv"
-            ).select_related("artifact"):
-                attach(
-                    assembly,
-                    dependency.artifact,
-                    f"execution/inputs/{prediction.payload['chunk']}.csv",
-                )
+            attach(
+                assembly,
+                original_chunks[prediction.payload["chunk"]],
+                f"execution/inputs/{prediction.payload['chunk']}.csv",
+            )
         identity = {
             "job": execution.job.public_id,
             "specification": execution.checksum,

@@ -115,6 +115,42 @@ def test_cohort_preserves_every_artifact_consumer_and_immutable_request():
     assert coalesce() == []
 
 
+@pytest.mark.parametrize("background", [True, False])
+def test_pending_cohort_buffer_bounds_bulk_graph_work_but_allows_foreground(background):
+    _, execution, _, large, stages, _ = setup_cohort()
+    execution.background = background
+    execution.save(update_fields=["background"])
+    for i in range(8):
+        WorkStage.objects.create(
+            execution=execution, key=f"queued:{i}", kind="embedding", profile=large
+        )
+    ids = coalesce()
+    assert len(ids) == (0 if background else 1)
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == (
+        4 if background else 0
+    )
+
+
+def test_bulk_cohort_buffer_fills_only_remaining_slots_and_reopens_after_completion():
+    _, execution, _, large, stages, _ = setup_cohort()
+    execution.background = True
+    execution.save(update_fields=["background"])
+    large.limits["sequences"] = 16
+    large.save(update_fields=["limits"])
+    queued = [
+        WorkStage.objects.create(
+            execution=execution, key=f"queued:{i}", kind="embedding", profile=large
+        )
+        for i in range(7)
+    ]
+    assert len(coalesce()) == 1
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 2
+    queued[0].state = "completed"
+    queued[0].save(update_fields=["state"])
+    assert len(coalesce()) == 1
+    assert not WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").exists()
+
+
 def test_candidate_ranking_does_not_read_large_payloads_before_bounded_selection():
     from django.db import connection
     from django.test.utils import CaptureQueriesContext

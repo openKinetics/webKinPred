@@ -58,6 +58,10 @@ class Agent:
         self.last_contact = time.monotonic()
         self.last_cleanup = 0
         self.last_error_log = 0
+        self.next_claim_at = 0.0
+        self.empty_claim_delay = 1.0
+        self.claim_owners = frozenset()
+        self.claim_paused = False
         self.transfers = ThreadPoolExecutor(max_workers=4, thread_name_prefix="artifact-transfer")
 
     def verify_runtime_files(self, threads=1):
@@ -828,6 +832,13 @@ class Agent:
     def claim_available(self, telemetry, *, paused=False):
         """Fill capacity without letting admissions delay lease supervision."""
         began = time.monotonic()
+        owners = frozenset(self.jobs)
+        if owners != self.claim_owners or (self.claim_paused and not paused):
+            self.next_claim_at = 0.0
+            self.empty_claim_delay = 1.0
+        self.claim_owners, self.claim_paused = owners, paused
+        if began < self.next_claim_at:
+            return
         for _ in range(4):
             now = time.monotonic()
             if (
@@ -838,11 +849,16 @@ class Agent:
                 or sum(not job["container"] for job in self.jobs.values()) >= 4
             ):
                 break
-            # Saturated hosts still poll once so foreground work can request
-            # preemption. PostgreSQL remains authoritative for every reservation.
+            # Continue polling for foreground preemption, but repeated empty
+            # responses need not rank the whole graph every second. The delay
+            # is bounded at five seconds; supervision remains independent.
             request = self.request("claim").get("attempt")
             if not request:
+                self.next_claim_at = time.monotonic() + self.empty_claim_delay
+                self.empty_claim_delay = min(5.0, self.empty_claim_delay * 2)
                 break
+            self.next_claim_at = 0.0
+            self.empty_claim_delay = 1.0
             active = [
                 {
                     "resources": job["request"]["resources"],

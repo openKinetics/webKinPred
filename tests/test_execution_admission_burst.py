@@ -109,3 +109,35 @@ def test_saturated_running_host_still_polls_for_foreground_preemption(executor):
     agent.request = Mock(return_value={"attempt": None})
     agent.claim_available(telemetry)
     agent.request.assert_called_once_with("claim")
+
+
+def test_empty_poll_backoff_is_bounded_and_completion_wakes_admission(executor):
+    agent, _, _, telemetry, clock = executor
+    agent.request = Mock(return_value={"attempt": None})
+    for delay in [1, 2, 4, 5, 5]:
+        agent.last_contact = clock[0]
+        before = agent.request.call_count
+        agent.claim_available(telemetry)
+        assert agent.request.call_count == before + 1
+        assert agent.next_claim_at == clock[0] + delay
+        clock[0] += delay - 0.1
+        agent.claim_available(telemetry)
+        assert agent.request.call_count == before + 1
+        clock[0] += 0.1
+    # A locally completed allocation changes ownership and clears an idle delay.
+    agent.claim_owners = frozenset({"finished"})
+    agent.next_claim_at = clock[0] + 5
+    agent.last_contact = clock[0]
+    before = agent.request.call_count
+    agent.claim_available(telemetry)
+    assert agent.request.call_count == before + 1
+    assert agent.next_claim_at == clock[0] + 1
+
+
+def test_empty_poll_delay_never_delays_lease_supervision_or_resumption(executor):
+    agent, _, _, telemetry, clock = executor
+    agent.request = Mock(return_value={"attempt": None})
+    agent.next_claim_at = clock[0] + 5
+    agent.claim_available(telemetry, paused=True)
+    agent.claim_available(telemetry, paused=False)
+    agent.request.assert_called_once_with("claim")

@@ -200,6 +200,148 @@ def test_invalid_rows_do_not_reserve_gpu_embedding_work():
     assert embedding_sequences(descriptor, batch) == ["MAAA"]
 
 
+@pytest.mark.parametrize("method", ["CataPro", "CatRange"])
+@pytest.mark.django_db(transaction=True)
+def test_single_molecule_execution_copy_preserves_originals_valid_rows_and_assembly(
+    tmp_path, method
+):
+    import pandas as pd
+    from api.prediction_engines.generic_subprocess import _chemistry_is_valid
+
+    ExecutorHost.objects.create(id="production")
+    job = Job.objects.create(
+        public_id="single", status="Pending", prediction_type="kcat", requested_rows=3
+    )
+    media, blobs = tmp_path / "media", tmp_path / "blobs"
+    folder = media / "jobs/single"
+    folder.mkdir(parents=True)
+    source = folder / "input.csv"
+    source.write_text("Protein Sequence,Substrate\nMAAA,CC\nMCCC,CC;O\nMDDD,CC.O\n")
+    checksum = sha256_file(source)
+    execution = control.ingest(job.public_id, specification(method), checksum)
+    prepare(execution, media, blobs)
+    stage = execution.stages.get(key="predict:kcat:0")
+    artifact = stage.artifacts.get(path="jobs/single/input.csv").artifact
+    runner_frame = pd.read_csv(
+        blobs / artifact.checksum[:2] / artifact.checksum, keep_default_na=False
+    )
+    assert runner_frame["Substrate"].tolist() == ["CC", "", "CC.O"]
+    assert stage.payload["input_validation"]["invalid_cells"] == [1]
+    assert len(stage.payload["molecular"][method]) == 2
+    assert not _chemistry_is_valid({"substrates": runner_frame["Substrate"][1]}, "single")
+    original = (
+        execution.stages.get(key="assemble").artifacts.get(path="execution/inputs/0.csv").artifact
+    )
+    assert original.pk != artifact.pk
+    original_frame = pd.read_csv(blobs / original.checksum[:2] / original.checksum)
+    assert original_frame["Substrate"].tolist() == ["CC", "CC;O", "CC.O"]
+    assert sha256_file(source) == checksum == execution.input_checksum
+    before = list(execution.stages.values_list("pk", flat=True))
+    prepare(execution, media, blobs)
+    assert set(before) == set(execution.stages.values_list("pk", flat=True))
+
+
+@pytest.mark.parametrize("method", ["CataPro", "CatRange"])
+def test_all_unsupported_single_molecules_finish_without_embedding_or_model(monkeypatch, method):
+    import pandas as pd
+    from api.execution.context import StageContext, execution_job, stage_context
+    from api.execution.planning import validated_prediction_frame
+    from api.methods.registry import get
+    from api.prediction_engines import generic_subprocess as generic
+    from api.tasks import _execute_target_batch
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Unsupported single molecules cannot request a model or embeddings")
+
+    monkeypatch.setattr(generic, "_resolve_subprocess_paths", forbidden)
+    monkeypatch.setattr(generic, "run_gpu_precompute_if_available", forbidden)
+    desc = get(method)
+    original = pd.DataFrame({"Protein Sequence": ["MAAA", "MCCC"], "Substrate": ["CC;O", "O;N"]})
+    frame, invalid = validated_prediction_frame(original, desc)
+    with stage_context(StageContext("unsupported")):
+        result = _execute_target_batch(
+            job=execution_job("unsupported"),
+            desc=desc,
+            df=frame,
+            target="kcat",
+            sequences=frame["Protein Sequence"].tolist(),
+            processed_by_reaction=frame["Protein Sequence"].tolist(),
+            valid_reaction_indices=[0, 1],
+            experimental_results=[],
+            canonicalize_substrates=True,
+            disable_gpu_precompute=False,
+            extra_call_kwargs={},
+        )
+    assert invalid == [0, 1] and original["Substrate"].tolist() == ["CC;O", "O;N"]
+    assert result["preds"] == ["", ""] and len(result["failed_reactions"]) == 2
+    assert all("Invalid substrate" in s for s in result["sources"])
+
+
+@pytest.mark.parametrize("method", ["CataPro", "CatRange", "TurNup"])
+def test_plural_substrate_inputs_are_not_reinterpreted_or_sanitized(method):
+    import pandas as pd
+    from api.execution.planning import validated_prediction_frame
+    from api.methods.registry import get
+
+    original = pd.DataFrame(
+        {"Protein Sequence": ["MAAA"], "Substrates": ["CC;O"], "Products": ["CC=O"]}
+    )
+    frame, invalid = validated_prediction_frame(original, get(method))
+    assert frame is original and invalid == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_repair_validation_preserves_request_and_rejects_live_ownership(tmp_path):
+    import io
+
+    from api.execution.models import ExecutionAttempt
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    from django.test import override_settings
+    from django.utils import timezone
+
+    host = ExecutorHost.objects.create(id="production")
+    job = Job.objects.create(public_id="fixsingle", status="Processing", prediction_type="kcat")
+    media, blobs = tmp_path / "media", tmp_path / "blobs"
+    directory = media / "jobs/fixsingle"
+    directory.mkdir(parents=True)
+    source = directory / "input.csv"
+    source.write_text("Protein Sequence,Substrate\nMAAA,CC;O\n")
+    execution = control.ingest(job.public_id, specification("CataPro"), sha256_file(source))
+    prepare(execution, media, blobs)
+    stage = execution.stages.get(key="predict:kcat:0")
+    dependency = stage.artifacts.get(path="jobs/fixsingle/input.csv")
+    dependency.artifact_id = stage.payload["input_validation"]["original_artifact"]
+    dependency.save(update_fields=["artifact"])
+    stage.state, stage.waiting_reason = "held", "dependency_plan_requires_attention"
+    stage.save(update_fields=["state", "waiting_reason"])
+    immutable = (execution.checksum, execution.input_checksum, execution.specification)
+    with override_settings(MEDIA_ROOT=str(media), EXECUTION_BLOB_ROOT=str(blobs)):
+        call_command(
+            "execution_repair_validation", job.public_id, "--dry-run", stdout=io.StringIO()
+        )
+        stage.refresh_from_db()
+        assert stage.state == "held"
+        attempt = ExecutionAttempt.objects.create(
+            stage=stage, host=host, state="running", lease_until=timezone.now()
+        )
+        with pytest.raises(CommandError, match="live attempts"):
+            call_command("execution_repair_validation", job.public_id, stdout=io.StringIO())
+        attempt.state = "stopped"
+        attempt.save(update_fields=["state"])
+        call_command("execution_repair_validation", job.public_id, stdout=io.StringIO())
+        call_command("execution_repair_validation", job.public_id, stdout=io.StringIO())
+    stage.refresh_from_db()
+    dependency.refresh_from_db()
+    execution.refresh_from_db()
+    assert (
+        stage.state == "ready"
+        and dependency.artifact_id != stage.payload["input_validation"]["original_artifact"]
+    )
+    assert (execution.checksum, execution.input_checksum, execution.specification) == immutable
+    assert sha256_file(source) == execution.input_checksum
+
+
 def test_embedding_reuse_preserves_target_specific_and_encoder_identities():
     from api.execution.planning import artifact_identity
 

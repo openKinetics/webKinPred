@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef, Prefetch
+from django.db.models import Exists, OuterRef, Prefetch, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -88,7 +88,7 @@ def merged_payload(stages, profile):
 
 
 @transaction.atomic
-def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
+def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4, pending_limit=8):
     """Bounded reconciliation. Empty until measured cohort profiles are enabled."""
     if connection.vendor != "postgresql":
         return []
@@ -135,6 +135,12 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
     from api.execution.background import foreground_dependencies
 
     needed = foreground_dependencies() if cross_jobs else set()
+    foreground = set(
+        ExecutionSpec.objects.filter(background=False, paused=False)
+        .exclude(job__status__in=["Completed", "Failed"])
+        .values_list("pk", flat=True)
+    )
+    pending_limit = max(1, min(32, pending_limit))
     created = []
     for profile in profiles:
         gpu = (
@@ -149,6 +155,20 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
             and profile.settings.get("step") == "kinform_pool"
         )
         if not (gpu or pooling):
+            continue
+        # A small per-profile buffer amortizes model startup without continuously
+        # rewriting the distant backlog. Read IDs only and stop at the ceiling.
+        pending = len(
+            list(
+                WorkStage.objects.filter(
+                    profile=profile, state__in=["ready", "running"], execution__paused=False
+                )
+                .exclude(execution__job__status__in=["Completed", "Failed"])
+                .values_list("pk", flat=True)[:pending_limit]
+            )
+        )
+        background_slots = pending_limit - pending
+        if not background_slots and not foreground and not needed:
             continue
         sources = ResourceProfile.objects.filter(
             fingerprint__in=profile.settings["cohort_sources"],
@@ -192,6 +212,10 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
         )
         if profile.settings.get("step") not in INPUT_STEPS:
             query = query.filter(has_inputs=False)
+        if not background_slots:
+            # Urgent/normal requests may still amortize their own work, including
+            # prerequisites owned by the bulk class. Original stages stay eligible.
+            query = query.filter(Q(execution_id__in=foreground) | Q(pk__in=needed))
         # Lock/rank IDs before fetching manifests. Sorting all queued payloads
         # can spill gigabytes of immutable JSON for a sixteen-row planning pass.
         ids = list(query.values_list("pk", flat=True)[: max(2, min(limit, 512))])
@@ -253,6 +277,11 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
                     key = (stage.execution_id, stage.target, stage.profile_id)
                 groups[key].append(stage)
         for group in groups.values():
+            background = all(s.execution_id not in foreground and s.pk not in needed for s in group)
+            if background and not background_slots:
+                continue
+            before = len(created)
+            ceiling = min(batch_limit, before + background_slots) if background else batch_limit
             selected = []
             for stage in group:
                 trial = selected + [stage]
@@ -263,15 +292,19 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4):
                             created.append(ident)
                         if len(created) >= batch_limit:
                             return created
+                        if len(created) >= ceiling:
+                            break
                     selected = [stage] if merged_payload([stage], profile) else []
                 else:
                     selected = trial
-            if len(selected) > 1:
+            if len(created) < ceiling and len(selected) > 1:
                 ident = replace(selected, profile)
                 if ident:
                     created.append(ident)
                 if len(created) >= batch_limit:
                     return created
+            if background:
+                background_slots -= len(created) - before
     return [ident for ident in created if ident]
 
 
