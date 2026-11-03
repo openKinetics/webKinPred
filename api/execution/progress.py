@@ -8,48 +8,61 @@ from api.models import Job, JobProgressStage
 
 
 @transaction.atomic
-def request_refresh(execution):
-    """Keep shared-consumer fanout out of ownership/lease transactions."""
-    if execution.job_id:
+def request_refresh(execution, *, force=False):
+    """Coalesce expensive progress work independently of execution leases."""
+    large = bool(execution.job_id and execution.job.requested_rows > 1024)
+    if execution.job_id and not large:
         return refresh(execution)
-    shared = execution.specification.get("shared_protein_batch")
-    if not shared:
+    shared = None if execution.job_id else execution.specification.get("shared_protein_batch")
+    if not execution.job_id and not shared:
         return
     from api.execution.models import ExecutionOutbox
 
-    owners = [row["id"] for row in shared["source_requests"]]
+    owners = (
+        [execution.pk] if execution.job_id else [row["id"] for row in shared["source_requests"]]
+    )
     event, _ = ExecutionOutbox.objects.get_or_create(
-        key=f"progress:{execution.pk}", defaults={"event": {"progress_execution_ids": owners}}
+        key=f"progress:{execution.pk}", defaults={"event": {}}
     )
     event = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
+    previous = event.event
+    cooldown = 15 if large else 0
+    forced = force or previous.get("force", False)
     event.event = {
         "progress_execution_ids": list(
-            dict.fromkeys([*event.event.get("progress_execution_ids", []), *owners])
-        )
+            dict.fromkeys([*previous.get("progress_execution_ids", []), *owners])
+        ),
+        "generation": previous.get("generation", 0) + 1,
+        "cooldown": cooldown,
+        "last_projected_at": previous.get("last_projected_at", 0),
+        "not_before": 0 if forced else previous.get("last_projected_at", 0) + cooldown,
+        "force": forced,
     }
     event.published_at = None
     event.save(update_fields=["event", "published_at"])
 
 
-@transaction.atomic
 def _project_one():
     from api.execution.models import ExecutionOutbox, ExecutionSpec
 
-    if connection.vendor == "postgresql":
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
-                "SET LOCAL lock_timeout = '250ms'; SET LOCAL statement_timeout = '1000ms'"
-            )
+    # Do not hold the outbox row during the scan: incoming progress can mark it
+    # dirty without waiting. Generation checking below prevents lost updates.
     event = (
-        ExecutionOutbox.objects.select_for_update(skip_locked=True)
-        .filter(published_at__isnull=True, event__has_key="progress_execution_ids")
+        ExecutionOutbox.objects.filter(
+            published_at__isnull=True,
+            event__has_key="progress_execution_ids",
+        )
+        .filter(
+            models.Q(event__not_before__isnull=True)
+            | models.Q(event__not_before__lte=timezone.now().timestamp())
+        )
         .order_by("pk")
         .first()
     )
     if event is None:
         return False
     owners = event.event["progress_execution_ids"]
+    generation = event.event.get("generation", 0)
     if owners:
         owner = (
             ExecutionSpec.objects.filter(pk=owners[0])
@@ -58,11 +71,33 @@ def _project_one():
             .first()
         )
         if owner and owner.job_id:
-            refresh(owner)
-    event.event = {"progress_execution_ids": owners[1:]}
-    if len(owners) <= 1:
-        event.published_at = timezone.now()
-    event.save(update_fields=["event", "published_at"])
+            with transaction.atomic():
+                if connection.vendor == "postgresql":
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+                            "SET LOCAL lock_timeout = '250ms'; "
+                            "SET LOCAL statement_timeout = '10000ms'"
+                        )
+                refresh(owner, scan_before_lock=True)
+    with transaction.atomic():
+        current = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
+        payload = current.event
+        unchanged = payload.get("generation", 0) == generation
+        remaining = owners[1:] if unchanged else payload["progress_execution_ids"]
+        now = timezone.now()
+        payload.update(
+            progress_execution_ids=remaining,
+            generation=payload.get("generation", 0) + 1,
+            last_projected_at=now.timestamp(),
+            not_before=0
+            if unchanged or payload.get("force")
+            else now.timestamp() + payload.get("cooldown", 0),
+            force=False if unchanged else payload.get("force", False),
+        )
+        current.event = payload
+        current.published_at = None if remaining else now
+        current.save(update_fields=["event", "published_at"])
     return True
 
 
@@ -137,7 +172,7 @@ def stage_summaries(execution):
     ]
 
 
-def refresh(execution):
+def refresh(execution, *, scan_before_lock=False):
     if not execution.job_id:
         shared = execution.specification.get("shared_protein_batch")
         if shared:
@@ -153,11 +188,23 @@ def refresh(execution):
             ):
                 refresh(owner)
         return
-    # Serialize target summaries across completions/heartbeats from both hosts.
-    with transaction.atomic():
-        job = Job.objects.select_for_update().get(pk=execution.job_id)
+    # Background projections scan before taking the job lock. A newer summary
+    # or final publication invalidates that snapshot rather than regressing it.
+    captured_at = timezone.now()
+    stages = None
+    if scan_before_lock:
         stages = stage_summaries(execution)
         stages.extend(shared_embedding_summaries(execution))
+    with transaction.atomic():
+        job = Job.objects.select_for_update().get(pk=execution.job_id)
+        if scan_before_lock:
+            if (
+                job.completion_time and job.completion_time > captured_at
+            ) or JobProgressStage.objects.filter(job=job, updated_at__gt=captured_at).exists():
+                return
+        else:
+            stages = stage_summaries(execution)
+            stages.extend(shared_embedding_summaries(execution))
         total, done = 0, 0
         targets = getattr(execution, "projected_targets", None)
         if targets is None:

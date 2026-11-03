@@ -86,6 +86,89 @@ def test_busy_optional_projection_preserves_pending_owner_and_retries(ready_work
     assert progress.project_pending() == 1
 
 
+@pytest.mark.django_db(transaction=True)
+def test_large_job_progress_coalesces_without_postponing_refresh_on_each_update(
+    ready_work, monkeypatch
+):
+    from datetime import timedelta
+
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox
+    from django.utils import timezone
+
+    owner = ready_work[1][0].execution
+    owner.job.requested_rows = 17010
+    owner.job.save(update_fields=["requested_rows"])
+    refresh = Mock()
+    monkeypatch.setattr(progress, "refresh", refresh)
+    now = timezone.now()
+    monkeypatch.setattr(progress.timezone, "now", lambda: now)
+    progress.request_refresh(owner)
+    refresh.assert_not_called()
+    assert progress.project_pending() == 1
+    now += timedelta(seconds=5)
+    progress.request_refresh(owner)
+    event = ExecutionOutbox.objects.get(key=f"progress:{owner.pk}")
+    due = event.event["not_before"]
+    assert progress.project_pending() == 0
+    now += timedelta(seconds=5)
+    progress.request_refresh(owner)
+    event.refresh_from_db()
+    assert event.event["not_before"] == due
+    now += timedelta(seconds=5)
+    assert progress.project_pending() == 1
+    progress.request_refresh(owner, force=True)
+    assert progress.project_pending() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_progress_update_arriving_during_scan_is_not_lost(ready_work, monkeypatch):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox, ExecutionSpec
+
+    owner = ready_work[1][0].execution
+    shared = ExecutionSpec.objects.create(
+        specification={"shared_protein_batch": {"source_requests": [{"id": owner.pk}]}},
+        checksum="a" * 64,
+        input_checksum="b" * 64,
+    )
+    progress.request_refresh(shared)
+    refresh = Mock(side_effect=lambda *args, **kwargs: progress.request_refresh(shared))
+    monkeypatch.setattr(progress, "refresh", refresh)
+    assert progress.project_pending(limit=1) == 1
+    event = ExecutionOutbox.objects.get(key=f"progress:{shared.pk}")
+    assert event.published_at is None
+    assert event.event["progress_execution_ids"] == [owner.pk]
+    monkeypatch.setattr(progress, "refresh", Mock())
+    assert progress.project_pending() == 1
+    event.refresh_from_db()
+    assert event.published_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_background_snapshot_does_not_overwrite_newer_public_progress(ready_work, monkeypatch):
+    from api.execution import progress
+    from api.models import JobProgressStage
+    from django.utils import timezone
+
+    owner = ready_work[1][0].execution
+    summary = JobProgressStage.objects.create(
+        job=owner.job, target="kcat", stage_index=0, predictions_made=7
+    )
+
+    def newer_summary(execution):
+        JobProgressStage.objects.filter(pk=summary.pk).update(
+            predictions_made=8, updated_at=timezone.now()
+        )
+        return []
+
+    monkeypatch.setattr(progress, "stage_summaries", newer_summary)
+    monkeypatch.setattr(progress, "shared_embedding_summaries", lambda execution: [])
+    progress.refresh(owner, scan_before_lock=True)
+    summary.refresh_from_db()
+    assert summary.predictions_made == 8
+
+
 def test_running_heartbeat_cadence_preserves_fencing(tmp_path, monkeypatch):
     agent = Agent({"root": str(tmp_path), "host_id": "test", "budgets": {"disk_headroom": 0}})
     agent.docker = Mock(return_value=json.dumps([{"State": {"Running": True}}]))

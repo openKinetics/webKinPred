@@ -1115,7 +1115,7 @@ def finish(host_id, attempt_id, data):
     )
     from api.execution.progress import request_refresh
 
-    request_refresh(stage.execution)
+    request_refresh(stage.execution, force=stage.kind == "assemble")
     return {"state": "completed"}
 
 
