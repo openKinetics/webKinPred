@@ -9,7 +9,7 @@ from django.db import connection
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
-from api.execution.models import ExecutionAttempt, ExecutionSpec, WorkStage
+from api.execution.models import ArtifactDependency, ExecutionAttempt, ExecutionSpec, WorkStage
 
 _queue_snapshot = None
 _queue_snapshot_lock = threading.Lock()
@@ -138,7 +138,7 @@ def execution_status(job):
         state = "paused"
     elif any(s.state == "held" or s.waiting_reason == "profiling_required" for s in waiting):
         state = "needs_attention"
-    elif any(s.state == "running" for s in stages):
+    elif any(s.state == "running" for s in waiting):
         state = "running"
     elif any(s.failures for s in stages if s.state != "completed"):
         state = "retrying"
@@ -147,11 +147,21 @@ def execution_status(job):
     else:
         state = "waiting_cpu"
     now = timezone.now()
+    related_stages = (
+        WorkStage.objects.filter(execution=execution)
+        .values_list("pk")
+        .union(
+            ArtifactDependency.objects.filter(stage__execution=execution).values_list(
+                "artifact__producer_id"
+            )
+        )
+    )
     intervals = sorted(
-        (started, min(finished or now, lease))
+        (max(started, execution.created_at), min(finished or now, lease))
         for started, finished, lease in ExecutionAttempt.objects.filter(
-            stage__execution=execution
+            stage_id__in=related_stages
         ).values_list("started_at", "finished_at", "lease_until")
+        if min(finished or now, lease) > execution.created_at
     )
     merged = []
     for start, end in intervals:

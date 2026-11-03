@@ -1,4 +1,4 @@
-"""Amortize model startup over measured, bounded protein work within one job.
+"""Amortize model startup over measured, bounded protein work.
 
 Scientific artifact identities and consumer paths stay unchanged. Only untouched
 producer stages are replaced; molecular batches and active/retried stages retain
@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import timedelta
 from pathlib import PurePosixPath
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Prefetch
 from django.db.models.functions import Coalesce
@@ -21,6 +22,7 @@ from api.execution.models import (
     Artifact,
     ArtifactDependency,
     ExecutionAttempt,
+    ExecutionSpec,
     ExecutorHost,
     ResourceProfile,
     WorkStage,
@@ -85,7 +87,7 @@ def merged_payload(stages, profile):
 
 
 @transaction.atomic
-def coalesce(limit=16):
+def coalesce(limit=16, *, cross_jobs=None, profile_id=None):
     """Bounded reconciliation. Empty until measured cohort profiles are enabled."""
     if connection.vendor != "postgresql":
         return []
@@ -116,6 +118,13 @@ def coalesce(limit=16):
         fingerprint__in=fingerprints,
         settings__cohort_sources__isnull=False,
     )
+    if profile_id is not None:
+        profiles = profiles.filter(pk=profile_id)
+    if cross_jobs is None:
+        cross_jobs = getattr(settings, "EXECUTION_CROSS_JOB_PROTEIN_BATCHES", False)
+    from api.execution.background import foreground_dependencies
+
+    needed = foreground_dependencies() if cross_jobs else set()
     created = []
     for profile in profiles:
         gpu = (
@@ -162,6 +171,7 @@ def coalesce(limit=16):
                 has_inputs=Exists(ArtifactDependency.objects.filter(stage_id=OuterRef("pk"))),
             )
             .filter(tried=False, blocked=False)
+            .exclude(payload__contains={"do_not_coalesce": True})
             .order_by(
                 "execution__background",
                 "-execution__priority",
@@ -188,10 +198,41 @@ def coalesce(limit=16):
         }
         candidates = [selected_rows[ident] for ident in ids]
 
+        executions = {}
+        if cross_jobs and gpu and profile.settings.get("step") not in INPUT_STEPS:
+            executions = {
+                e.pk: e
+                for e in ExecutionSpec.objects.filter(pk__in={s.execution_id for s in candidates})
+                .select_related("job")
+                .only(
+                    "id",
+                    "job",
+                    "background",
+                    "priority",
+                    "created_at",
+                    "policy_version",
+                    "checksum",
+                    "input_checksum",
+                    "job__submission_time",
+                )
+            }
+
         groups = defaultdict(list)
         for stage in candidates:
             if stage.payload.get("seq_id_to_seq") and stage.payload.get("outputs"):
-                groups[(stage.execution_id, stage.target, stage.profile_id)].append(stage)
+                execution = executions.get(stage.execution_id)
+                if execution and execution.background and stage.pk not in needed:
+                    stage.cohort_execution = execution
+                    key = (
+                        "shared",
+                        stage.target,
+                        stage.profile_id,
+                        execution.policy_version,
+                        max(stage.priority, execution.priority),
+                    )
+                else:
+                    key = (stage.execution_id, stage.target, stage.profile_id)
+                groups[key].append(stage)
         for group in groups.values():
             selected = []
             for stage in group:
@@ -225,18 +266,49 @@ def replace(stages, profile):
         )
         return None
     payload["cohort_source_stages"] = list(map(str, ids))
+    execution_id = stages[0].execution_id
+    priority = max(s.priority for s in stages)
+    oldest = min((s.oldest_consumer_at for s in stages if s.oldest_consumer_at), default=None)
+    if len({s.execution_id for s in stages}) > 1:
+        owners = {
+            s.execution_id: getattr(s, "cohort_execution", None) or s.execution for s in stages
+        }
+        if not all(e.background for e in owners.values()):
+            raise ValueError("Cross-job batches may contain only background protein work")
+        priority = max(max(s.priority, owners[s.execution_id].priority) for s in stages)
+        recipe = {
+            "model_versions": {stages[0].method: deepcopy(profile.settings["model_identity"])},
+            "targets": [stages[0].target],
+            "methods": {stages[0].target: stages[0].method},
+            "shared_protein_batch": {
+                "source_requests": [
+                    {"id": e.pk, "checksum": e.checksum, "input_checksum": e.input_checksum}
+                    for e in sorted(owners.values(), key=lambda e: e.pk)
+                ],
+            },
+        }
+        execution = ExecutionSpec.objects.create(
+            specification=recipe,
+            checksum=digest(recipe),
+            input_checksum=digest(payload["seq_id_to_seq"]),
+            background=True,
+            paused=False,
+            policy_version=next(iter(owners.values())).policy_version,
+        )
+        execution_id = execution.pk
+        oldest = min(
+            s.oldest_consumer_at or owners[s.execution_id].job.submission_time for s in stages
+        )
     stage = WorkStage.objects.create(
-        execution_id=stages[0].execution_id,
+        execution_id=execution_id,
         key="cohort:" + digest(sorted(map(str, ids))),
         kind=stages[0].kind,
         method=stages[0].method,
         target=stages[0].target,
         profile=profile,
         payload=payload,
-        priority=max(s.priority for s in stages),
-        oldest_consumer_at=min(
-            (s.oldest_consumer_at for s in stages if s.oldest_consumer_at), default=None
-        ),
+        priority=priority,
+        oldest_consumer_at=oldest,
         created_at=min(s.created_at for s in stages),
     )
     inputs = {
@@ -336,7 +408,9 @@ def split_cohort(ident):
                 parent,
             )
             mapping = list(stage.payload["seq_id_to_seq"].items())
-            width = max(1, min(16, parent.limits["sequences"]))
+            width = max(
+                1, min(16, parent.limits["sequences"], stage.payload.get("split_width", 16))
+            )
             sources = []
             if stage.payload.get("step") == "kinform_pseq2sites":
                 partitions = []
@@ -390,6 +464,7 @@ def split_cohort(ident):
                     profile=parent,
                     payload=payload,
                     created_at=stage.created_at,
+                    oldest_consumer_at=stage.oldest_consumer_at,
                 )
                 source.dependencies.add(*stage.dependencies.all())
                 from api.execution.planning import attach
@@ -411,7 +486,10 @@ def split_cohort(ident):
             source.waiting_reason = "retrying"
             source.available_at = stage.available_at
             source.priority = max(source.priority, stage.priority)
-            source.save(update_fields=["state", "waiting_reason", "available_at", "priority"])
+            source.payload["do_not_coalesce"] = True
+            source.save(
+                update_fields=["state", "waiting_reason", "available_at", "priority", "payload"]
+            )
         edge = WorkStage.dependencies.through
         consumers = list(stage.dependants.all())
         source_ids = {s.pk for s in sources}

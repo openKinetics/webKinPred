@@ -692,6 +692,17 @@ def claim(host_id: str):
         Job.objects.filter(pk=stage.execution.job_id, start_time__isnull=True).update(
             start_time=admitted_at, status="Processing"
         )
+        shared = (
+            stage.execution.specification.get("shared_protein_batch")
+            if not stage.execution.job_id
+            else None
+        )
+        if shared:
+            Job.objects.filter(
+                execution__pk__in=[row["id"] for row in shared["source_requests"]],
+                status="Pending",
+                start_time__isnull=True,
+            ).update(start_time=admitted_at, status="Processing")
         log.info(
             "Execution admitted",
             extra={
@@ -845,7 +856,11 @@ def checkpoint(host_id, attempt_id, data):
         from api.execution.artifact_policy import retention_for
 
         artifact.retention = retention_for(artifact.identity)
-        if artifact.retention == "transient" and attempt.stage.execution.job_id is None:
+        if (
+            artifact.retention == "transient"
+            and attempt.stage.execution.job_id is None
+            and not attempt.stage.execution.specification.get("shared_protein_batch")
+        ):
             artifact.retention = "protected"
         artifact.save(update_fields=["checksum", "size", "retention"])
         ArtifactLocation.objects.update_or_create(
@@ -964,7 +979,11 @@ def finish(host_id, attempt_id, data):
             artifact.metadata = {**artifact.metadata, **output.get("metadata", {})}
             artifact.save(update_fields=["checksum", "size", "metadata"])
         retention = retention_for(identity) if artifact.regenerable else "permanent"
-        if retention == "transient" and stage.execution.job_id is None:
+        if (
+            retention == "transient"
+            and stage.execution.job_id is None
+            and not stage.execution.specification.get("shared_protein_batch")
+        ):
             retention = "protected"
         if artifact.retention != retention:
             artifact.retention = retention
@@ -1134,9 +1153,17 @@ def fail(host_id, attempt_id, data):
         for previous in recent
     )
     stage.state = "held" if repeated and not temporary and not adjusted else "ready"
-    if stage.waiting_reason == "oom" and stage.payload.get("cohort_source_stages"):
+    shared_unknown = stage.waiting_reason == "unknown" and stage.execution.specification.get(
+        "shared_protein_batch"
+    )
+    if stage.payload.get("cohort_source_stages") and (
+        stage.waiting_reason == "oom" or shared_unknown
+    ):
         stage.state = "recovering"
-        if stage.profile.settings.get("cohort_sources"):
+        if shared_unknown:
+            stage.payload["split_width"] = 1
+            stage.save(update_fields=["payload"])
+        if stage.waiting_reason == "oom" and stage.profile.settings.get("cohort_sources"):
             ResourceProfile.objects.filter(pk=stage.profile_id).update(suspended=True)
         ExecutionOutbox.objects.get_or_create(
             key=f"split-cohort:{attempt.pk}", defaults={"event": {"split_cohort": str(stage.pk)}}

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import timedelta
 
 import pytest
 from api.execution import control
@@ -127,6 +128,220 @@ def test_cohort_never_changes_active_retry_or_other_jobs():
     stages[2].save(update_fields=["execution"])
     assert coalesce() == []
     assert not WorkStage.objects.filter(profile=large).exists()
+
+
+def shared_sources(policy="resource-v1"):
+    from api.execution.models import ExecutionSpec
+
+    host, first, parent, large, stages, head = setup_cohort()
+    first.background = True
+    first.save(update_fields=["background"])
+    job = Job.objects.create(public_id="otherbulk", prediction_type="kcat", status="Pending")
+    second = ExecutionSpec.objects.create(
+        job=job,
+        specification=first.specification,
+        checksum=first.checksum,
+        input_checksum="d" * 64,
+        paused=False,
+        background=True,
+        policy_version=first.policy_version if policy == "resource-v1" else policy,
+    )
+    WorkStage.objects.filter(pk__in=[s.pk for s in stages[2:]]).update(execution=second)
+    return host, first, second, parent, large, stages, head
+
+
+def test_cross_job_batch_preserves_requests_consumers_and_oldest_submission():
+    _, first, second, _, large, stages, head = shared_sources()
+    requests = {
+        e.pk: (deepcopy(e.specification), e.checksum, e.input_checksum) for e in [first, second]
+    }
+    consumers = list(head.artifacts.values_list("artifact_id", "path"))
+    cohort = WorkStage.objects.get(pk=coalesce(cross_jobs=True)[0])
+    assert cohort.execution.job_id is None and cohort.execution.background
+    assert cohort.profile == large and cohort.payload["shape"]["sequences"] == 32
+    assert cohort.oldest_consumer_at == min(first.job.submission_time, second.job.submission_time)
+    assert {
+        r["id"] for r in cohort.execution.specification["shared_protein_batch"]["source_requests"]
+    } == set(requests)
+    assert set(head.dependencies.values_list("pk", flat=True)) == {cohort.pk}
+    assert list(head.artifacts.values_list("artifact_id", "path")) == consumers
+    assert Artifact.objects.filter(producer=cohort).count() == 32
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="canceled").count() == 4
+    for execution in [first, second]:
+        execution.refresh_from_db()
+        assert (execution.specification, execution.checksum, execution.input_checksum) == requests[
+            execution.pk
+        ]
+    assert coalesce(cross_jobs=True) == []
+
+
+@pytest.mark.parametrize("difference", ["foreground", "priority", "policy", "options"])
+def test_cross_job_batches_keep_scheduling_and_execution_boundaries(difference):
+    _, first, second, _, _, stages, _ = shared_sources(
+        policy="different-policy" if difference == "policy" else "resource-v1"
+    )
+    if difference == "foreground":
+        first.background = False
+        first.save(update_fields=["background"])
+    elif difference == "priority":
+        second.priority = 5
+        second.save(update_fields=["priority"])
+    elif difference == "options":
+        for stage in stages[2:]:
+            stage.payload["precision"] = "different"
+            stage.save(update_fields=["payload"])
+    cohorts = WorkStage.objects.filter(pk__in=coalesce(cross_jobs=True))
+    assert cohorts.count() == 2
+    assert all(s.execution.job_id is not None for s in cohorts)
+
+
+def test_background_prerequisite_for_foreground_is_not_mixed_with_bulk_jobs():
+    _, first, _, _, _, stages, _ = shared_sources()
+    job = Job.objects.create(public_id="interact", prediction_type="kcat", status="Pending")
+    foreground = control.ingest(job.public_id, {"targets": ["kcat"]}, "e" * 64, paused=False)
+    consumer = WorkStage.objects.create(execution=foreground, key="needs", kind="predict")
+    consumer.dependencies.add(*stages[:2])
+    cohorts = WorkStage.objects.filter(pk__in=coalesce(cross_jobs=True))
+    assert cohorts.count() == 2
+    assert all(s.execution.job_id is not None for s in cohorts)
+
+
+@pytest.mark.parametrize("category,width,suspended", [("unknown", 1, False), ("oom", 16, True)])
+def test_shared_failure_isolates_work_without_reopening_jobs_or_rebatching(
+    category, width, suspended
+):
+    from api.execution.cohorts import split_cohort
+
+    host, first, second, parent, large, _, head = shared_sources()
+    cohort = WorkStage.objects.get(pk=coalesce(cross_jobs=True)[0])
+    attempt = ExecutionAttempt.objects.create(
+        stage=cohort,
+        host=host,
+        state="running",
+        profile_fingerprint=large.fingerprint,
+        lease_until=timezone.now(),
+    )
+    control.fail(
+        host.pk, attempt.pk, {"token": str(attempt.token), "stopped": True, "category": category}
+    )
+    assert split_cohort(cohort.pk)
+    children = list(cohort.execution.stages.filter(state="ready"))
+    assert len(children) == 32 // width
+    assert all(
+        s.profile_id == parent.pk and s.payload["shape"]["sequences"] == width for s in children
+    )
+    assert all(
+        s.oldest_consumer_at == cohort.oldest_consumer_at and s.payload["do_not_coalesce"]
+        for s in children
+    )
+    assert sum(Artifact.objects.filter(producer=s).count() for s in children) == 32
+    assert set(head.dependencies.values_list("pk", flat=True)) == {s.pk for s in children}
+    large.refresh_from_db()
+    assert large.suspended == suspended
+    assert coalesce(cross_jobs=True) == []
+    first.job.refresh_from_db()
+    second.job.refresh_from_db()
+    assert first.job.status == second.job.status == "Pending"
+
+
+@pytest.mark.parametrize("shared,expected", [(True, "transient"), (False, "protected")])
+def test_shared_raw_checkpoint_remains_transient_but_legacy_service_outputs_are_protected(
+    shared, expected
+):
+    host, _, _, _, _, _, _ = shared_sources()
+    cohort = WorkStage.objects.get(pk=coalesce(cross_jobs=True)[0])
+    if not shared:
+        from api.execution.models import ExecutionSpec
+
+        cohort.execution = ExecutionSpec.objects.create(
+            specification={"legacy_service": True},
+            checksum="c" * 64,
+            input_checksum="d" * 64,
+            paused=False,
+        )
+        cohort.save(update_fields=["execution"])
+    identity = {"representation_version": "execution-v2", "path": "sequence_info/esm1v/raw.npy"}
+    artifact = Artifact.objects.create(
+        id=control.digest(identity), identity=identity, producer=cohort, size=0
+    )
+    declaration = {"id": artifact.pk, "identity": identity, "path": "raw.npy"}
+    cohort.payload["outputs"] = [declaration]
+    cohort.payload["output_artifacts"] = [artifact.pk]
+    cohort.save(update_fields=["payload"])
+    attempt = ExecutionAttempt.objects.create(
+        stage=cohort,
+        host=host,
+        state="running",
+        lease_until=timezone.now() + timedelta(seconds=30),
+    )
+    control.checkpoint(
+        host.pk,
+        attempt.pk,
+        {
+            "token": str(attempt.token),
+            "artifacts": [{**declaration, "checksum": "f" * 64, "size": 12}],
+        },
+    )
+    artifact.refresh_from_db()
+    assert artifact.retention == expected
+    assert control.finish(
+        host.pk,
+        attempt.pk,
+        {
+            "token": str(attempt.token),
+            "stopped": True,
+            "artifacts": [{**declaration, "checksum": "f" * 64, "size": 12}],
+        },
+    ) == {"state": "completed"}
+    artifact.refresh_from_db()
+    assert artifact.retention == expected
+
+
+def test_shared_claim_starts_source_jobs_and_projects_only_referenced_outputs():
+    from api.execution.progress import refresh
+    from api.execution.status import execution_status
+    from api.models import JobProgressStage
+    from django.test import override_settings
+
+    host, first, second, _, _, stages, head = shared_sources()
+    # Give each job a distinct prediction consumer and its own output references.
+    other_head = WorkStage.objects.create(
+        execution=second, key="head", kind="predict", target="kcat"
+    )
+    artifacts = set(stages[2].payload["output_artifacts"] + stages[3].payload["output_artifacts"])
+    ArtifactDependency.objects.filter(stage=head, artifact_id__in=artifacts).update(
+        stage=other_head
+    )
+    head.dependencies.remove(*stages[2:])
+    other_head.dependencies.add(*stages[2:])
+    for owner in [first, second]:
+        JobProgressStage.objects.get_or_create(job=owner.job, target="kcat", stage_index=0)
+    cohort = WorkStage.objects.get(pk=coalesce(cross_jobs=True)[0])
+    host.budgets = {"cpu": 4, "ram": 8 * 2**30, "disk": 8 * 2**30}
+    host.telemetry = {
+        "cpu_available": 4,
+        "ram_available": 16 * 2**30,
+        "disk_free": 32 * 2**30,
+        "gpu_uuid": "gpu",
+        "vram_total": 20 * 2**30,
+        "vram_free": 20 * 2**30,
+    }
+    host.save()
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        admitted = control.claim(host.pk)
+        assert admitted and admitted["stage_id"] == str(cohort.pk)
+        assert admitted["public_id"].startswith("embed-")
+        refresh(cohort.execution)
+        for owner in [first, second]:
+            owner.job.refresh_from_db()
+            assert owner.job.status == "Processing" and owner.job.start_time
+            assert execution_status(owner.job)["execution_state"] == "running"
+            public = JobProgressStage.objects.get(job=owner.job, target="kcat")
+            assert public.embedding_total == 16 and public.embedding_state == "running"
+    cohort.state = "completed"
+    cohort.save(update_fields=["state"])
+    refresh(cohort.execution)
+    assert list(JobProgressStage.objects.values_list("embedding_computed", flat=True)) == [16, 16]
 
 
 def test_cohort_never_changes_molecular_position_context_or_unprofiled_bounds():
