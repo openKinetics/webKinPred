@@ -29,6 +29,65 @@ PREFIX = "sequence_info/esm1v/"
 CUTOFF = datetime(2026, 10, 29, tzinfo=timezone.utc).timestamp()
 NAME = re.compile(r"[0-9a-f]{12}(?:_[1-9][0-9]*)?\.npy\Z")
 GRAPH_LOCK = 481726392
+INDEX_NAME = "wk_legacy_esm1v_path"
+
+# Operator-owned, narrowly scoped maintenance index. Its concurrent build runs
+# outside the graph lock and never changes job/artifact records or file content.
+PREPARE_INDEX = r"""
+import json, os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webKinPred.settings")
+import django
+django.setup()
+from django.db import connection
+from api.execution.models import Artifact
+if connection.vendor != "postgresql":
+    raise RuntimeError("PostgreSQL is required")
+name = "wk_legacy_esm1v_path"
+with connection.cursor() as cursor:
+    # The two-int advisory namespace is separate from scheduler bigint locks.
+    cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", [1464557617, 1163087153])
+    if not cursor.fetchone()[0]:
+        raise RuntimeError("Another cleanup index setup is running")
+try:
+    with connection.cursor() as cursor:
+        cursor.execute("SET statement_timeout='600000ms'")
+        cursor.execute("SET lock_timeout='30000ms'")
+        cursor.execute("SET maintenance_work_mem='32MB'")
+        cursor.execute("SET max_parallel_maintenance_workers=0")
+        cursor.execute("SELECT indisvalid, indrelid = %s::regclass, "
+                       "pg_get_expr(indexprs, indrelid), pg_get_expr(indpred, indrelid) "
+                       "FROM pg_index "
+                       "WHERE indexrelid=to_regclass(%s)", [Artifact._meta.db_table, name])
+        existing = cursor.fetchone()
+        if existing:
+            valid, right_table, expression, predicate = existing
+            expected = "((identity ->> 'path'::text) ~~ 'sequence\\_info/esm1v/%'::text)"
+            if (not right_table or expression != "(identity ->> 'path'::text)"
+                    or predicate != expected):
+                raise RuntimeError("Unexpected cleanup index definition; inspect before retrying")
+            if not valid:
+                # A canceled concurrent build can leave an invalid index. The
+                # dedicated advisory lock fences another setup; validate its
+                # exact definition before removing only this maintenance index.
+                cursor.execute("DROP INDEX CONCURRENTLY " + name)
+                existing = None
+        if not existing:
+            print(json.dumps({"event": "building_esm1v_lookup_index", "concurrently": True}),
+                  flush=True)
+            table = connection.ops.quote_name(Artifact._meta.db_table)
+            cursor.execute("CREATE INDEX CONCURRENTLY " + name + " ON " + table +
+                           " ((identity ->> 'path') text_pattern_ops) "
+                           "WHERE (identity ->> 'path') LIKE 'sequence\\_info/esm1v/%'")
+        cursor.execute("SELECT indisvalid, pg_relation_size(indexrelid) FROM pg_index "
+                       "WHERE indexrelid=to_regclass(%s)", [name])
+        valid, size = cursor.fetchone()
+        if not valid:
+            raise RuntimeError("Cleanup lookup index did not become valid")
+        print(json.dumps({"event": "esm1v_lookup_index_ready", "bytes": size}), flush=True)
+finally:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_unlock(%s, %s)", [1464557617, 1163087153])
+"""
 
 # Executed using the backend's existing settings/credentials. No DB writes and no
 # Redis operations. The session lock fences graph publication for at most 20s;
@@ -52,9 +111,14 @@ prefix = "sequence_info/esm1v/"
 if connection.vendor != "postgresql" or not settings.EXECUTION_V2_ENABLED:
     raise RuntimeError("Requires PostgreSQL and EXECUTION_V2_ENABLED")
 with connection.cursor() as cursor:
-    cursor.execute("SET statement_timeout = '15000ms'")
+    cursor.execute("SET statement_timeout = '5000ms'")
     cursor.execute("SET jit = off")
     cursor.execute("SET max_parallel_workers_per_gather = 0")
+    cursor.execute("SELECT indisvalid, indrelid = %s::regclass FROM pg_index "
+                   "WHERE indexrelid=to_regclass(%s)",
+                   [Artifact._meta.db_table, "wk_legacy_esm1v_path"])
+    if cursor.fetchone() != (True, True):
+        raise RuntimeError("Cleanup lookup index is missing/invalid; run --prepare-index first")
     cursor.execute("SELECT pg_try_advisory_lock(%s)", [481726392])
     if not cursor.fetchone()[0]:
         raise RuntimeError("Graph is busy; retry later")
@@ -116,6 +180,20 @@ finally:
 
 def docker(*args):
     return subprocess.check_output(["docker", *args], text=True, timeout=30)
+
+
+def database_entry(source):
+    """Compact errors rather than a multi-kilobyte production traceback."""
+    return (
+        "import json,sys\ntry:\n exec(" + repr(source) + ")\n"
+        "except Exception as error:\n"
+        " cause = getattr(error, '__cause__', None)\n"
+        " state = getattr(cause, 'sqlstate', None) or getattr(cause, 'pgcode', None)\n"
+        " message = str(error) if isinstance(error, RuntimeError) else type(error).__name__\n"
+        " if state: message += ' (SQLSTATE ' + state + ')'\n"
+        " print(json.dumps({'error':message,'files_preserved':True}), flush=True)\n"
+        " sys.exit(1)\n"
+    )
 
 
 def identity(info):
@@ -241,7 +319,7 @@ def check_containers(root, backend):
 @contextlib.contextmanager
 def database_guard(backend, root_info):
     with subprocess.Popen(
-        ["docker", "exec", "-i", backend, "python", "-c", DATABASE_GUARD],
+        ["docker", "exec", "-i", backend, "python", "-c", database_entry(DATABASE_GUARD)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -256,6 +334,8 @@ def database_guard(backend, root_info):
                     "Database safety snapshot refused: " + process.stderr.read()[-2000:]
                 )
             snapshot = json.loads(line)
+            if "error" in snapshot:
+                raise RuntimeError("Database safety snapshot refused: " + snapshot["error"])
             if (snapshot["device"], snapshot["inode"]) != (root_info.st_dev, root_info.st_ino):
                 raise RuntimeError("Backend MEDIA_ROOT is a different filesystem/directory")
             # Leave five seconds for graceful release before the DB watchdog.
@@ -324,6 +404,11 @@ def main(argv=None):
     parser.add_argument("--repo", type=Path, default=Path("/home/saleh/webKinPred"))
     parser.add_argument("--backend", default="webkinpred-backend-1")
     parser.add_argument(
+        "--prepare-index",
+        action="store_true",
+        help="Build the small PostgreSQL lookup index concurrently; never deletes files",
+    )
+    parser.add_argument(
         "--apply", action="store_true", help="Delete eligible files (default: preview)"
     )
     parser.add_argument(
@@ -338,6 +423,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if os.geteuid() != 0:
         parser.error("Run on the production host using sudo so /proc can be audited completely")
+    if args.prepare_index:
+        if args.apply:
+            parser.error("--prepare-index and --apply must be separate invocations")
+        result = subprocess.run(
+            ["docker", "exec", args.backend, "python", "-c", database_entry(PREPARE_INDEX)],
+            timeout=620,
+        )
+        if result.returncode:
+            raise RuntimeError("Index setup refused; see preceding JSON error. No files deleted")
+        return
     if not 1 <= args.limit <= 10000:
         parser.error("--limit must be between 1 and 10000")
     if args.apply and not args.report:
