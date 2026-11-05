@@ -77,14 +77,31 @@ def admit(
         or not 1 <= overcommit <= 4
     ):
         return Admission(False, "invalid_budget")
+    # On a shared host whose attempts run at a low CPU weight, other work wins
+    # every contention. GPU attempts then keep this CPU allowance however busy
+    # that work keeps the host, so the GPU is not idle behind CPU-bound jobs.
+    floor = budgets.get("gpu_cpu_floor", 0)
+    external_limit = budgets.get("gpu_external_limit", math.inf)
+    if any(
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or math.isnan(value)
+        or value < 0
+        for value in (floor, external_limit)
+    ) or not math.isfinite(floor):
+        return Admission(False, "invalid_budget")
     if "cpu_external" in telemetry:
         external = telemetry["cpu_external"]
         if not isinstance(external, (int, float)) or not math.isfinite(external) or external < 0:
             return Admission(False, "telemetry_unavailable")
         spare = telemetry.get("cpu_count", 0) - budgets.get("cpu_headroom", 1) - external
-        if (
-            candidate["cpu"] + sum(x["resources"].get("cpu", 0) for x in computing)
-            > spare * overcommit
+        if candidate["cpu"] + sum(
+            x["resources"].get("cpu", 0) for x in computing
+        ) > spare * overcommit and (
+            not gpu
+            or candidate["cpu"]
+            + sum(x["resources"].get("cpu", 0) for x in computing if x["resources"].get("vram"))
+            > floor
         ):
             return Admission(False, "waiting_cpu")
     for key in ("ram", "cpu", "disk"):
@@ -124,6 +141,9 @@ def admit(
             or "vram_free" not in telemetry
             or "vram_total" not in telemetry
         ):
+            return Admission(False, "gpu_unavailable")
+        # Sustained GPU compute by other users' processes (mean SM %).
+        if telemetry.get("gpu_external", 0) >= external_limit:
             return Admission(False, "gpu_unavailable")
         guard = max(
             2 * GIB, math.ceil(telemetry["vram_total"] / 10), budgets.get("vram_headroom", 0)

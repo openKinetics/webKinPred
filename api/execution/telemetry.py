@@ -74,6 +74,30 @@ def snapshot(scratch: Path, gpu_uuid: str = "") -> dict:
     return data
 
 
+def external_gpu_use(gpu_uuid: str, owned_slice: str) -> int:
+    """GPU compute (summed SM %) of processes outside the ``owned_slice`` cgroup.
+
+    One ``nvidia-smi pmon`` sample takes about a second; call it beside
+    supervision, never from the supervision tick.
+    """
+    output = subprocess.check_output(
+        ["nvidia-smi", "pmon", "-i", gpu_uuid, "-c", "1", "-s", "u"], text=True, timeout=15
+    )
+    total = 0
+    for line in output.splitlines():
+        fields = line.split()
+        # Graphics clients and idle processes report "-" instead of a percentage.
+        if line.startswith("#") or len(fields) < 4 or not fields[3].isdigit():
+            continue
+        try:
+            cgroup = Path(f"/proc/{int(fields[1])}/cgroup").read_text()
+        except (OSError, ValueError):
+            continue  # Exited since the sample.
+        if f"/{owned_slice}/" not in cgroup:
+            total += int(fields[3])
+    return total
+
+
 def _container_cgroup(container):
     cached = _cgroups.get(container)
     if cached:

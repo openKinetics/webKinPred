@@ -8,6 +8,7 @@ import math
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -22,7 +23,7 @@ import psutil
 from api.execution.artifacts import ArtifactStore, atomic_json, safe_relative, sha256_file
 from api.execution.errors import classify
 from api.execution.resources import admit
-from api.execution.telemetry import container_observations, snapshot
+from api.execution.telemetry import container_observations, external_gpu_use, snapshot
 
 from tools.executor.checkpoints import partial_manifest, remember
 
@@ -38,6 +39,10 @@ RUNTIME_CHECK_SECONDS = 30
 LEGACY_CHECK_SECONDS = 30
 DISK_CHECK_SECONDS = 5
 EXTERNAL_WINDOW_SECONDS = 20
+# Other GPU users are sampled beside supervision and averaged over a minute, so
+# a short burst does not stop GPU admission but sustained use does.
+GPU_EXTERNAL_SECONDS = 10
+GPU_EXTERNAL_WINDOW_SECONDS = 60
 
 
 class LeaseLost(Exception):
@@ -115,6 +120,7 @@ class Agent:
         self.external_samples = deque()
         self.runtime, self.runtime_stamps = None, {}
         self.runtime_state, self.runtime_checked, self.reverification = "verified", 0.0, None
+        self.gpu_external = None  # (monotonic time, mean external SM %)
 
     def verify_runtime_files(self, threads=1):
         """Cache verified digests against inode, size, mtime and ctime, never mtime alone."""
@@ -212,6 +218,32 @@ class Agent:
             return False
         self.set_runtime_state("verified")
         return True
+
+    def sample_gpu_external(self, iterations=None):
+        """Average GPU compute used outside this host's attempt slice over a minute."""
+        samples = deque()
+        while iterations is None or iterations > 0:
+            try:
+                samples.append(
+                    (
+                        time.monotonic(),
+                        external_gpu_use(
+                            self.config["gpu_uuid"], self.config["attempt_cgroup_parent"]
+                        ),
+                    )
+                )
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass  # Missing samples age out; admission then ignores the measure.
+            now = time.monotonic()
+            while samples and now - samples[0][0] > GPU_EXTERNAL_WINDOW_SECONDS:
+                samples.popleft()
+            if samples:
+                self.gpu_external = (now, sum(value for _, value in samples) / len(samples))
+            if iterations is not None:
+                iterations -= 1
+                if not iterations:
+                    return
+            time.sleep(GPU_EXTERNAL_SECONDS)
 
     def set_runtime_state(self, state, **details):
         if state != self.runtime_state:
@@ -607,6 +639,13 @@ class Agent:
             "--env",
             "OPENBLAS_NUM_THREADS=" + str(max(1, int(limits["cpu"]))),
         ]
+        if self.config.get("attempt_cgroup_parent"):
+            # On a shared host this slice's CPU/IO weights sit far below the
+            # host's user sessions: other work wins every contention.
+            args += ["--cgroup-parent", self.config["attempt_cgroup_parent"]]
+        if "attempt_oom_score_adj" in self.config:
+            # Under host memory pressure the kernel kills a retryable attempt first.
+            args += ["--oom-score-adj", str(int(self.config["attempt_oom_score_adj"]))]
         if limits.get("vram"):
             if not self.config.get("gpu_uuid"):
                 raise ValueError("GPU profile assigned to CPU-only host")
@@ -693,6 +732,9 @@ class Agent:
             self.external_samples.popleft()
         data["cpu_external"] = min(value for _, value in self.external_samples)
         data["cpu_external_raw"] = raw_external
+        measured = self.gpu_external
+        if measured and now - measured[0] <= GPU_EXTERNAL_WINDOW_SECONDS:
+            data["gpu_external"] = measured[1]
         if time.monotonic() - self.legacy_checked_at >= LEGACY_CHECK_SECONDS:
             rows = self.docker(
                 "ps",
@@ -1119,6 +1161,14 @@ class Agent:
         stamps = self.verify_runtime_files()
         for image in self.config["images"]:
             self.retain_image(image)
+        if (
+            self.config.get("gpu_uuid")
+            and self.config.get("attempt_cgroup_parent")
+            and "gpu_external_limit" in self.local_budgets
+        ):
+            threading.Thread(
+                target=self.sample_gpu_external, name="gpu-external", daemon=True
+            ).start()
         while True:
             try:
                 self.request(
