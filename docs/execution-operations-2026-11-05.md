@@ -1,8 +1,8 @@
 # Execution operations, 5 November 2026
 
-Releases 120–121 fixed an 11.5-hour GPU-host stall and the disk growth on both
-executor hosts. Scientific methods, model images, weights and input/output semantics
-are unchanged. No job was lost: all 6,207 jobs unfinished at the pre-deploy snapshot
+Releases 120–122 fixed an 11.5-hour GPU-host stall and the disk growth on both executor
+hosts, and let the GPU host keep working at low priority beside research jobs.
+Scientific methods, model images, weights and input/output semantics are unchanged. No job was lost: all 6,207 jobs unfinished at the pre-deploy snapshot
 are present with unchanged specification/input checksums, and the frozen legacy Redis
 queue still holds 5,002 messages.
 
@@ -71,22 +71,53 @@ is still renewed first, because nothing was committed. The lease-lost path remov
 container it fenced. The 281 stale containers were removed after confirming that none
 of their attempts was live.
 
+## Sharing the GPU host with research jobs
+
+Research jobs on the GPU host (4 Nov 16:14–16:56 and 20:00–23:15; 5 Nov from 12:13,
+`code/remote_kcat/*.py` as `msp`) occupy up to all 20 CPUs. Admission subtracted that
+use from the spare CPUs and admitted nothing, including GPU work, so the GPU idled at
+about 14 % while those jobs used it only lightly. Chosen policy: webKinPred runs at low
+priority beside them (release 122, commit `8184f40`).
+
+* `/etc/systemd/system/webkinpred.slice` (`CPUWeight=10`, `IOWeight=10`) on the GPU
+  host; the supervisor creates attempt containers with
+  `--cgroup-parent webkinpred.slice` and `--oom-score-adj 500` (`gpu.json`:
+  `attempt_cgroup_parent`, `attempt_oom_score_adj`). User sessions keep weight 100,
+  so they win every CPU contention, and under host memory pressure the kernel kills a
+  retryable attempt first. The supervisor itself stays in `system.slice`.
+* `gpu_cpu_floor: 6`: GPU attempts may reserve 6 CPUs (three embedding attempts)
+  however busy other work keeps the host. CPU-only attempts still use only spare CPUs.
+* `gpu_external_limit: 40`: a supervisor thread samples `nvidia-smi pmon` every 10 s;
+  GPU use by processes outside `webkinpred.slice` is averaged over a minute
+  (`telemetry.gpu_external`). At 40 % or more no new GPU attempt is admitted
+  (`gpu_unavailable`); running ones finish.
+
+Measured at 13:06 with the research jobs running (load average 41): `user.slice`
+18.1 cores, `webkinpred.slice` 1.7 cores, other services 0.2. The research jobs' GPU
+use was 3–10 %. Three webKinPred GPU attempts kept running; with about 1.7 cores between
+them, embeddings averaged 62 s (8 attempts, maximum 93 s) instead of about 16 s on an
+idle host, roughly 17 % of the idle-host rate, where the previous policy ran none.
+`CPUWeight` is the single knob for a different balance. Remove the two settings from
+`gpu.json` and the two budgets from `EXECUTION_HOSTS_JSON` to return to full yielding.
+
 ## Deployment
 
 | Component | Image | Rollback container |
 |---|---|---|
-| Backend, controller, control worker (r120) | `sha256:8380a30b0270eef1d1b9e7ded155d680d2174b63b3e903537eeee47dc64ea7c2` | r119 image `sha256:3a0247d03236…` (`live20/*.before120`) |
-| GPU supervisor (r121) | `sha256:5ceb79f9aefe236f7dc55054613b97df6f0cf8773e0d11dbefb667a84070313b` | `webkinpred-gpu-executor-rollback121` (r120), `-rollback120` (r119) |
-| Production supervisor (r120; r121 `sha256:aaee6533daa3aaf0d92faa4e76a81794c1e0fc3e0f238ff8a42f30d02256c6a1` built, rolls when no long attempt runs) | `sha256:0ddc0622b86742c96a9606769fd9c909ca109b9d9ff89509c1bc36aa818d0c4c` | `webkinpred-execution-agent-1-rollback120` (r119) |
+| Backend, controller, control worker (r122) | `sha256:409583f7694fd8eabb3e57c18da0ae2ed2c1b33e18ef42741665286b7e13185a` | r120 `sha256:8380a30b0270…` (`live20/*.before122`), r119 `sha256:3a0247d03236…` (`*.before120`) |
+| GPU supervisor (r122) | `sha256:40b68d91d257af63f412dfdaad975e33b84550831627200f85ddc4087343f927` | `webkinpred-gpu-executor-rollback122` (r121), `-rollback121` (r120), `-rollback120` (r119); `gpu.json.before122` |
+| Production supervisor (r121) | `sha256:aaee6533daa3aaf0d92faa4e76a81794c1e0fc3e0f238ff8a42f30d02256c6a1` | `webkinpred-execution-agent-1-rollback121` (r120), `-rollback120` (r119) |
 
 Images are thin overlays on the release-119 images (`FROM … COPY` of the changed files
 only). The control plane was deployed with `up -d --no-build --no-deps` after a dry run
 showing that only the three control services would be recreated; PostgreSQL and Redis
 were not touched. Each supervisor was drained before replacement. The production
-release-121 roll was refused while a long single-threaded UniKP similarity attempt of
-the 17,010-row foreground job was running; it waits for that attempt rather than
-discarding its work. Production had no stale containers. Preservation snapshots are in
-`staging/preservation113/` (`*-before120*`, `*-after120ctl*`).
+release-121 roll waited 25 minutes for a single-threaded UniKP similarity attempt of the
+17,010-row foreground job instead of discarding its work. Production had no stale
+containers and needs none of the release-122 settings, so it stays on release 121.
+Preservation snapshots are in `staging/preservation113/` (`*-before120*`,
+`*-after120ctl*`, `*-before122*`, `*-after122ctl*`); both checks found every
+unfinished job present with unchanged checksums.
 
 The production checkout `/home/saleh/webKinPred` was fast-forwarded to these commits;
 its pre-existing local modifications (none in the changed files) are unchanged. The
@@ -123,7 +154,9 @@ the GPU is the bottleneck and fewer CPU prediction stages are dependency-ready.
   34 GB, ProtT5 33 GB, ESM1v 17 GB). It does not grow; the ESM1v cleanup
   (`docs/legacy-esm1v-cleanup.md`) remains blocked by the
   `wk-maintenance-web19-candidate` reader.
-* **External workloads on the GPU host** make admission yield CPU and GPU by design.
+* **Research jobs on the GPU host** now leave webKinPred about 9 % of contended CPU and
+  three GPU attempts; heavy external GPU use (≥ 40 % for a minute) still pauses new GPU
+  work.
 * **Collection calls** now take 0.7–1.2 s (median) and the supervisor still makes one
   inline every 30 s beside the standalone collector, about 5–8 % of its loop.
 * **GPU concurrency** remains bound by VRAM reservations (about five embedding
