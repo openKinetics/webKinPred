@@ -1,6 +1,8 @@
 """Supervision work per tick stays bounded as the number of attempts grows."""
 
 import json
+import os
+import subprocess
 import threading
 import time
 import urllib.error
@@ -21,6 +23,7 @@ def agent(tmp_path):
     finally:
         executor.transfers.shutdown(wait=True)
         executor.control.shutdown(wait=True)
+        executor.verifier.shutdown(wait=True)
 
 
 def done(value=None):
@@ -398,3 +401,73 @@ def test_launch_rechecks_can_share_a_fresh_host_snapshot(agent, monkeypatch):
     agent.observe()
     # A new measurement, but the legacy-consumer scan stays rate limited.
     assert len(snapshots) == 2 and agent.docker.call_count == 1
+
+
+@pytest.fixture
+def pinned(agent, monkeypatch):
+    """A verified pinned file, standing in for a Hugging Face ``refs/main``."""
+    model = agent.root / "refs-main"
+    model.write_text("e4d83bc7e10fd55c92e598e545f4a76bf04a6e5c")
+    agent.config["runtime_files"] = {str(model): sha256_file(model)}
+    identity = {"fingerprint": "gpu-a"}
+    monkeypatch.setattr(
+        "tools.executor.runtime_identity.identity", lambda gpu_uuid="": dict(identity)
+    )
+    monkeypatch.setattr(module, "RUNTIME_CHECK_SECONDS", 0)
+    agent.runtime, agent.runtime_stamps = dict(identity), agent.verify_runtime_files()
+    return model, identity
+
+
+def restamp(path, text):
+    info = path.stat()
+    path.write_text(text)
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 10**9))
+
+
+def test_identical_rewrite_of_a_pinned_file_is_reverified_without_restart(agent, pinned):
+    model, _ = pinned
+    assert agent.runtime_verified()
+    # huggingface_hub rewrites refs/main with the same commit whenever any
+    # process on the host resolves the model online.
+    restamp(model, model.read_text())
+    assert not agent.runtime_verified()
+    wait_until(lambda: agent.reverification.done())
+    assert agent.runtime_verified() and agent.runtime_state == "verified"
+    assert agent.runtime_stamps[str(model)] == module.file_stamp(model)
+
+
+def test_changed_bytes_stop_advertising_until_restart(agent, pinned):
+    model, _ = pinned
+    original = model.read_text()
+    restamp(model, "0" * 40)
+    assert not agent.runtime_verified()
+    wait_until(lambda: agent.reverification.done())
+    assert not agent.runtime_verified() and agent.runtime_state == "changed"
+    restamp(model, original)
+    assert not agent.runtime_verified()
+
+
+def test_gpu_identity_change_is_sticky_but_a_failed_probe_is_retried(agent, pinned, monkeypatch):
+    _, identity = pinned
+
+    def unavailable(gpu_uuid=""):
+        raise subprocess.TimeoutExpired("nvidia-smi", 3)
+
+    with monkeypatch.context() as patch:
+        patch.setattr("tools.executor.runtime_identity.identity", unavailable)
+        assert not agent.runtime_verified() and agent.runtime_state == "unverified"
+    assert agent.runtime_verified()
+    identity["fingerprint"] = "gpu-b"
+    assert not agent.runtime_verified() and agent.runtime_state == "changed"
+    identity["fingerprint"] = "gpu-a"
+    assert not agent.runtime_verified()
+
+
+def test_runtime_transitions_are_logged(agent, pinned, capsys):
+    model, _ = pinned
+    restamp(model, model.read_text())
+    agent.runtime_verified()
+    wait_until(lambda: agent.reverification.done())
+    agent.runtime_verified()
+    events = [json.loads(line)["event"] for line in capsys.readouterr().out.splitlines()]
+    assert events == ["executor.runtime_unverified", "executor.runtime_verified"]

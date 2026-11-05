@@ -48,6 +48,10 @@ class LeaseLost(Exception):
         self.code = code
 
 
+class RuntimeMismatch(ValueError):
+    """A pinned runtime or model file no longer has its recorded digest."""
+
+
 def publishes_only(request):
     """The final publication phase computes nothing; its runner only hashes the result."""
     return (
@@ -97,6 +101,8 @@ class Agent:
         # Completion commits can take seconds for large manifests. They are
         # idempotent, so they run beside supervision instead of stalling it.
         self.control = ThreadPoolExecutor(max_workers=4, thread_name_prefix="control-commit")
+        # Re-hashing a large model must not stall lease renewal.
+        self.verifier = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-verify")
         self.batch_heartbeats = True
         self.batch_claims = True
         self.observed_at = -math.inf
@@ -107,6 +113,8 @@ class Agent:
         self.timings, self.counts, self.iterations = {}, {}, 0
         self.timings_since = time.monotonic()
         self.external_samples = deque()
+        self.runtime, self.runtime_stamps = None, {}
+        self.runtime_state, self.runtime_checked, self.reverification = "verified", 0.0, None
 
     def verify_runtime_files(self, threads=1):
         """Cache verified digests against inode, size, mtime and ctime, never mtime alone."""
@@ -139,7 +147,7 @@ class Agent:
             measured = dict(pool.map(verify, required.items()))
         for name, checksum in files.items():
             if tuple(stamps[name]) in measured and measured[tuple(stamps[name])] != checksum:
-                raise ValueError("Runtime/model checksum mismatch; executor remains offline")
+                raise RuntimeMismatch("Runtime/model checksum mismatch; executor remains offline")
             if file_stamp(Path(name)) != stamps[name]:
                 raise ValueError("Runtime/model changed during verification")
         atomic_json(
@@ -153,6 +161,65 @@ class Agent:
             },
         )
         return stamps
+
+    def runtime_verified(self):
+        """Whether profiles measured on this runtime may still be advertised.
+
+        A different GPU identity, or a pinned file whose bytes no longer match
+        its digest, stops advertising until restart. A new stamp alone is not
+        a change: huggingface_hub rewrites ``refs/<revision>`` with the same
+        commit whenever any process on the host resolves that model online.
+        Such files are re-hashed beside supervision; nothing is advertised
+        until their digests are confirmed.
+        """
+        from tools.executor.runtime_identity import identity
+
+        if self.runtime_state == "changed":
+            return False
+        if self.reverification is not None:
+            if not self.reverification.done():
+                return False
+            pending, self.reverification = self.reverification, None
+            try:
+                self.runtime_stamps = pending.result()
+                self.set_runtime_state("verified")
+            except RuntimeMismatch as exc:
+                self.set_runtime_state("changed", reason=str(exc))
+                return False
+            except (OSError, ValueError) as exc:
+                self.set_runtime_state("unverified", reason=str(exc))
+        if time.monotonic() - self.runtime_checked < RUNTIME_CHECK_SECONDS:
+            return self.runtime_state == "verified"
+        self.runtime_checked = time.monotonic()
+        try:
+            if (
+                identity(self.config.get("gpu_uuid", ""))["fingerprint"]
+                != self.runtime["fingerprint"]
+            ):
+                self.set_runtime_state("changed", reason="GPU runtime identity changed")
+                return False
+            drifted = [
+                path
+                for path, stamp in self.runtime_stamps.items()
+                if file_stamp(Path(path)) != stamp
+            ]
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.set_runtime_state("unverified", reason=str(exc))
+            return False
+        if drifted:
+            self.set_runtime_state("unverified", reason="stamp changed", files=drifted[:5])
+            self.reverification = self.verifier.submit(self.verify_runtime_files)
+            return False
+        self.set_runtime_state("verified")
+        return True
+
+    def set_runtime_state(self, state, **details):
+        if state != self.runtime_state:
+            print(
+                json.dumps({"event": "executor.runtime_" + state, "host": self.host, **details}),
+                flush=True,
+            )
+        self.runtime_state = state
 
     def request(self, operation, data=None, attempt=None):
         base = self.config["control_url"].rstrip("/") + "/internal/v2/executors/" + self.host
@@ -1052,32 +1119,24 @@ class Agent:
                 break
             except (OSError, ValueError, subprocess.SubprocessError):
                 time.sleep(5)
-        runtime_checked, runtime_changed = time.monotonic(), False
+        self.runtime, self.runtime_stamps = runtime, stamps
+        self.runtime_checked = time.monotonic()
         while True:
             try:
                 self.refresh_capabilities()
-                if (
-                    not runtime_changed
-                    and time.monotonic() - runtime_checked >= RUNTIME_CHECK_SECONDS
-                ):
-                    runtime_changed = identity(self.config.get("gpu_uuid", ""))[
-                        "fingerprint"
-                    ] != runtime["fingerprint"] or any(
-                        file_stamp(Path(path)) != stamp for path, stamp in stamps.items()
-                    )
-                    runtime_checked = time.monotonic()
-                if runtime_changed:
-                    # Sticky until restart: reloaded capabilities must not
-                    # re-advertise profiles measured on the previous runtime.
-                    self.config["capabilities"]["profiles"] = []
+                capabilities = self.config["capabilities"]
+                if not self.runtime_verified():
+                    # Never advertise profiles measured on a different or
+                    # unconfirmed runtime. The configured list is kept so a
+                    # confirmed rewrite restores it without a restart.
+                    capabilities = {**capabilities, "profiles": []}
                 with self.timed("tick_jobs"):
                     self.tick_jobs()
                 with self.timed("observe"):
                     telemetry = self.observe()
                 with self.timed("register"):
                     reply = self.request(
-                        "register",
-                        {"capabilities": self.config["capabilities"], "telemetry": telemetry},
+                        "register", {"capabilities": capabilities, "telemetry": telemetry}
                     )
                 self.apply_control_budgets(reply)
                 self.reconcile_unreceived(reply)
@@ -1143,6 +1202,7 @@ class Agent:
                     "iterations": self.iterations,
                     "seconds": round(now - self.timings_since, 1),
                     "jobs": len(self.jobs),
+                    "runtime": self.runtime_state,
                     "mean_phase_seconds": {
                         key: round(value / self.iterations, 3)
                         for key, value in sorted(self.timings.items())
