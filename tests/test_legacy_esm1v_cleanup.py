@@ -232,6 +232,11 @@ def execute_database_guard(monkeypatch):
             "((identity ->> 'path') text_pattern_ops) "
             "WHERE (identity ->> 'path') LIKE 'sequence\\_info/esm1v/%'"
         )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS wk_legacy_esm1v_dependency ON api_artifactdependency "
+            "(path text_pattern_ops) INCLUDE (stage_id) "
+            "WHERE path LIKE 'sequence\\_info/esm1v/%'"
+        )
     output = io.StringIO()
     monkeypatch.setattr(cleanup.select, "select", lambda *args: ([1], [], []))
     monkeypatch.setattr("sys.stdin", io.StringIO("release\n"))
@@ -242,20 +247,27 @@ def execute_database_guard(monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 def test_index_preparation_is_idempotent_and_query_uses_partial_index(monkeypatch):
-    from api.execution.models import Artifact
+    from api.execution.models import Artifact, ArtifactDependency
     from django.db import connection
 
     with connection.cursor() as cursor:
         cursor.execute("DROP INDEX IF EXISTS wk_legacy_esm1v_path")
+        cursor.execute("DROP INDEX IF EXISTS wk_legacy_esm1v_dependency")
     output = io.StringIO()
     monkeypatch.setattr("sys.stdout", output)
     exec(cleanup.PREPARE_INDEX, {})
     exec(cleanup.PREPARE_INDEX, {})
-    events = [json.loads(line)["event"] for line in output.getvalue().splitlines()]
+    events = [
+        (event["event"], event["index"])
+        for event in map(json.loads, output.getvalue().splitlines())
+    ]
     assert events == [
-        "building_esm1v_lookup_index",
-        "esm1v_lookup_index_ready",
-        "esm1v_lookup_index_ready",
+        ("building_esm1v_lookup_index", cleanup.INDEX_NAME),
+        ("esm1v_lookup_index_ready", cleanup.INDEX_NAME),
+        ("building_esm1v_lookup_index", cleanup.DEPENDENCY_INDEX_NAME),
+        ("esm1v_lookup_index_ready", cleanup.DEPENDENCY_INDEX_NAME),
+        ("esm1v_lookup_index_ready", cleanup.INDEX_NAME),
+        ("esm1v_lookup_index_ready", cleanup.DEPENDENCY_INDEX_NAME),
     ]
     # Force an index path even on this tiny test DB to prove the predicate and
     # expression match Django's exact SQL, including the escaped underscore.
@@ -264,6 +276,11 @@ def test_index_preparation_is_idempotent_and_query_uses_partial_index(monkeypatc
     try:
         query = Artifact.objects.filter(identity__path__startswith=cleanup.PREFIX)
         assert "wk_legacy_esm1v_path" in query.explain()
+        # The guard's dependency snapshot reads only this small index.
+        references = ArtifactDependency.objects.filter(path__startswith=cleanup.PREFIX).values_list(
+            "path", "stage_id"
+        )
+        assert "Index Only Scan using wk_legacy_esm1v_dependency" in references.explain()
     finally:
         with connection.cursor() as cursor:
             cursor.execute("RESET enable_seqscan")
@@ -392,3 +409,91 @@ def test_database_guard_refuses_missing_safety_evidence(tmp_path, monkeypatch, u
     with override_settings(EXECUTION_V2_ENABLED=True, MEDIA_ROOT=str(tmp_path)):
         with pytest.raises(RuntimeError):
             execute_database_guard(monkeypatch)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_index_preparation_refuses_an_unexpected_dependency_index(monkeypatch):
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("DROP INDEX IF EXISTS wk_legacy_esm1v_dependency")
+        cursor.execute("CREATE INDEX wk_legacy_esm1v_dependency ON api_artifactdependency (path)")
+    monkeypatch.setattr("sys.stdout", io.StringIO())
+    try:
+        with pytest.raises(RuntimeError, match="Unexpected cleanup index definition"):
+            exec(cleanup.PREPARE_INDEX, {})
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("DROP INDEX IF EXISTS wk_legacy_esm1v_dependency")
+
+
+def guard_hosts():
+    from api.execution.models import ExecutorHost
+    from django.utils import timezone
+
+    for host in ["production", "gpu"]:
+        ExecutorHost.objects.create(
+            id=host,
+            reconciled=True,
+            heartbeat_at=timezone.now(),
+            telemetry={"legacy_consumers": []},
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_database_guard_requires_the_dependency_index(tmp_path, monkeypatch):
+    from django.db import connection
+    from django.test import override_settings
+
+    guard_hosts()
+    (tmp_path / "sequence_info" / "esm1v").mkdir(parents=True)
+
+    with override_settings(EXECUTION_V2_ENABLED=True, MEDIA_ROOT=str(tmp_path)):
+        execute_database_guard(monkeypatch)  # Builds both indexes, then succeeds.
+        with connection.cursor() as cursor:
+            cursor.execute("DROP INDEX wk_legacy_esm1v_dependency")
+        monkeypatch.setattr("sys.stdin", io.StringIO("release\n"))
+        with pytest.raises(RuntimeError, match="run --prepare-index first"):
+            exec(cleanup.DATABASE_GUARD, {})
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("held_seconds", [0.5, 5])
+def test_database_guard_waits_briefly_for_the_shared_graph_lock(
+    tmp_path, monkeypatch, held_seconds
+):
+    import threading
+
+    from django.db import connection
+    from django.test import override_settings
+
+    guard_hosts()
+    (tmp_path / "sequence_info" / "esm1v").mkdir(parents=True)
+    monkeypatch.setenv("WEBKINPRED_ESM1V_LOCK_WAIT", "2")
+    locked, finished = threading.Event(), threading.Event()
+
+    def hold():
+        # Stands in for routine artifact collection or graph publication.
+        holder = connection.copy(alias="cleanup_graph_lock_holder")
+        try:
+            with holder.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_lock(%s)", [cleanup.GRAPH_LOCK])
+                locked.set()
+                finished.wait(held_seconds)
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [cleanup.GRAPH_LOCK])
+        finally:
+            holder.close()
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    assert locked.wait(5)
+    try:
+        with override_settings(EXECUTION_V2_ENABLED=True, MEDIA_ROOT=str(tmp_path)):
+            if held_seconds < 2:
+                assert execute_database_guard(monkeypatch)["protected"] == []
+            else:
+                with pytest.raises(RuntimeError, match="Graph is busy"):
+                    execute_database_guard(monkeypatch)
+    finally:
+        finished.set()
+        thread.join()

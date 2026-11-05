@@ -30,6 +30,7 @@ CUTOFF = datetime(2026, 10, 29, tzinfo=timezone.utc).timestamp()
 NAME = re.compile(r"[0-9a-f]{12}(?:_[1-9][0-9]*)?\.npy\Z")
 GRAPH_LOCK = 481726392
 INDEX_NAME = "wk_legacy_esm1v_path"
+DEPENDENCY_INDEX_NAME = "wk_legacy_esm1v_dependency"
 
 
 class Progress:
@@ -86,10 +87,28 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webKinPred.settings")
 import django
 django.setup()
 from django.db import connection
-from api.execution.models import Artifact
+from api.execution.models import Artifact, ArtifactDependency
 if connection.vendor != "postgresql":
     raise RuntimeError("PostgreSQL is required")
-name = "wk_legacy_esm1v_path"
+# name: (table, indexed columns, predicate, exact pg_get_indexdef suffix)
+indexes = {
+    "wk_legacy_esm1v_path": (
+        Artifact._meta.db_table,
+        "((identity ->> 'path') text_pattern_ops)",
+        "(identity ->> 'path') LIKE 'sequence\\_info/esm1v/%'",
+        "USING btree (((identity ->> 'path'::text)) text_pattern_ops) "
+        "WHERE ((identity ->> 'path'::text) ~~ 'sequence\\_info/esm1v/%'::text)",
+    ),
+    # Without it the guard's dependency snapshot reads the whole dependency
+    # table (8 million rows) under its five-second statement limit.
+    "wk_legacy_esm1v_dependency": (
+        ArtifactDependency._meta.db_table,
+        "(path text_pattern_ops) INCLUDE (stage_id)",
+        "path LIKE 'sequence\\_info/esm1v/%'",
+        "USING btree (path text_pattern_ops) INCLUDE (stage_id) "
+        "WHERE ((path)::text ~~ 'sequence\\_info/esm1v/%'::text)",
+    ),
+}
 with connection.cursor() as cursor:
     # The two-int advisory namespace is separate from scheduler bigint locks.
     cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", [1464557617, 1163087153])
@@ -101,36 +120,34 @@ try:
         cursor.execute("SET lock_timeout='30000ms'")
         cursor.execute("SET maintenance_work_mem='32MB'")
         cursor.execute("SET max_parallel_maintenance_workers=0")
-        cursor.execute("SELECT indisvalid, indrelid = %s::regclass, "
-                       "pg_get_expr(indexprs, indrelid), pg_get_expr(indpred, indrelid) "
-                       "FROM pg_index "
-                       "WHERE indexrelid=to_regclass(%s)", [Artifact._meta.db_table, name])
-        existing = cursor.fetchone()
-        if existing:
-            valid, right_table, expression, predicate = existing
-            expected = "((identity ->> 'path'::text) ~~ 'sequence\\_info/esm1v/%'::text)"
-            if (not right_table or expression != "(identity ->> 'path'::text)"
-                    or predicate != expected):
-                raise RuntimeError("Unexpected cleanup index definition; inspect before retrying")
+        for name, (table, columns, predicate, expected) in indexes.items():
+            cursor.execute("SELECT indisvalid, indrelid = %s::regclass, "
+                           "pg_get_indexdef(indexrelid) FROM pg_index "
+                           "WHERE indexrelid=to_regclass(%s)", [table, name])
+            existing = cursor.fetchone()
+            if existing:
+                valid, right_table, definition = existing
+                if not right_table or not definition.endswith(" " + expected):
+                    raise RuntimeError("Unexpected cleanup index definition; inspect first")
+                if not valid:
+                    # A canceled concurrent build can leave an invalid index. The
+                    # dedicated advisory lock fences another setup; validate its
+                    # exact definition before removing only this maintenance index.
+                    cursor.execute("DROP INDEX CONCURRENTLY " + name)
+                    existing = None
+            if not existing:
+                print(json.dumps({"event": "building_esm1v_lookup_index", "index": name,
+                                  "concurrently": True}), flush=True)
+                cursor.execute("CREATE INDEX CONCURRENTLY " + name + " ON " +
+                               connection.ops.quote_name(table) + " " + columns +
+                               " WHERE " + predicate)
+            cursor.execute("SELECT indisvalid, pg_relation_size(indexrelid) FROM pg_index "
+                           "WHERE indexrelid=to_regclass(%s)", [name])
+            valid, size = cursor.fetchone()
             if not valid:
-                # A canceled concurrent build can leave an invalid index. The
-                # dedicated advisory lock fences another setup; validate its
-                # exact definition before removing only this maintenance index.
-                cursor.execute("DROP INDEX CONCURRENTLY " + name)
-                existing = None
-        if not existing:
-            print(json.dumps({"event": "building_esm1v_lookup_index", "concurrently": True}),
-                  flush=True)
-            table = connection.ops.quote_name(Artifact._meta.db_table)
-            cursor.execute("CREATE INDEX CONCURRENTLY " + name + " ON " + table +
-                           " ((identity ->> 'path') text_pattern_ops) "
-                           "WHERE (identity ->> 'path') LIKE 'sequence\\_info/esm1v/%'")
-        cursor.execute("SELECT indisvalid, pg_relation_size(indexrelid) FROM pg_index "
-                       "WHERE indexrelid=to_regclass(%s)", [name])
-        valid, size = cursor.fetchone()
-        if not valid:
-            raise RuntimeError("Cleanup lookup index did not become valid")
-        print(json.dumps({"event": "esm1v_lookup_index_ready", "bytes": size}), flush=True)
+                raise RuntimeError("Cleanup lookup index did not become valid")
+            print(json.dumps({"event": "esm1v_lookup_index_ready", "index": name,
+                              "bytes": size}), flush=True)
 finally:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_unlock(%s, %s)", [1464557617, 1163087153])
@@ -140,13 +157,13 @@ finally:
 # Redis operations. The session lock fences graph publication for at most 20s;
 # it does not stop active attempts, heartbeats, or existing-stage dispatch.
 DATABASE_GUARD = r"""
-import json, os, select, sys
+import json, os, select, sys, time
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webKinPred.settings")
 import django
 django.setup()
 from django.conf import settings
 from django.db import connection
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from pathlib import Path
 from api.models import Job
@@ -161,14 +178,27 @@ with connection.cursor() as cursor:
     cursor.execute("SET statement_timeout = '5000ms'")
     cursor.execute("SET jit = off")
     cursor.execute("SET max_parallel_workers_per_gather = 0")
-    cursor.execute("SELECT indisvalid, indrelid = %s::regclass FROM pg_index "
-                   "WHERE indexrelid=to_regclass(%s)",
-                   [Artifact._meta.db_table, "wk_legacy_esm1v_path"])
-    if cursor.fetchone() != (True, True):
-        raise RuntimeError("Cleanup lookup index is missing/invalid; run --prepare-index first")
-    cursor.execute("SELECT pg_try_advisory_lock(%s)", [481726392])
-    if not cursor.fetchone()[0]:
-        raise RuntimeError("Graph is busy; retry later")
+    for table, name in [(Artifact._meta.db_table, "wk_legacy_esm1v_path"),
+                        (ArtifactDependency._meta.db_table, "wk_legacy_esm1v_dependency")]:
+        cursor.execute("SELECT indisvalid, indrelid = %s::regclass FROM pg_index "
+                       "WHERE indexrelid=to_regclass(%s)", [table, name])
+        if cursor.fetchone() != (True, True):
+            raise RuntimeError("Cleanup lookup index is missing/invalid; run --prepare-index first")
+    # Read the scattered ESM1v catalogue rows once before fencing the graph: a cold
+    # read alone can exceed the guarded statement limit. Nothing is decided from it.
+    cursor.execute("SET statement_timeout = '20000ms'")
+    Artifact.objects.filter(identity__path__startswith=prefix).aggregate(n=Count("retention"))
+    cursor.execute("SET statement_timeout = '5000ms'")
+    # Routine artifact collection and graph publication take this lock briefly;
+    # wait for a free moment rather than refusing on the first attempt.
+    deadline = time.monotonic() + float(os.environ.get("WEBKINPRED_ESM1V_LOCK_WAIT", "10"))
+    while True:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [481726392])
+        if cursor.fetchone()[0]:
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Graph is busy; retry later")
+        time.sleep(0.2)
 try:
     now = timezone.now()
     hosts = list(ExecutorHost.objects.filter(pk__in=["production", "gpu"]))
@@ -373,7 +403,7 @@ def database_guard(backend, root_info):
         text=True,
     ) as process:
         try:
-            if not select.select([process.stdout], [], [], 30)[0]:
+            if not select.select([process.stdout], [], [], 45)[0]:
                 raise RuntimeError("Database safety snapshot timed out")
             line = process.stdout.readline()
             if not line:

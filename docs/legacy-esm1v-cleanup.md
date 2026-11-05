@@ -4,18 +4,33 @@ Run `tools/cleanup_legacy_esm1v.py` **on the production host as root**.
 It uses Python's standard library and the running backend's database connection;
 it does not rebuild images, update job state, stop attempts, or touch Redis.
 
-One-time database preparation (already run on production after the timeout fix):
+One-time database preparation (run on production on 4 November, and again on 5 November
+to add the dependency index):
 
 ```bash
 sudo python3 /home/saleh/webkinpred-execution-staging/cleanup_legacy_esm1v.py --prepare-index
 ```
 
-This builds an operator-owned partial index, `wk_legacy_esm1v_path`, containing
-only ESM1v paths. The concurrent build runs outside the graph-publication lock,
-uses one maintenance worker and 32 MiB of maintenance memory, and permits normal
-database writes. Preparation can be repeated safely. Preview/apply refuse to
-scan an unindexed catalogue if this index is missing or invalid. No job or
+This builds two operator-owned partial indexes containing only ESM1v paths:
+`wk_legacy_esm1v_path` on artifact identities and `wk_legacy_esm1v_dependency`
+on dependency paths (with their stage). The concurrent builds run outside the
+graph-publication lock, use one maintenance worker and 32 MiB of maintenance
+memory, and permit normal database writes. Preparation can be repeated safely;
+an existing index with an unexpected definition stops it. Preview/apply refuse
+to scan an unindexed catalogue if either index is missing or invalid. No job or
 artifact records are changed by index preparation.
+
+On 5 November the preview failed with `Database safety snapshot refused:
+OperationalError (SQLSTATE 57014)`: the dependency snapshot read the whole
+8-million-row dependency table, and a cold read of the ESM1v artifact rows took
+4.5 s, both against the guard's five-second statement limit. With the dependency
+index the dependency snapshot takes 0.4 s (built in 12 s, 15.5 MB). The guard now
+also reads the ESM1v artifact rows once before taking the graph lock (20 s
+limit, result unused), so the guarded snapshot reads warm pages, and it retries
+the shared graph lock for up to 10 s, because routine artifact collection holds
+it briefly every few seconds. The whole snapshot step took 4.6–7.1 s on
+production, including container start-up. Protection rules and the guarded
+statement limit are unchanged.
 
 Preview (no deletion):
 
