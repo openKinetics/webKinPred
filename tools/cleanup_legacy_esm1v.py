@@ -31,6 +31,53 @@ NAME = re.compile(r"[0-9a-f]{12}(?:_[1-9][0-9]*)?\.npy\Z")
 GRAPH_LOCK = 481726392
 INDEX_NAME = "wk_legacy_esm1v_path"
 
+
+class Progress:
+    """One terminal line; at most one update every two seconds in log output."""
+
+    def __init__(self, stream=None, clock=None):
+        self.stream = stream if stream is not None else sys.stderr
+        self.clock = clock or time.monotonic
+        self.terminal = self.stream.isatty()
+        self.stage = None
+        self.updated_at = float("-inf")
+        self.width = 0
+
+    def __enter__(self):
+        return self
+
+    def update(self, stage, done=None, total=None, *, eligible=None, deleted=None, size=None):
+        now = self.clock()
+        finished = done is not None and done == total
+        if stage == self.stage and not finished and now - self.updated_at < 2:
+            return
+        line = "[esm1v] " + stage
+        if done is not None:
+            line += f" {done}/{total}"
+        if eligible is not None:
+            line += f" | eligible {eligible}"
+        if deleted is not None:
+            line += f" | deleted {deleted}"
+        if size is not None:
+            line += f" ({size / 1024**3:.2f} GiB)"
+        if self.terminal:
+            self.stream.write("\r" + line.ljust(self.width))
+            self.width = len(line)
+        else:
+            self.stream.write(line + "\n")
+        self.stream.flush()
+        self.stage, self.updated_at = stage, now
+
+    def close(self):
+        if self.terminal and self.width:
+            self.stream.write("\n")
+            self.stream.flush()
+            self.width = 0
+
+    def __exit__(self, *args):
+        self.close()
+
+
 # Operator-owned, narrowly scoped maintenance index. Its concurrent build runs
 # outside the graph lock and never changes job/artifact records or file content.
 PREPARE_INDEX = r"""
@@ -449,8 +496,9 @@ def main(argv=None):
         parser.error("Audit report must be outside the cache directory")
 
     # This file lock serializes invocations; its parent must already exist.
-    with Path("/run/lock/webkinpred-legacy-esm1v.lock").open("a") as lock:
+    with Progress() as progress, Path("/run/lock/webkinpred-legacy-esm1v.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        progress.update("checking containers")
         blockers = []
         try:
             check_containers(root, args.backend)
@@ -463,14 +511,24 @@ def main(argv=None):
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             root_info = os.fstat(fd)
+            progress.update("checking database")
             with database_guard(args.backend, root_info) as (protected, deadline, guard):
+                progress.update("checking readers")
                 opened = open_inodes()
                 if (root_info.st_dev, root_info.st_ino) in opened:
                     raise RuntimeError("Another process has the cache directory open")
-                rows = [
-                    inspect_file(fd, name, protected, opened, keep)
-                    for name in sorted(os.listdir(fd))
-                ]
+                names = sorted(os.listdir(fd))
+                rows, eligible_count, eligible_bytes = [], 0, 0
+                progress.update("scan", 0, len(names), eligible=0, size=0)
+                for number, name in enumerate(names, 1):
+                    row = inspect_file(fd, name, protected, opened, keep)
+                    rows.append(row)
+                    if row["reason"] == "eligible":
+                        eligible_count += 1
+                        eligible_bytes += row["bytes"]
+                    progress.update(
+                        "scan", number, len(names), eligible=eligible_count, size=eligible_bytes
+                    )
                 eligible = [row for row in rows if row["reason"] == "eligible"]
                 selected = eligible[: args.limit]
                 deleted = 0
@@ -478,6 +536,7 @@ def main(argv=None):
                 report = args.report.open("x") if args.report else contextlib.nullcontext(None)
                 with report as audit:
                     if audit:
+                        progress.update("writing audit")
                         audit.write(
                             json.dumps(
                                 {
@@ -495,17 +554,26 @@ def main(argv=None):
                         os.fsync(audit.fileno())
                     if args.apply:
                         # Recheck container mounts and readers immediately before deletion.
+                        progress.update("rechecking readers")
                         check_containers(root, args.backend)
                         opened = open_inodes()
                         if (root_info.st_dev, root_info.st_ino) in opened:
                             raise RuntimeError("Another process opened the cache directory")
                         with quarantine(fd) as quarantine_fd:
-                            for row in selected:
+                            progress.update("delete", 0, len(selected), deleted=0, size=0)
+                            for number, row in enumerate(selected, 1):
                                 if time.monotonic() >= deadline or guard.poll() is not None:
                                     raise RuntimeError(
                                         "Safety window expired; remaining files preserved"
                                     )
                                 if (row["identity"][0], row["identity"][1]) in opened:
+                                    progress.update(
+                                        "delete",
+                                        number,
+                                        len(selected),
+                                        deleted=deleted,
+                                        size=deleted_bytes,
+                                    )
                                     continue
                                 # Refuse path replacement even though rename uses a pinned dirfd.
                                 if identity(root.stat())[:2] != identity(root_info)[:2]:
@@ -523,12 +591,19 @@ def main(argv=None):
                                     )
                                     + "\n"
                                 )
+                                progress.update(
+                                    "delete",
+                                    number,
+                                    len(selected),
+                                    deleted=deleted,
+                                    size=deleted_bytes,
+                                )
                         os.fsync(fd)
                     summary = {
                         "apply": args.apply,
                         "files": len(rows),
                         "reasons": dict(Counter(row["reason"] for row in rows)),
-                        "eligible_bytes": sum(row["bytes"] for row in eligible),
+                        "eligible_bytes": eligible_bytes,
                         "selected": len(selected),
                         "deleted": deleted,
                         "deleted_bytes": deleted_bytes,
@@ -538,6 +613,7 @@ def main(argv=None):
                         audit.write(json.dumps({"event": "summary", **summary}) + "\n")
                         audit.flush()
                         os.fsync(audit.fileno())
+                    progress.close()
                     print(json.dumps(summary), flush=True)
         finally:
             os.close(fd)
