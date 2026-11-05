@@ -731,9 +731,10 @@ class Agent:
         for ident, job in self.jobs.items():
             # A submitted completion is either in flight or about to be finalized
             # by this tick; renewing a committed attempt would be rejected and
-            # divert it from ordinary cleanup. A failed submission is removed
-            # from the job, so its lease is renewed again before resubmission.
-            if job.get("abandoned") or "completion" in job:
+            # divert it from ordinary cleanup. A server error proves nothing was
+            # committed, so that lease is renewed again before resubmission; a
+            # lost reply may hide a commit, so that one is resubmitted unrenewed.
+            if job.get("abandoned") or "completion" in job or job.get("commit_unknown"):
                 continue
             if (
                 not job["container"]
@@ -793,6 +794,9 @@ class Agent:
             info = json.loads(self.docker("inspect", job["container"]))[0]
             if info["State"]["Running"]:
                 self.docker("stop", "-t", "5", job["container"])
+            # Nothing supervises this container again; journals and outputs
+            # live in the attempt directory. Leaving it accumulated hundreds.
+            subprocess.run(["docker", "rm", job["container"]], capture_output=True, timeout=20)
         del self.jobs[ident]
         self.request("reconcile", {"running": list(self.jobs)})
 
@@ -954,7 +958,11 @@ class Agent:
                 job["publication"] = self.transfers.submit(self.publish_outcome, outcome_path)
             # Once a completion is submitted the attempt may already be committed;
             # renewing it would be rejected and divert it from ordinary cleanup.
-            if time.monotonic() - job["renewed"] >= 5 and "completion" not in job:
+            if (
+                time.monotonic() - job["renewed"] >= 5
+                and "completion" not in job
+                and not job.get("commit_unknown")
+            ):
                 self.request("heartbeat", {"token": request["token"]}, ident)
                 job["renewed"] = time.monotonic()
             if not job["publication"].done():
@@ -987,9 +995,11 @@ class Agent:
                 del job["completion"]
                 return
             except OSError:
-                # A lost reply may hide a committed result. The commit is
-                # idempotent: renew on the next tick and submit it again.
+                # A lost reply may hide a committed result. A renewal would then
+                # be rejected and divert the attempt from ordinary cleanup, so
+                # submit the identical, idempotent commit again without one.
                 del job["completion"]
+                job["commit_unknown"] = True
                 return
         else:
             remember(self.root, request)

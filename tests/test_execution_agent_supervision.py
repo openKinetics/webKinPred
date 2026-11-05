@@ -113,7 +113,9 @@ def test_older_controller_falls_back_to_individual_heartbeats(agent):
 
 
 @pytest.mark.parametrize("running", [True, False])
-def test_rejected_batched_renewal_fences_like_a_single_heartbeat(agent, running):
+def test_rejected_batched_renewal_fences_like_a_single_heartbeat(agent, running, monkeypatch):
+    removed = []
+    monkeypatch.setattr(module.subprocess, "run", lambda args, **kwargs: removed.append(args))
     job = {"request": {"id": "a", "token": "t"}, "container": "c1", "renewed": 0}
     agent.jobs = {"a": job}
     calls = []
@@ -133,8 +135,11 @@ def test_rejected_batched_renewal_fences_like_a_single_heartbeat(agent, running)
         # Compute is fenced; the exit path later preserves checkpoints.
         agent.docker.assert_called_once_with("stop", "-t", "5", "c1")
         assert "a" in agent.jobs
+        assert removed == []
     else:
         assert calls == ["heartbeats", "reconcile"] and not agent.jobs
+        # Nothing supervises a fenced, exited container again.
+        assert removed == [["docker", "rm", "c1"]]
 
 
 def test_completion_commit_runs_beside_supervision_and_is_resubmitted(agent):
@@ -166,6 +171,10 @@ def test_completion_commit_runs_beside_supervision_and_is_resubmitted(agent):
     wait_until(lambda: job["completion"].done())
     agent.tick_job("a", job)  # A lost reply is retried, never reported as an error.
     assert "completion" not in job and agent.jobs
+    # The lost reply may hide a commit, which would reject any renewal and
+    # strand the container: neither renewal path may touch it, however stale.
+    job["renewed"] = time.monotonic() - 10
+    agent.renew_leases()
     agent.tick_job("a", job)
     agent.tick_job("a", job)
     assert agent.jobs and not release.is_set()  # Supervision continues meanwhile.
