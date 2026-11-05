@@ -11,8 +11,11 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psutil
@@ -24,6 +27,32 @@ from api.execution.telemetry import container_observations, snapshot
 from tools.executor.checkpoints import partial_manifest, remember
 
 LABEL = "org.webkinpred.executor"
+# Admission throughput is bounded by how many claimed attempts may transfer
+# inputs at once and how many attempts one claim request may return.
+TRANSFER_WORKERS = 8
+PENDING_TRANSFERS = 8
+CLAIM_BATCH = 8
+# The host GPU identity and runtime files are stable; checking them on every
+# one-second supervision tick spent most of the tick in nvidia-smi and stat().
+RUNTIME_CHECK_SECONDS = 30
+LEGACY_CHECK_SECONDS = 30
+DISK_CHECK_SECONDS = 5
+EXTERNAL_WINDOW_SECONDS = 20
+
+
+class LeaseLost(Exception):
+    """A batched renewal was rejected exactly as a single heartbeat would be."""
+
+    def __init__(self, code):
+        super().__init__(f"Lease renewal rejected with HTTP {code}")
+        self.code = code
+
+
+def publishes_only(request):
+    """The final publication phase computes nothing; its runner only hashes the result."""
+    return (
+        request.get("kind") == "assemble" and request.get("payload", {}).get("phase") == "publish"
+    )
 
 
 def file_stamp(path):
@@ -62,7 +91,22 @@ class Agent:
         self.empty_claim_delay = 1.0
         self.claim_owners = frozenset()
         self.claim_paused = False
-        self.transfers = ThreadPoolExecutor(max_workers=4, thread_name_prefix="artifact-transfer")
+        self.transfers = ThreadPoolExecutor(
+            max_workers=TRANSFER_WORKERS, thread_name_prefix="artifact-transfer"
+        )
+        # Completion commits can take seconds for large manifests. They are
+        # idempotent, so they run beside supervision instead of stalling it.
+        self.control = ThreadPoolExecutor(max_workers=4, thread_name_prefix="control-commit")
+        self.batch_heartbeats = True
+        self.batch_claims = True
+        self.observed_at = -math.inf
+        self.observation = None
+        self.legacy_checked_at = -math.inf
+        self.legacy_consumers = []
+        self.inspected = {}
+        self.timings, self.counts, self.iterations = {}, {}, 0
+        self.timings_since = time.monotonic()
+        self.external_samples = deque()
 
     def verify_runtime_files(self, threads=1):
         """Cache verified digests against inode, size, mtime and ctime, never mtime alone."""
@@ -138,6 +182,44 @@ class Agent:
         return subprocess.check_output(
             ["docker", *args], text=True, stderr=subprocess.PIPE, timeout=20
         ).strip()
+
+    def inspect_many(self, containers):
+        """Inspect every supervised container with one CLI call, keyed by ID.
+
+        A container missing from the reply is left out; callers then inspect it
+        individually, which raises exactly as before.
+        """
+        if not containers:
+            return {}
+        result = subprocess.run(
+            ["docker", "inspect", *containers],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        try:
+            rows = json.loads(result.stdout or "[]")
+        except ValueError:
+            return {}
+        return {row["Id"]: row for row in rows if isinstance(row, dict) and "Id" in row}
+
+    def compute_finished(self, job):
+        """True once the container exited (or none was needed) and only publication remains."""
+        if job.get("inline") or "publication" in job or "completion" in job:
+            return True
+        info = self.inspected.get(job["container"]) if job["container"] else None
+        if not info or info["State"]["Running"]:
+            return False
+        # A created-but-not-started container is not finished.
+        return info["State"].get("Status", "exited") in {"exited", "dead"}
+
+    def container_info(self, job):
+        if job.get("inline"):
+            return job["inline"]
+        info = self.inspected.get(job["container"])
+        if info is None:
+            info = json.loads(self.docker("inspect", job["container"]))[0]
+        return info
 
     def error_details(self, error, request):
         message = str(error)
@@ -330,6 +412,47 @@ class Agent:
             "transfer": self.transfers.submit(self.materialize, request, work),
         }
 
+    def run_inline(self, ident, job):
+        """Produce the publication outcome that ``runner.main`` writes, without a container.
+
+        This phase reads no model, image or environment: it verifies and hashes
+        the similarity-enriched result already copied into private attempt media.
+        Starting a container for it cost several seconds of scarce production CPU
+        for every completed job.
+        """
+        request = job["request"]
+        work = self.root / "attempts" / ident
+        outputs = []
+        for output in request["payload"].get("outputs", []):
+            path = work / "media" / safe_relative(output["path"])
+            if not path.is_file():
+                raise ValueError("Execution did not produce every declared output")
+            outputs.append(
+                {
+                    "id": output["id"],
+                    "identity": output["identity"],
+                    "checksum": sha256_file(path),
+                    "size": path.stat().st_size,
+                    "metadata": {},
+                    "source": "media/" + output["path"],
+                }
+            )
+        atomic_json(
+            work / "outcome.json",
+            {
+                "artifacts": outputs,
+                "checkpoint": request["payload"].get("assembly_checkpoint", {}),
+            },
+        )
+        job["inline"] = {
+            "State": {
+                "Running": False,
+                "ExitCode": 0,
+                "OOMKilled": False,
+                "FinishedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+
     def launch(self, request):
         ident = request["id"]
         if request["image"] not in self.config["images"]:
@@ -342,7 +465,7 @@ class Agent:
         limits = request["resources"]
         # Artifact transfer may take minutes. Recheck immediately before model
         # creation, excluding this attempt's already-held reservation.
-        telemetry = self.observe()
+        telemetry = self.recent_observation(2.0) or self.observe()
         active = [
             {
                 "resources": job["request"]["resources"],
@@ -470,60 +593,163 @@ class Agent:
         except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
             pass
 
+    def recent_observation(self, max_age):
+        """Let back-to-back launches share one fresh host measurement.
+
+        Reuse is safe for admission because every newer attempt is still counted
+        through its fully unspent reservation, not through stale measurements.
+        """
+        if self.observation is not None and time.monotonic() - self.observed_at <= max_age:
+            return deepcopy(self.observation)
+        return None
+
     def observe(self):
         data = snapshot(self.root, self.config.get("gpu_uuid", ""))
         data["attempts"] = container_observations(
             {key: job["container"] for key, job in self.jobs.items() if job["container"]}
         )
-        data["cpu_external"] = max(
+        for ident, job in self.jobs.items():
+            if self.compute_finished(job):
+                # Its processes, memory and GPU contexts are gone; admission keeps
+                # only its disk reservation while outputs publish and commit.
+                data["attempts"][ident] = {"released": True}
+        raw_external = max(
             0, data["cpu_used"] - sum(value.get("cpu", 0) for value in data["attempts"].values())
         )
-        rows = self.docker(
-            "ps",
-            "--filter",
-            "label=com.docker.compose.project=" + self.config.get("legacy_project", "webkinpred"),
-            "--format",
-            '[{{json (.Label "com.docker.compose.service")}},'
-            '{{json (.Label "org.webkinpred.profiling")}},'
-            '{{json (.Label "org.webkinpred.executor")}}]',
-        ).splitlines()
-        # docker-committed runtime images retain their old Compose labels.
-        # Identify our isolated probes/attempts before fencing legacy consumers.
-        data["legacy_consumers"] = [
-            service
-            for service, profiling, executor in map(json.loads, rows)
-            if service in {"celery", "celery-cache", "celery-beat"}
-            and profiling != "true"
-            and not executor
-        ]
+        # A container has no CPU delta on its first observation and an exited
+        # one's final interval is unattributed, so attempt churn briefly looks
+        # like other host load. The persistent floor over a short window is the
+        # real external use; a sustained external rise still shows within it.
+        now = time.monotonic()
+        self.external_samples.append((now, raw_external))
+        while now - self.external_samples[0][0] > EXTERNAL_WINDOW_SECONDS:
+            self.external_samples.popleft()
+        data["cpu_external"] = min(value for _, value in self.external_samples)
+        data["cpu_external_raw"] = raw_external
+        if time.monotonic() - self.legacy_checked_at >= LEGACY_CHECK_SECONDS:
+            rows = self.docker(
+                "ps",
+                "--filter",
+                "label=com.docker.compose.project="
+                + self.config.get("legacy_project", "webkinpred"),
+                "--format",
+                '[{{json (.Label "com.docker.compose.service")}},'
+                '{{json (.Label "org.webkinpred.profiling")}},'
+                '{{json (.Label "org.webkinpred.executor")}}]',
+            ).splitlines()
+            # docker-committed runtime images retain their old Compose labels.
+            # Identify our isolated probes/attempts before fencing legacy consumers.
+            self.legacy_consumers = [
+                service
+                for service, profiling, executor in map(json.loads, rows)
+                if service in {"celery", "celery-cache", "celery-beat"}
+                and profiling != "true"
+                and not executor
+            ]
+            self.legacy_checked_at = time.monotonic()
+        data["legacy_consumers"] = list(self.legacy_consumers)
+        self.observation, self.observed_at = deepcopy(data), time.monotonic()
         return data
 
+    def renew_leases(self):
+        """Renew every due lease with one request instead of one request per attempt.
+
+        Attempts about to launch are renewed too, so compute never starts after
+        a known control-plane disconnect. Rejections are handled per attempt.
+        """
+        if not self.batch_heartbeats:
+            return
+        now = time.monotonic()
+        entries, launching = [], set()
+        for ident, job in self.jobs.items():
+            # A submitted completion is either in flight or about to be finalized
+            # by this tick; renewing a committed attempt would be rejected and
+            # divert it from ordinary cleanup. A failed submission is removed
+            # from the job, so its lease is renewed again before resubmission.
+            if job.get("abandoned") or "completion" in job:
+                continue
+            if (
+                not job["container"]
+                and not job.get("inline")
+                and "transfer" in job
+                and job["transfer"].done()
+            ):
+                launching.add(ident)
+            elif now - job["renewed"] < 4:
+                continue
+            entry = {}
+            if job["container"]:
+                progress = self.root / "attempts" / ident / "progress.json"
+                if progress.exists():
+                    entry.update(json.loads(progress.read_text()))
+                entry["container_id"] = job["container"]
+            entry.update(id=ident, token=job["request"]["token"])
+            entries.append(entry)
+        if not entries:
+            return
+        try:
+            reply = self.request("heartbeats", {"attempts": entries})
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            self.batch_heartbeats = False  # An older controller: renew individually.
+            return
+        renewed = time.monotonic()
+        for ident, result in reply.get("results", {}).items():
+            job = self.jobs.get(ident)
+            if job is None:
+                continue
+            if "lease_seconds" in result:
+                job["renewed"] = renewed
+                if ident in launching:
+                    # Renewed strictly after its transfer finished.
+                    job["launch_renewed"] = True
+            elif result.get("status") in {403, 409}:
+                job["lease_error"] = result["status"]
+
+    def lease_lost(self, ident, job):
+        # A stale result is never committed. Reconcile only after proving
+        # this container stopped, retaining every other live reservation.
+        future = next(
+            (
+                job[key]
+                for key in ("transfer", "publication", "completion")
+                if key in job and not job[key].done()
+            ),
+            None,
+        )
+        self.count("lease_lost")
+        if future and not future.done():
+            job["abandoned"] = True
+            return
+        if job["container"]:
+            info = json.loads(self.docker("inspect", job["container"]))[0]
+            if info["State"]["Running"]:
+                self.docker("stop", "-t", "5", job["container"])
+        del self.jobs[ident]
+        self.request("reconcile", {"running": list(self.jobs)})
+
     def tick_jobs(self):
+        self.inspected = self.inspect_many(
+            [job["container"] for job in self.jobs.values() if job["container"]]
+        )
+        self.renew_leases()
         for ident, job in list(self.jobs.items()):
             try:
+                if job.get("lease_error") and not job.get("abandoned"):
+                    code = job.pop("lease_error")
+                    info = self.inspected.get(job["container"]) if job["container"] else None
+                    if info and info["State"]["Running"]:
+                        # As for a rejected single heartbeat: fence compute now
+                        # and let the exit path preserve checkpoints.
+                        self.docker("stop", "-t", "5", job["container"])
+                        continue
+                    raise LeaseLost(code)
                 self.tick_job(ident, job)
-            except urllib.error.HTTPError as exc:
+            except (urllib.error.HTTPError, LeaseLost) as exc:
                 if exc.code not in {403, 409}:
                     raise
-                # A stale result is never committed. Reconcile only after proving
-                # this container stopped, retaining every other live reservation.
-                future = next(
-                    (
-                        job[key]
-                        for key in ("transfer", "publication")
-                        if key in job and not job[key].done()
-                    ),
-                    None,
-                )
-                if future and not future.done():
-                    job["abandoned"] = True
-                    continue
-                if job["container"]:
-                    info = json.loads(self.docker("inspect", job["container"]))[0]
-                    if info["State"]["Running"]:
-                        self.docker("stop", "-t", "5", job["container"])
-                del self.jobs[ident]
-                self.request("reconcile", {"running": list(self.jobs)})
+                self.lease_lost(ident, job)
             except (OSError, ValueError) as exc:
                 # Failed publication/transfer is recoverable, including a full spool.
                 # Do not leave a stopped attempt in a permanently running state.
@@ -552,7 +778,7 @@ class Agent:
             future = next(
                 (
                     job[key]
-                    for key in ("transfer", "publication")
+                    for key in ("transfer", "publication", "completion")
                     if key in job and not job[key].done()
                 ),
                 None,
@@ -564,20 +790,28 @@ class Agent:
             self.request("reconcile", {"running": [key for key in self.jobs if key != ident]})
             del self.jobs[ident]
             return
-        if not job["container"]:
+        if not job["container"] and not job.get("inline"):
             # Download workers cannot start a container. Keep supervision responsive.
             ready = job["transfer"].done()
             # Renew even a recent lease before launching. A completed transfer
             # must not start compute after a known control-plane disconnect.
-            if ready or time.monotonic() - job["renewed"] >= 5:
+            # The batched renewal normally did this moments ago.
+            renewed_for_launch = ready and job.pop("launch_renewed", False)
+            if (ready and not renewed_for_launch) or time.monotonic() - job["renewed"] >= 5:
                 self.request("heartbeat", {"token": request["token"]}, ident)
                 job["renewed"] = time.monotonic()
             if not ready:
                 return
             try:
                 job["execution_metrics"] = job["transfer"].result()
-                self.launch(request)
+                if publishes_only(request):
+                    self.run_inline(ident, job)
+                    self.count("published_inline")
+                else:
+                    self.launch(request)
+                    self.count("launched")
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                self.count("launch_failed")
                 # Reconcile any ambiguous creation; never assert a running container stopped.
                 name = "wk-attempt-" + ident
                 exists = self.docker("ps", "-aq", "--filter", "name=^/" + name + "$")
@@ -594,17 +828,31 @@ class Agent:
                     ident,
                 )
                 del self.jobs[ident]
+                if not exists:
+                    # No container ever ran: the private copies are only
+                    # materialized inputs (blobs and checkpoints stay in their
+                    # own stores). Keeping them held gigabytes per refused
+                    # attempt until its stage eventually completed.
+                    for folder in ("media", "tmp"):
+                        shutil.rmtree(self.root / "attempts" / ident / folder, ignore_errors=True)
             return
-        info = json.loads(self.docker("inspect", job["container"]))[0]
+        info = self.container_info(job)
         if info["State"]["Running"]:
-            if shutil.disk_usage(self.root).free < self.config["budgets"].get(
-                "disk_headroom", 0
-            ) or directory_bytes(self.root / "attempts" / ident) > request["resources"].get(
-                "disk", 0
-            ):
+            if shutil.disk_usage(self.root).free < self.config["budgets"].get("disk_headroom", 0):
                 job["abort_category"] = "disk"
                 self.docker("stop", "-t", "5", job["container"])
                 return
+            # Walking large private input trees every tick dominated supervision
+            # for thousand-file prediction chunks; the host free-space guard above
+            # still runs on every tick.
+            if time.monotonic() - job.get("disk_checked", -math.inf) >= DISK_CHECK_SECONDS:
+                job["disk_checked"] = time.monotonic()
+                if directory_bytes(self.root / "attempts" / ident) > request["resources"].get(
+                    "disk", 0
+                ):
+                    job["abort_category"] = "disk"
+                    self.docker("stop", "-t", "5", job["container"])
+                    return
             if time.monotonic() - job["renewed"] >= 20:
                 self.docker("stop", "-t", "5", job["container"])
                 return
@@ -637,23 +885,45 @@ class Agent:
         if info["State"]["ExitCode"] == 0 and outcome_path.exists():
             if "publication" not in job:
                 job["publication"] = self.transfers.submit(self.publish_outcome, outcome_path)
-            if time.monotonic() - job["renewed"] >= 5:
+            # Once a completion is submitted the attempt may already be committed;
+            # renewing it would be rejected and divert it from ordinary cleanup.
+            if time.monotonic() - job["renewed"] >= 5 and "completion" not in job:
                 self.request("heartbeat", {"token": request["token"]}, ident)
                 job["renewed"] = time.monotonic()
             if not job["publication"].done():
                 return
-            outcome = job["publication"].result()
-            self.request(
-                "complete",
-                {
-                    "token": request["token"],
-                    "stopped": True,
-                    "container_finished_at": info["State"]["FinishedAt"],
-                    "execution_metrics": job.get("execution_metrics", {}),
-                    **outcome,
-                },
-                ident,
-            )
+            if "completion" not in job:
+                outcome = job["publication"].result()
+                job["completion"] = self.control.submit(
+                    self.request,
+                    "complete",
+                    {
+                        "token": request["token"],
+                        "stopped": True,
+                        "container_finished_at": info["State"]["FinishedAt"],
+                        "execution_metrics": job.get("execution_metrics", {}),
+                        **outcome,
+                    },
+                    ident,
+                )
+                return
+            if not job["completion"].done():
+                return
+            try:
+                job["completion"].result()
+            except urllib.error.HTTPError as exc:
+                if exc.code in {403, 409}:
+                    raise  # The lease is gone: reconcile instead of retrying.
+                # A server error (e.g. an aborted deadlock victim) is transient.
+                # Re-raising the cached failure every tick would stop all
+                # supervision; renew and submit the idempotent commit again.
+                del job["completion"]
+                return
+            except OSError:
+                # A lost reply may hide a committed result. The commit is
+                # idempotent: renew on the next tick and submit it again.
+                del job["completion"]
+                return
         else:
             remember(self.root, request)
             if "publication" not in job and request["kind"] == "embedding":
@@ -676,13 +946,17 @@ class Agent:
             )
             if error_file.exists() and category == "unknown":
                 category = json.loads(error_file.read_text()).get("category", "unknown")
-            logs = subprocess.check_output(
-                ["docker", "logs", "--tail", "200", job["container"]],
-                stderr=subprocess.STDOUT,
-                text=True,
-                errors="replace",
-                timeout=5,
-            )[-512 * 1024 :]
+            logs = (
+                ""
+                if job.get("inline")
+                else subprocess.check_output(
+                    ["docker", "logs", "--tail", "200", job["container"]],
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    errors="replace",
+                    timeout=5,
+                )[-512 * 1024 :]
+            )
             outcome_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             (outcome_path.parent / "container.log").write_text(logs)
             if category == "unknown":
@@ -704,7 +978,8 @@ class Agent:
                 ident,
             )
         del self.jobs[ident]
-        self.docker("rm", job["container"])
+        if not job.get("inline"):
+            self.docker("rm", job["container"])
         if info["State"]["ExitCode"] == 0 and outcome_path.exists():
             # Completion has been fenced/committed and immutable blobs are durable.
             # Retain request/outcome journals; private scratch is no longer a checkpoint.
@@ -777,23 +1052,38 @@ class Agent:
                 break
             except (OSError, ValueError, subprocess.SubprocessError):
                 time.sleep(5)
+        runtime_checked, runtime_changed = time.monotonic(), False
         while True:
             try:
                 self.refresh_capabilities()
-                if identity(self.config.get("gpu_uuid", ""))["fingerprint"] != runtime[
-                    "fingerprint"
-                ] or any(file_stamp(Path(path)) != stamp for path, stamp in stamps.items()):
+                if (
+                    not runtime_changed
+                    and time.monotonic() - runtime_checked >= RUNTIME_CHECK_SECONDS
+                ):
+                    runtime_changed = identity(self.config.get("gpu_uuid", ""))[
+                        "fingerprint"
+                    ] != runtime["fingerprint"] or any(
+                        file_stamp(Path(path)) != stamp for path, stamp in stamps.items()
+                    )
+                    runtime_checked = time.monotonic()
+                if runtime_changed:
+                    # Sticky until restart: reloaded capabilities must not
+                    # re-advertise profiles measured on the previous runtime.
                     self.config["capabilities"]["profiles"] = []
-                self.tick_jobs()
-                telemetry = self.observe()
-                reply = self.request(
-                    "register",
-                    {"capabilities": self.config["capabilities"], "telemetry": telemetry},
-                )
+                with self.timed("tick_jobs"):
+                    self.tick_jobs()
+                with self.timed("observe"):
+                    telemetry = self.observe()
+                with self.timed("register"):
+                    reply = self.request(
+                        "register",
+                        {"capabilities": self.config["capabilities"], "telemetry": telemetry},
+                    )
                 self.apply_control_budgets(reply)
                 self.reconcile_unreceived(reply)
                 if time.monotonic() - self.last_cleanup >= 30:
-                    self.collect_artifacts()
+                    with self.timed("collect"):
+                        self.collect_artifacts()
                 for ident in reply.get("stop_attempts", []):
                     if ident in self.jobs:
                         job = self.jobs[ident]
@@ -812,7 +1102,10 @@ class Agent:
                                 ident,
                             )
                             del self.jobs[ident]
-                self.claim_available(telemetry, paused=reply.get("paused", False))
+                with self.timed("claim"):
+                    self.claim_available(telemetry, paused=reply.get("paused", False))
+                self.iterations += 1
+                self.report_timings()
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 self.expire_unrenewed()
                 if time.monotonic() - self.last_error_log >= 10:
@@ -829,6 +1122,57 @@ class Agent:
                     self.last_error_log = time.monotonic()
             time.sleep(1)
 
+    @contextmanager
+    def timed(self, phase):
+        began = time.monotonic()
+        try:
+            yield
+        finally:
+            self.timings[phase] = self.timings.get(phase, 0.0) + time.monotonic() - began
+
+    def report_timings(self):
+        """Emit one bounded supervision summary per minute for admission tuning."""
+        now = time.monotonic()
+        if now - self.timings_since < 60 or not self.iterations:
+            return
+        print(
+            json.dumps(
+                {
+                    "event": "executor.loop",
+                    "host": self.host,
+                    "iterations": self.iterations,
+                    "seconds": round(now - self.timings_since, 1),
+                    "jobs": len(self.jobs),
+                    "mean_phase_seconds": {
+                        key: round(value / self.iterations, 3)
+                        for key, value in sorted(self.timings.items())
+                    },
+                    **self.counts,
+                }
+            ),
+            flush=True,
+        )
+        self.timings, self.counts, self.iterations, self.timings_since = {}, {}, 0, now
+
+    def count(self, key, amount=1):
+        self.counts[key] = self.counts.get(key, 0) + amount
+
+    def claim_requests(self, limit):
+        """Ask for up to ``limit`` attempts; an older controller returns at most one."""
+        self.count("claims")
+        if not self.batch_claims:
+            attempt = self.request("claim").get("attempt")
+            attempts = [attempt] if attempt else []
+        else:
+            reply = self.request("claim", {"limit": limit})
+            if "attempts" not in reply:
+                self.batch_claims = False
+                attempts = [reply["attempt"]] if reply.get("attempt") else []
+            else:
+                attempts = [attempt for attempt in reply["attempts"] if attempt]
+        self.count("claimed", len(attempts))
+        return attempts
+
     def claim_available(self, telemetry, *, paused=False):
         """Fill capacity without letting admissions delay lease supervision."""
         began = time.monotonic()
@@ -841,60 +1185,76 @@ class Agent:
             return
         for _ in range(4):
             now = time.monotonic()
+            pending = sum(
+                not job["container"] and not job.get("inline") for job in self.jobs.values()
+            )
             if (
                 paused
                 or now - self.last_contact >= 5
                 or now - began >= 4
-                or any(now - job["renewed"] >= 5 for job in self.jobs.values())
-                or sum(not job["container"] for job in self.jobs.values()) >= 4
+                or any(
+                    now - job["renewed"] >= 5
+                    for job in self.jobs.values()
+                    if "completion" not in job
+                )
+                or pending >= PENDING_TRANSFERS
             ):
                 break
             # Continue polling for foreground preemption, but repeated empty
             # responses need not rank the whole graph every second. The delay
             # is bounded at five seconds; supervision remains independent.
-            request = self.request("claim").get("attempt")
-            if not request:
+            limit = min(CLAIM_BATCH, PENDING_TRANSFERS - pending)
+            requests = self.claim_requests(limit)
+            if not requests:
                 self.next_claim_at = time.monotonic() + self.empty_claim_delay
                 self.empty_claim_delay = min(5.0, self.empty_claim_delay * 2)
                 break
             self.next_claim_at = 0.0
             self.empty_claim_delay = 1.0
-            active = [
-                {
-                    "resources": job["request"]["resources"],
-                    "observed": telemetry["attempts"].get(ident, {}),
-                }
-                for ident, job in self.jobs.items()
-            ]
-            allowed = admit(
-                request["resources"],
-                active,
-                self.config["budgets"],
-                telemetry,
-                gpu=bool(request["resources"].get("vram")),
-            )
-            if not allowed.fits:
-                self.request(
-                    "error",
-                    {"token": request["token"], "stopped": True, "category": allowed.reason},
-                    request["id"],
-                )
-                break  # Refresh telemetry before asking for another allocation.
-            try:
-                self.stage(request)
-            except Exception as exc:
-                # Ambiguous creation retains ownership until reconciliation.
-                self.request(
-                    "error",
+            # Every attempt in the reply already holds a controller reservation:
+            # each one is either staged here or explicitly returned to waiting.
+            refused = False
+            for request in requests:
+                active = [
                     {
-                        "token": request["token"],
-                        "stopped": request["id"] not in self.jobs,
-                        "category": classify(exc),
-                        **self.error_details(exc, request),
-                    },
-                    request["id"],
+                        "resources": job["request"]["resources"],
+                        "observed": telemetry["attempts"].get(ident, {}),
+                    }
+                    for ident, job in self.jobs.items()
+                ]
+                allowed = admit(
+                    request["resources"],
+                    active,
+                    self.config["budgets"],
+                    telemetry,
+                    gpu=bool(request["resources"].get("vram")),
                 )
-                break
+                if not allowed.fits:
+                    refused = True
+                    self.count("refused_locally")
+                    self.request(
+                        "error",
+                        {"token": request["token"], "stopped": True, "category": allowed.reason},
+                        request["id"],
+                    )
+                    continue
+                try:
+                    self.stage(request)
+                except Exception as exc:
+                    refused = True
+                    # Ambiguous creation retains ownership until reconciliation.
+                    self.request(
+                        "error",
+                        {
+                            "token": request["token"],
+                            "stopped": request["id"] not in self.jobs,
+                            "category": classify(exc),
+                            **self.error_details(exc, request),
+                        },
+                        request["id"],
+                    )
+            if refused or (self.batch_claims and len(requests) < limit):
+                break  # Refresh telemetry before asking for another allocation.
 
     def expire_unrenewed(self):
         """Fence compute and drain transfers whose ownership cannot be renewed."""

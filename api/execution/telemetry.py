@@ -9,6 +9,9 @@ from pathlib import Path
 import psutil
 
 _cpu_samples = {}
+# A running container keeps its init PID and cgroup. Resolving them once avoids
+# a docker CLI call per container on every supervision tick.
+_cgroups = {}
 
 
 def set_memory_high(container, limit):
@@ -71,23 +74,38 @@ def snapshot(scratch: Path, gpu_uuid: str = "") -> dict:
     return data
 
 
+def _container_cgroup(container):
+    cached = _cgroups.get(container)
+    if cached:
+        return cached
+    info = json.loads(
+        subprocess.check_output(["docker", "inspect", container], text=True, timeout=5)
+    )[0]
+    pid = info["State"]["Pid"]
+    if not pid:
+        return None
+    relative = next(
+        line.split(":", 2)[2]
+        for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines()
+        if line.startswith("0::")
+    )
+    _cgroups[container] = pid, Path("/sys/fs/cgroup") / relative.lstrip("/")
+    return _cgroups[container]
+
+
 def container_observations(containers: dict[str, str]) -> dict:
     result = {}
     owners = {}
+    for container in set(_cgroups) - set(containers.values()):
+        del _cgroups[container]
+    for attempt in set(_cpu_samples) - set(containers):
+        del _cpu_samples[attempt]
     for attempt, container in containers.items():
         try:
-            info = json.loads(
-                subprocess.check_output(["docker", "inspect", container], text=True, timeout=5)
-            )[0]
-            pid = info["State"]["Pid"]
-            if not pid:
+            resolved = _container_cgroup(container)
+            if resolved is None:
                 continue
-            relative = next(
-                line.split(":", 2)[2]
-                for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines()
-                if line.startswith("0::")
-            )
-            group = Path("/sys/fs/cgroup") / relative.lstrip("/")
+            pid, group = resolved
             # Zero VRAM attribution is conservative: reservations remain fully unspent.
             result[attempt] = {"ram": int((group / "memory.current").read_text()), "vram": 0}
             usage = int(
@@ -110,6 +128,8 @@ def container_observations(containers: dict[str, str]) -> dict:
             psutil.Error,
             subprocess.SubprocessError,
         ):
+            # An exited container's cgroup disappears; never reuse its old PID.
+            _cgroups.pop(container, None)
             result[attempt] = {}
     try:
         output = subprocess.check_output(

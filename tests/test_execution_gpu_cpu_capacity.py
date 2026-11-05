@@ -76,8 +76,10 @@ def test_cpu_backlog_leaves_admission_capacity_for_fitting_gpu_work(ready_work):
     host, cpu, gpu = saturated_cpu_queue(ready_work)
     with override_settings(EXECUTION_V2_ENABLED=True):
         assert control.claim(host.pk)["stage_id"] == str(gpu.pk)
+    # GPU work is examined first within the class, so this single claim never
+    # needs to inspect (or relabel) the older CPU stage before admitting it.
     cpu.refresh_from_db()
-    assert cpu.state == "ready" and cpu.waiting_reason == "waiting_cpu"
+    assert cpu.state == "ready" and not cpu.attempts.exists()
 
 
 @pytest.mark.parametrize("unavailable", ["queue_empty", "vram"])

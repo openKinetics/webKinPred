@@ -176,6 +176,11 @@ def render():
         emit("legacy_consumers", len(host.telemetry.get("legacy_consumers", [])), **labels)
         # This optional inventory scan can touch millions of imported cache
         # records. A slow scan must not monopolize the web/heartbeat workers.
+        # On the live catalogue it always exceeded its deadline, costing database
+        # time on every scrape for no data, so it now runs only when enabled.
+        if not getattr(settings, "EXECUTION_METRICS_ARTIFACT_INVENTORY", False):
+            emit("artifact_inventory_available", 0, **labels)
+            continue
         try:
             with transaction.atomic():
                 size = (

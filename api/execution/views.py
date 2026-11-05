@@ -56,7 +56,12 @@ def executor(request, host_id, operation, attempt_id=None):
 
             return JsonResponse({"ids": [sequence_id(seq) for seq in data["sequences"]]})
         if operation == "claim":
+            if "limit" in data:
+                # Batch-aware agents; older agents keep the single-attempt reply.
+                return JsonResponse({"attempts": control.claim_batch(host_id, data["limit"])})
             return JsonResponse({"attempt": control.claim(host_id)})
+        if operation == "heartbeats":
+            return JsonResponse(control.heartbeats(host_id, data))
         if operation == "collect-artifacts":
             from api.execution.retention import claim_cleanup
 

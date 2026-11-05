@@ -147,14 +147,14 @@ def execution_status(job):
     else:
         state = "waiting_cpu"
     now = timezone.now()
-    related_stages = (
-        WorkStage.objects.filter(execution=execution)
-        .values_list("pk")
-        .union(
-            ArtifactDependency.objects.filter(stage__execution=execution).values_list(
-                "artifact__producer_id"
-            )
-        )
+    # Resolve the request's stages and their artifact producers with indexed
+    # lookups. A single UNION subquery let the planner sequentially scan the
+    # whole stage table for every public status poll.
+    own_stages = list(WorkStage.objects.filter(execution=execution).values_list("pk", flat=True))
+    related_stages = set(own_stages) | set(
+        ArtifactDependency.objects.filter(stage_id__in=own_stages)
+        .exclude(artifact__producer_id__isnull=True)
+        .values_list("artifact__producer_id", flat=True)
     )
     intervals = sorted(
         (max(started, execution.created_at), min(finished or now, lease))

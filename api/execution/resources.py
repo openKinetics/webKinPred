@@ -30,6 +30,19 @@ def reservation(peak: dict) -> dict:
     }
 
 
+def cpu_capacity(budgets: dict, telemetry: dict) -> float:
+    """CPUs that attempt reservations may occupy now: the budget, bounded by spare CPUs."""
+    capacity = budgets.get("cpu", 0)
+    if "cpu_external" in telemetry:
+        spare = (
+            telemetry.get("cpu_count", 0)
+            - budgets.get("cpu_headroom", 1)
+            - telemetry["cpu_external"]
+        )
+        capacity = min(capacity, spare * budgets.get("cpu_overcommit", 1))
+    return capacity
+
+
 def admit(
     candidate: dict, active: list[dict], budgets: dict, telemetry: dict, *, gpu: bool
 ) -> Admission:
@@ -48,18 +61,37 @@ def admit(
             return Admission(False, "invalid_profile")
     if candidate.get("ram", 0) <= 0 or candidate.get("cpu", 0) <= 0:
         return Admission(False, "invalid_profile")
+    # An attempt whose container has exited is only publishing outputs and
+    # committing: its processes, memory and GPU contexts are gone. It keeps
+    # its disk reservation (outputs are being copied) but no compute share.
+    computing = [x for x in active if not x.get("observed", {}).get("released")]
+    # Reservations are peak envelopes, and attempts spend much of their life
+    # starting processes, loading weights or publishing at a fraction of that
+    # peak. A host may therefore reserve a bounded multiple of its spare CPUs;
+    # each container keeps its own CPU limit, and memory/GPU checks are exact.
+    overcommit = budgets.get("cpu_overcommit", 1)
+    if (
+        not isinstance(overcommit, (int, float))
+        or isinstance(overcommit, bool)
+        or not math.isfinite(overcommit)
+        or not 1 <= overcommit <= 4
+    ):
+        return Admission(False, "invalid_budget")
     if "cpu_external" in telemetry:
         external = telemetry["cpu_external"]
         if not isinstance(external, (int, float)) or not math.isfinite(external) or external < 0:
             return Admission(False, "telemetry_unavailable")
-        if external + candidate["cpu"] + sum(
-            x["resources"].get("cpu", 0) for x in active
-        ) > telemetry.get("cpu_count", 0) - budgets.get("cpu_headroom", 1):
+        spare = telemetry.get("cpu_count", 0) - budgets.get("cpu_headroom", 1) - external
+        if (
+            candidate["cpu"] + sum(x["resources"].get("cpu", 0) for x in computing)
+            > spare * overcommit
+        ):
             return Admission(False, "waiting_cpu")
     for key in ("ram", "cpu", "disk"):
+        holders = active if key == "disk" else computing
         if (
             key not in budgets
-            or sum(x["resources"].get(key, 0) for x in active) + candidate.get(key, 0)
+            or sum(x["resources"].get(key, 0) for x in holders) + candidate.get(key, 0)
             > budgets[key]
         ):
             return Admission(False, "waiting_" + key)
@@ -73,7 +105,7 @@ def admit(
     ):
         unspent = sum(
             max(0, x["resources"].get(resource, 0) - x.get("observed", {}).get(resource, 0))
-            for x in active
+            for x in (active if resource == "disk" else computing)
         )
         if (
             available not in telemetry
@@ -84,7 +116,7 @@ def admit(
         slots = budgets["cpu_slots"]
         if not isinstance(slots, int) or isinstance(slots, bool) or slots < 1:
             return Admission(False, "invalid_budget")
-        if sum(not x["resources"].get("vram", 0) for x in active) >= slots:
+        if sum(not x["resources"].get("vram", 0) for x in computing) >= slots:
             return Admission(False, "waiting_cpu")
     if gpu:
         if (
@@ -98,11 +130,11 @@ def admit(
         )
         unspent = sum(
             max(0, x["resources"].get("vram", 0) - x.get("observed", {}).get("vram", 0))
-            for x in active
+            for x in computing
         )
         if candidate.get("vram", 0) + unspent + guard > telemetry["vram_free"]:
             return Admission(False, "waiting_vram")
-        if sum(bool(x["resources"].get("vram")) for x in active) >= budgets.get("gpu_slots", 1):
+        if sum(bool(x["resources"].get("vram")) for x in computing) >= budgets.get("gpu_slots", 1):
             return Admission(False, "waiting_gpu_slot")
     elif candidate.get("vram", 0):
         return Admission(False, "invalid_cpu_profile")

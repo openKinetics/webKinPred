@@ -55,7 +55,11 @@ def _claim_cleanup(host_id, *, version=1):
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return None
-    host = ExecutorHost.objects.select_for_update(skip_locked=True).filter(pk=host_id).first()
+    host = (
+        ExecutorHost.objects.select_for_update(skip_locked=True, no_key=True)
+        .filter(pk=host_id)
+        .first()
+    )
     if host is None:
         return None
     if not host.reconciled:
@@ -180,7 +184,7 @@ def _claim_cleanup(host_id, *, version=1):
 
 @transaction.atomic
 def finish_cleanup(host_id, data):
-    ExecutorHost.objects.select_for_update().get(pk=host_id)
+    ExecutorHost.objects.select_for_update(no_key=True).get(pk=host_id)
     cleanup = ArtifactCleanup.objects.select_for_update().get(pk=data["id"], host_id=host_id)
     if str(cleanup.token) != data["token"]:
         raise PermissionError("Cleanup ownership mismatch")

@@ -43,12 +43,64 @@ def executor(tmp_path, monkeypatch):
         agent.transfers.shutdown(wait=True)
 
 
-def test_burst_stages_at_most_four_attempts_and_bounds_pending_transfers(executor):
+def test_legacy_single_attempt_controller_fills_the_bounded_transfer_window(executor):
     agent, _, calls, telemetry, _ = executor
     agent.claim_available(telemetry)
     assert len(agent.jobs) == 4 and len(calls) == 4
+    # The first request offered a batch; an older controller ignores it.
+    assert calls[0][1] == {"limit": module.CLAIM_BATCH}
+    assert all(data is None for _, data, _ in calls[1:]) and not agent.batch_claims
     agent.claim_available(telemetry)
-    assert len(calls) == 4
+    assert len(agent.jobs) == module.PENDING_TRANSFERS
+    agent.claim_available(telemetry)
+    assert len(calls) == module.PENDING_TRANSFERS
+
+
+def test_batched_claim_stages_every_returned_attempt_from_one_request(executor):
+    agent, resources, calls, telemetry, _ = executor
+
+    def request(operation, data=None, ident=None):
+        calls.append((operation, data, ident))
+        assert operation == "claim"
+        return {
+            "attempts": [
+                {"id": f"batch-{n}", "token": "test", "resources": deepcopy(resources)}
+                for n in range(data["limit"])
+            ]
+        }
+
+    agent.request = request
+    agent.claim_available(telemetry)
+    assert len(calls) == 1 and len(agent.jobs) == module.PENDING_TRANSFERS
+    agent.claim_available(telemetry)
+    assert len(calls) == 1  # The transfer window is full.
+
+
+def test_locally_refused_batch_member_is_released_while_the_rest_stage(executor):
+    agent, resources, calls, telemetry, _ = executor
+    agent.config["budgets"]["ram"] = 2 * GIB
+    replies = [
+        {
+            "attempts": [
+                {"id": f"batch-{n}", "token": f"t{n}", "resources": deepcopy(resources)}
+                for n in range(3)
+            ]
+        }
+    ]
+
+    def request(operation, data=None, ident=None):
+        calls.append((operation, data, ident))
+        return replies.pop(0) if operation == "claim" else {}
+
+    agent.request = request
+    agent.claim_available(telemetry)
+    assert set(agent.jobs) == {"batch-0", "batch-1"}
+    assert calls[-1] == (
+        "error",
+        {"token": "t2", "stopped": True, "category": "waiting_ram"},
+        "batch-2",
+    )
+    assert sum(c[0] == "claim" for c in calls) == 1  # Refresh telemetry first.
 
 
 @pytest.mark.parametrize("resource", ["ram", "vram"])
@@ -108,7 +160,8 @@ def test_saturated_running_host_still_polls_for_foreground_preemption(executor):
     }
     agent.request = Mock(return_value={"attempt": None})
     agent.claim_available(telemetry)
-    agent.request.assert_called_once_with("claim")
+    agent.request.assert_called_once()
+    assert agent.request.call_args.args[0] == "claim"
 
 
 def test_empty_poll_backoff_is_bounded_and_completion_wakes_admission(executor):
@@ -140,4 +193,5 @@ def test_empty_poll_delay_never_delays_lease_supervision_or_resumption(executor)
     agent.next_claim_at = clock[0] + 5
     agent.claim_available(telemetry, paused=True)
     agent.claim_available(telemetry, paused=False)
-    agent.request.assert_called_once_with("claim")
+    agent.request.assert_called_once()
+    assert agent.request.call_args.args[0] == "claim"

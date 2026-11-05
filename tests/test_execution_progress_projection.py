@@ -245,7 +245,9 @@ def test_public_status_never_loads_stage_manifests_or_attempt_logs(ready_work):
     with override_settings(EXECUTION_V2_ENABLED=True), CaptureQueriesContext(connection) as queries:
         result = execution_status(job)
     assert result["execution_state"] == "running"
-    assert len(queries) == 4
+    # Active time uses three small indexed lookups (stages, producers, attempts)
+    # instead of one UNION the planner answered with a full stage-table scan.
+    assert len(queries) == 6
     sql = "\n".join(row["sql"] for row in queries)
     assert '"api_workstage"."payload"' not in sql
     assert '"api_workstage"."checkpoint"' not in sql

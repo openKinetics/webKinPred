@@ -45,7 +45,8 @@ def test_slow_inventory_is_omitted_without_losing_other_metrics(monkeypatch):
         cursor.execute("SHOW statement_timeout")
         previous = cursor.fetchone()[0]
     monkeypatch.setattr(QuerySet, "aggregate", slow_artifacts)
-    response = scrape()
+    with override_settings(EXECUTION_METRICS_ARTIFACT_INVENTORY=True):
+        response = scrape()
     assert response.status_code == 200
     assert b'webkinpred_execution_artifact_inventory_available{host="gpu"} 0' in response.content
     assert b"webkinpred_execution_artifact_bytes" not in response.content
@@ -53,6 +54,26 @@ def test_slow_inventory_is_omitted_without_losing_other_metrics(monkeypatch):
     with connection.cursor() as cursor:
         cursor.execute("SHOW statement_timeout")
         assert cursor.fetchone()[0] == previous
+
+
+@pytest.mark.django_db(transaction=True)
+def test_artifact_inventory_scan_is_skipped_unless_enabled(monkeypatch):
+    ExecutorHost.objects.create(id="gpu", heartbeat_at=timezone.now())
+    aggregate = QuerySet.aggregate
+
+    def no_inventory(query, *args, **kwargs):
+        assert query.model is not Artifact, "inventory scan must not run by default"
+        return aggregate(query, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "aggregate", no_inventory)
+    response = scrape()
+    assert response.status_code == 200
+    assert b'webkinpred_execution_artifact_inventory_available{host="gpu"} 0' in response.content
+    with override_settings(EXECUTION_METRICS_ARTIFACT_INVENTORY=True):
+        monkeypatch.setattr(QuerySet, "aggregate", aggregate)
+        enabled = scrape()
+    assert b'webkinpred_execution_artifact_inventory_available{host="gpu"} 1' in enabled.content
+    assert b'webkinpred_execution_artifact_bytes{host="gpu"} 0' in enabled.content
 
 
 @pytest.mark.django_db(transaction=True)

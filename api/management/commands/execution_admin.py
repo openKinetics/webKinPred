@@ -50,7 +50,7 @@ class Command(BaseCommand):
         elif action in {"drain-gpu", "resume-gpu"}:
             if not options["host"]:
                 raise CommandError("--host required")
-            host = ExecutorHost.objects.select_for_update().get(pk=options["host"])
+            host = ExecutorHost.objects.select_for_update(no_key=True).get(pk=options["host"])
             host.gpu_paused = action == "drain-gpu"
             host.save(update_fields=["gpu_paused"])
             self.stdout.write(
@@ -61,7 +61,7 @@ class Command(BaseCommand):
         elif action in {"drain", "stop"}:
             if not options["host"]:
                 raise CommandError("--host required")
-            host = ExecutorHost.objects.select_for_update().get(pk=options["host"])
+            host = ExecutorHost.objects.select_for_update(no_key=True).get(pk=options["host"])
             host.paused = True
             host.save(update_fields=["paused"])
             if action == "stop":

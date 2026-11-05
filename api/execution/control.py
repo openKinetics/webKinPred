@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import uuid
 from datetime import timedelta
 from itertools import combinations
@@ -25,7 +26,7 @@ from api.execution.models import (
     ResourceProfile,
     WorkStage,
 )
-from api.execution.resources import LIVE_STATES, admit
+from api.execution.resources import LIVE_STATES, admit, cpu_capacity
 from api.models import Job
 
 log = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ def _host_settings(host_id):
 @transaction.atomic
 def register(host_id: str, data: dict):
     config = _host_settings(host_id)
-    host, _ = ExecutorHost.objects.select_for_update().get_or_create(
+    host, _ = ExecutorHost.objects.select_for_update(no_key=True).get_or_create(
         pk=host_id, defaults={"budgets": config["budgets"]}
     )
     now = timezone.now()
@@ -259,7 +260,26 @@ def _admission_wait(stage, profile, resources, host, reason, now):
 
 @transaction.atomic
 def claim(host_id: str):
+    attempts = claim_batch(host_id, 1)
+    return attempts[0] if attempts else None
+
+
+# One ranked scan can admit several fitting stages. Re-ranking the whole
+# backlog for every slot made admissions, not resources, the throughput limit.
+CLAIM_BATCH_LIMIT = 8
+CLAIM_BATCH_SECONDS = 2.0
+
+
+@transaction.atomic
+def claim_batch(host_id: str, limit: int = 1):
+    """Admit up to ``limit`` stages under one host lock and one candidate ranking.
+
+    Every admission repeats the exact per-stage checks against a reservation
+    ledger that already includes the attempts admitted earlier in this batch.
+    """
     require_postgres()
+    limit = max(1, min(int(limit), CLAIM_BATCH_LIMIT))
+    began = time.monotonic()
     # This is a short control request, not an analytical query. JIT compilation
     # of the large compatibility predicate can itself exceed the HTTP deadline.
     with connection.cursor() as cursor:
@@ -267,7 +287,7 @@ def claim(host_id: str):
             "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
             "SET LOCAL work_mem = '16MB'; SET LOCAL statement_timeout = '3000ms'"
         )
-    host = ExecutorHost.objects.select_for_update().get(pk=host_id)
+    host = ExecutorHost.objects.select_for_update(no_key=True).get(pk=host_id)
     now = timezone.now()
     if (
         not settings.EXECUTION_V2_ENABLED
@@ -278,14 +298,14 @@ def claim(host_id: str):
         or host.telemetry.get("legacy_consumers")
         or ArtifactCleanup.objects.filter(host=host, completed_at__isnull=True).exists()
     ):
-        return None
+        return []
     attempts = list(
         host.attempts.filter(state__in=LIVE_STATES)
         .select_related("stage__execution")
         .defer("stage__execution__specification", "stage__payload", "stage__checkpoint")
     )
     if any(a.stop_requested for a in attempts):
-        return None  # Confirm termination before reallocating any reservation.
+        return []  # Confirm termination before reallocating any reservation.
     from api.execution.background import foreground_dependencies
 
     needed = foreground_dependencies()
@@ -325,7 +345,7 @@ def claim(host_id: str):
         for resources in [{k: max(v, p.runtime_floor.get(k, v)) for k, v in p.resources.items()}]
         for gpu in [bool(resources.get("vram"))]
     ):
-        return None
+        return []
     methods = {(p.stage_kind, p.method) for p in advertised}
     eligible = Q(
         profile_id__in=[
@@ -393,12 +413,20 @@ def claim(host_id: str):
                 When(execution_id__in=active_executions, then=Value(True)),
                 default=Value(False),
             ),
+            # Final assembly can only run on production. Serving it first there
+            # turns finished computation into downloadable jobs; other hosts
+            # can take the remaining CPU work.
+            other_hosts_can_run=Case(
+                When(kind="assemble", then=Value(host_id != "production")),
+                default=Value(True),
+            ),
         )
         .select_related("execution__job", "profile")
         .defer("execution__specification", "profile__evidence")
         .order_by(
             "effective_background",
             "-effective_priority",
+            "other_hosts_can_run",
             "has_offline_input",
             "job_has_active",
             Coalesce(
@@ -412,29 +440,18 @@ def claim(host_id: str):
     # class for its waiting reason/fairness barrier, and preselect fitting
     # profiles before applying the bounded scan.
     cpu_stage = Q(profile__resources__vram__isnull=True) | Q(profile__resources__vram__lte=0)
-    oldest_by_kind = dict(
-        candidates.annotate(
-            allocation_gpu=Case(
-                When(cpu_stage, then=Value(False)),
-                When(profile__resources__vram__gt=0, then=Value(True)),
-                default=Value(None),
-                output_field=BooleanField(),
-            )
-        )
-        .filter(allocation_gpu__isnull=False)
-        .order_by(
-            "allocation_gpu",
-            "effective_background",
-            "-effective_priority",
-            Coalesce(
-                "oldest_consumer_at", "execution__job__submission_time", "execution__created_at"
-            ),
-            "created_at",
-        )
-        .distinct("allocation_gpu")
-        .values_list("allocation_gpu", "pk")
+    # One bounded top-1 per class. DISTINCT ON had to sort the whole eligible
+    # backlog and was the most expensive statement of every claim.
+    head_order = (
+        "effective_background",
+        "-effective_priority",
+        Coalesce("oldest_consumer_at", "execution__job__submission_time", "execution__created_at"),
+        "created_at",
     )
-    oldest = [oldest_by_kind.get(False), oldest_by_kind.get(True)]
+    oldest = [
+        candidates.filter(allocation).order_by(*head_order).values_list("pk", flat=True).first()
+        for allocation in (cpu_stage, Q(profile__resources__vram__gt=0))
+    ]
     fitting = []
     foreground_fitting = []
     for p in advertised:
@@ -457,12 +474,18 @@ def claim(host_id: str):
         row["resources"].get("cpu", 0) for row in active if not row["resources"].get("vram")
     )
 
+    # Carve the GPU share from the CPUs actually reservable now. With overcommit
+    # the nominal budget can exceed them, which let CPU-only work take the CPUs
+    # GPU workers needed whenever other host load rose.
+    cpu_only_limit = cpu_capacity(host.budgets, host.telemetry) - host.budgets.get(
+        "gpu_cpu_reserve", 0
+    )
+
     def background_cpu_fits(resources):
         return (
             not gpu_waiting
             or resources.get("vram")
-            or cpu_only_used + resources.get("cpu", 0)
-            <= host.budgets["cpu"] - host.budgets.get("gpu_cpu_reserve", 0)
+            or cpu_only_used + resources.get("cpu", 0) <= cpu_only_limit
         )
 
     fitting = [
@@ -517,9 +540,45 @@ def claim(host_id: str):
     # manifests for the whole backlog spills large rows to disk. Fetch the full
     # context only for candidates we actually inspect under those row locks.
     candidate_rows = list(
-        candidates.values_list("pk", "has_offline_input", "effective_background")[:512]
+        candidates.values_list(
+            "pk",
+            "has_offline_input",
+            "effective_background",
+            "effective_priority",
+            "other_hosts_can_run",
+            "job_has_active",
+            "execution_id",
+            "profile__resources__vram",
+        )[:512]
     )
-    for ident, has_offline_input, background in candidate_rows:
+    admitted, admitted_executions = [], set()
+
+    def rank(index):
+        # The database order, with ``job_has_active`` refreshed for requests that
+        # received an attempt earlier in this batch, exactly as a new claim
+        # would rank them. The original index preserves every later key.
+        # Within a class and priority, GPU work is examined first: the device
+        # is the scarce resource, and CPU work fills whatever capacity remains
+        # instead of filling a batch before any waiting GPU stage is reached.
+        _, offline, background, priority, other_hosts, has_active, execution, vram = candidate_rows[
+            index
+        ]
+        return (
+            background,
+            -priority,
+            other_hosts,
+            not (isinstance(vram, (int, float)) and vram > 0),
+            offline,
+            has_active or execution in admitted_executions,
+            index,
+        )
+
+    order, position = sorted(range(len(candidate_rows)), key=rank), 0
+    while position < len(order):
+        ident, has_offline_input, background, *_ = candidate_rows[order[position]]
+        position += 1
+        if len(admitted) >= limit or (admitted and time.monotonic() - began >= CLAIM_BATCH_SECONDS):
+            break
         if background and foreground_demand:
             continue
         stage = (
@@ -545,10 +604,17 @@ def claim(host_id: str):
                 suspended=False,
                 fingerprint__in=host.capabilities.get("profiles", []),
             )
+            # Prefer the smallest reservation whose measured envelope covers
+            # this input; an arbitrary first match could be one that cannot
+            # admit the stage at all, or a wider envelope's larger reservation.
+            shape = stage.payload.get("shape", {})
             profile = next(
                 (
                     p
-                    for p in alternatives
+                    for p in sorted(
+                        alternatives,
+                        key=lambda p: (p.resources.get("ram", 0), p.resources.get("cpu", 0), p.pk),
+                    )
                     if p.settings.get("step") == stage.payload.get("step")
                     and stage.target in p.settings.get("targets", [stage.target])
                     and p.settings.get("model_identity")
@@ -558,6 +624,7 @@ def claim(host_id: str):
                         or p.settings.get("batch_size", 1)
                         <= stage.profile.settings.get("batch_size", 1)
                     )
+                    and not any(shape.get(k, float("inf")) > v for k, v in p.limits.items())
                 ),
                 None,
             )
@@ -594,8 +661,12 @@ def claim(host_id: str):
             resources, active, host.budgets, host.telemetry, gpu=bool(profile.resources.get("vram"))
         )
         if not base.fits:
+            if not background and admitted:
+                # Never ask background work admitted moments ago to yield. The
+                # next claim preempts against a ledger that includes this batch.
+                break
             if not background and _preempt_background(stage, resources, active, host):
-                return None
+                return []
             gpu_barrier |= _admission_wait(
                 stage,
                 profile,
@@ -661,8 +732,10 @@ def claim(host_id: str):
             gpu=bool(profile.resources.get("vram")),
         )
         if not result.fits:
+            if not background and admitted:
+                break
             if not background and _preempt_background(stage, resources, active, host):
-                return None
+                return []
             gpu_barrier |= _admission_wait(
                 stage,
                 profile,
@@ -708,8 +781,25 @@ def claim(host_id: str):
                 **resources,
             },
         )
-        return serialize_attempt(attempt)
-    return None
+        admitted.append(serialize_attempt(attempt))
+        # Later candidates in this batch see this reservation as fully unspent,
+        # exactly as a subsequent separate claim would.
+        active.append(
+            {
+                "id": attempt.pk,
+                "started_at": admitted_at,
+                "background": background,
+                "resources": resources,
+                "observed": {},
+                "profile_fingerprint": profile.fingerprint,
+            }
+        )
+        if not resources.get("vram"):
+            cpu_only_used += resources.get("cpu", 0)
+        if stage.execution_id not in admitted_executions:
+            admitted_executions.add(stage.execution_id)
+            order[position:] = sorted(order[position:], key=rank)
+    return admitted
 
 
 def serialize_attempt(attempt):
@@ -829,6 +919,41 @@ def heartbeat(host_id, attempt_id, data):
 
         request_refresh(stage.execution)
     return {"lease_seconds": 30}
+
+
+HEARTBEAT_BATCH_LIMIT = 256
+
+
+def heartbeats(host_id, data):
+    """Renew many leases in one request; each renewal keeps its own transaction.
+
+    Per-attempt failures are reported with the status the single-attempt
+    endpoint would have returned, so one stale lease never blocks the others.
+    """
+    from django.core.exceptions import ObjectDoesNotExist
+    from django.db import OperationalError
+
+    entries = data.get("attempts")
+    if not isinstance(entries, list) or len(entries) > HEARTBEAT_BATCH_LIMIT:
+        raise ValueError(f"Expected at most {HEARTBEAT_BATCH_LIMIT} heartbeats")
+    results = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            raise ValueError("Each heartbeat needs an attempt id")
+        ident = entry["id"]
+        try:
+            results[ident] = heartbeat(host_id, uuid.UUID(ident), entry)
+        except PermissionError:
+            results[ident] = {"status": 403, "error": "ownership mismatch"}
+        except ObjectDoesNotExist:
+            results[ident] = {"status": 404, "error": "unknown execution record"}
+        except OperationalError as exc:
+            if getattr(exc.__cause__, "pgcode", None) != "57014":
+                raise
+            results[ident] = {"status": 503, "error": "control temporarily busy"}
+        except (ValueError, KeyError, TypeError) as exc:
+            results[ident] = {"status": 409, "error": str(exc)}
+    return {"results": results}
 
 
 @transaction.atomic
@@ -1234,7 +1359,7 @@ def fail(host_id, attempt_id, data):
 @transaction.atomic
 def reconcile(host_id, data):
     """Agent supplies a full running inventory; expiry alone never releases reservations."""
-    host = ExecutorHost.objects.select_for_update().get(pk=host_id)
+    host = ExecutorHost.objects.select_for_update(no_key=True).get(pk=host_id)
     running = set(data.get("running", []))
     for attempt in host.attempts.filter(state__in=LIVE_STATES):
         if str(attempt.pk) not in running:

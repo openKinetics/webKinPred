@@ -66,21 +66,28 @@ def apply_background_rules():
 def foreground_dependencies():
     """Background-owned prerequisites required by any live normal request.
 
-    Derive this from the current graph in one query, avoiding stale materialized
-    promotions and per-job traversals in every admission request.
+    Derive this from the current graph, avoiding stale materialized promotions
+    and per-job traversals in every admission request. The few live normal
+    requests are resolved first and passed explicitly: the planner cannot see
+    that only a handful qualify and otherwise scanned the whole stage table.
     """
+    normal = list(
+        ExecutionSpec.objects.filter(background=False, paused=False)
+        .exclude(job__status__in=["Completed", "Failed"])
+        .values_list("pk", flat=True)
+    )
+    if not normal:
+        return set()
     with connection.cursor() as cursor:
-        cursor.execute("""
+        cursor.execute(
+            """
             WITH RECURSIVE needed(id) AS (
                 SELECT d.to_workstage_id
-                FROM api_workstage_dependencies d
-                JOIN api_workstage c ON c.id = d.from_workstage_id
-                JOIN api_executionspec ce ON ce.id = c.execution_id
-                LEFT JOIN api_job j ON j.job_id = ce.job_id
+                FROM api_workstage c
+                JOIN api_workstage_dependencies d ON d.from_workstage_id = c.id
                 JOIN api_workstage p ON p.id = d.to_workstage_id
                 JOIN api_executionspec pe ON pe.id = p.execution_id
-                WHERE NOT ce.background AND NOT ce.paused
-                  AND (ce.job_id IS NULL OR j.status NOT IN ('Completed', 'Failed'))
+                WHERE c.execution_id = ANY(%s)
                   AND c.state NOT IN ('completed', 'canceled')
                   AND p.state NOT IN ('completed', 'canceled') AND pe.background
                 UNION
@@ -90,7 +97,9 @@ def foreground_dependencies():
                 JOIN api_workstage p ON p.id = d.to_workstage_id
                 WHERE p.state NOT IN ('completed', 'canceled')
             ) SELECT id FROM needed
-        """)
+            """,
+            [normal],
+        )
         return {row[0] for row in cursor.fetchall()}
 
 

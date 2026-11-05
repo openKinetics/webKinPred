@@ -1091,10 +1091,17 @@ def test_oldest_gpu_wait_does_not_hide_cpu_in_single_ranking_pass(ready_work):
     assert admitted["stage_id"] == str(stages[0].pk)
     gpu.refresh_from_db()
     assert gpu.state == "ready" and gpu.waiting_reason == "telemetry_unavailable"
-    rankings = [
-        q["sql"] for q in captured if "DISTINCT ON" in q["sql"] and '"allocation_gpu"' in q["sql"]
+    # The queue heads are bounded top-1 lookups (one per allocation class), not
+    # a DISTINCT ON sort of the whole eligible backlog.
+    heads = [
+        q["sql"]
+        for q in captured
+        if q["sql"].startswith('SELECT "api_workstage"."id"')
+        and "ORDER BY" in q["sql"]
+        and q["sql"].rstrip().endswith("LIMIT 1")
     ]
-    assert len(rankings) == 1
+    assert len(heads) == 2
+    assert not any("DISTINCT ON" in q["sql"] for q in captured)
 
 
 def test_extra_gpu_headroom_reserves_capacity_for_controlled_external_probes():
