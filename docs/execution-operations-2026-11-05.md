@@ -97,6 +97,8 @@ Measured at 13:06 with the research jobs running (load average 41): `user.slice`
 use was 3–10 %. Three webKinPred GPU attempts kept running; with about 1.7 cores between
 them, embeddings averaged 62 s (8 attempts, maximum 93 s) instead of about 16 s on an
 idle host, roughly 17 % of the idle-host rate, where the previous policy ran none.
+Over 13:08–13:13 the GPU averaged 40.6 % with no idle samples while the host CPUs stayed
+fully used (19.9 of 20).
 `CPUWeight` is the single knob for a different balance. Remove the two settings from
 `gpu.json` and the two budgets from `EXECUTION_HOSTS_JSON` to return to full yielding.
 
