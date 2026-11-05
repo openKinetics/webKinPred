@@ -362,7 +362,13 @@ def open_inodes(proc_root=Path("/proc")):
     return result
 
 
-def check_containers(root, backend):
+def check_containers(root, backend, readers=frozenset()):
+    """Refuse legacy workers and any container that can reach the cache.
+
+    ``readers`` are containers the operator reviewed and found never to open ESM1v
+    files (``--trust-reader``). They may keep only a read-only view of the cache or
+    a parent; open files are still audited before every deletion.
+    """
     ids = docker("ps", "-q").split()
     containers = json.loads(docker("inspect", *ids)) if ids else []
     trusted = {
@@ -387,8 +393,13 @@ def check_containers(root, backend):
         for mount in container.get("Mounts", []):
             source = Path(mount["Source"]).resolve()
             if source == root or source in root.parents or root in source.parents:
-                if name not in trusted:
-                    raise RuntimeError("Unrecognized container can access legacy cache: " + name)
+                if name in trusted:
+                    continue
+                if name in readers:
+                    if mount.get("RW") is False:
+                        continue
+                    raise RuntimeError("Trusted reader can write to legacy cache: " + name)
+                raise RuntimeError("Unrecognized container can access legacy cache: " + name)
     if backend not in {c["Name"].lstrip("/") for c in containers}:
         raise RuntimeError("Backend container is not running")
 
@@ -497,7 +508,16 @@ def main(argv=None):
     parser.add_argument(
         "--keep-file", type=Path, help="Additional filenames to preserve, one per line"
     )
+    parser.add_argument(
+        "--trust-reader",
+        action="append",
+        default=[],
+        metavar="CONTAINER",
+        help="Allow this container's read-only mount of the cache or a parent after you "
+        "verified it never reads ESM1v files (repeatable)",
+    )
     args = parser.parse_args(argv)
+    readers = frozenset(args.trust_reader)
     if os.geteuid() != 0:
         parser.error("Run on the production host using sudo so /proc can be audited completely")
     if args.prepare_index:
@@ -531,7 +551,7 @@ def main(argv=None):
         progress.update("checking containers")
         blockers = []
         try:
-            check_containers(root, args.backend)
+            check_containers(root, args.backend, readers)
         except RuntimeError as error:
             if args.apply:
                 raise
@@ -573,6 +593,7 @@ def main(argv=None):
                                     "event": "scan",
                                     "apply": args.apply,
                                     "root": str(root),
+                                    "trusted_readers": sorted(readers),
                                     "at": datetime.now(timezone.utc).isoformat(),
                                 }
                             )
@@ -585,7 +606,7 @@ def main(argv=None):
                     if args.apply:
                         # Recheck container mounts and readers immediately before deletion.
                         progress.update("rechecking readers")
-                        check_containers(root, args.backend)
+                        check_containers(root, args.backend, readers)
                         opened = open_inodes()
                         if (root_info.st_dev, root_info.st_ino) in opened:
                             raise RuntimeError("Another process opened the cache directory")
@@ -638,6 +659,7 @@ def main(argv=None):
                         "deleted": deleted,
                         "deleted_bytes": deleted_bytes,
                         "deletion_blockers": blockers,
+                        "trusted_readers": sorted(readers),
                     }
                     if audit:
                         audit.write(json.dumps({"event": "summary", **summary}) + "\n")

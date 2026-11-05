@@ -183,6 +183,36 @@ def test_unrecognized_container_mount_or_legacy_worker_stops_cleanup(tmp_path, m
         cleanup.check_containers(root, "webkinpred-backend-1")
 
 
+def test_operator_trusted_reader_may_keep_only_a_read_only_view(tmp_path, monkeypatch):
+    root = tmp_path / "media" / "sequence_info" / "esm1v"
+    backend = {"Name": "/webkinpred-backend-1", "Config": {"Labels": {}}, "Mounts": []}
+    # e.g. a data portal that reads other embedding families under sequence_info.
+    portal = {
+        "Name": "/portal",
+        "Config": {"Labels": {}},
+        "Mounts": [{"Source": str(tmp_path / "media" / "sequence_info"), "RW": False}],
+    }
+    containers = [backend, portal]
+    monkeypatch.setattr(
+        cleanup, "docker", lambda *args: "id" if args[0] == "ps" else json.dumps(containers)
+    )
+    with pytest.raises(RuntimeError, match="Unrecognized container"):
+        cleanup.check_containers(root, "webkinpred-backend-1")
+    cleanup.check_containers(root, "webkinpred-backend-1", {"portal"})
+    with pytest.raises(RuntimeError, match="Unrecognized container"):
+        cleanup.check_containers(root, "webkinpred-backend-1", {"another"})
+    portal["Mounts"][0]["RW"] = True
+    with pytest.raises(RuntimeError, match="can write"):
+        cleanup.check_containers(root, "webkinpred-backend-1", {"portal"})
+    portal["Mounts"][0]["RW"] = False
+    portal["Config"]["Labels"] = {
+        "com.docker.compose.project": "webkinpred",
+        "com.docker.compose.service": "celery",
+    }
+    with pytest.raises(RuntimeError, match="Legacy worker"):
+        cleanup.check_containers(root, "webkinpred-backend-1", {"portal"})
+
+
 def test_preview_and_apply_keep_dependencies_and_protected_other_directories(
     directory, tmp_path, monkeypatch, capsys
 ):
@@ -191,7 +221,8 @@ def test_preview_and_apply_keep_dependencies_and_protected_other_directories(
     needed = matrix(root / "112345abcdef.npy")
     research = matrix(root.parent / "t5-research.npy")
     monkeypatch.setattr(cleanup.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(cleanup, "check_containers", lambda *args: None)
+    checked = []
+    monkeypatch.setattr(cleanup, "check_containers", lambda *args: checked.append(args[2:]))
     monkeypatch.setattr(cleanup, "open_inodes", lambda: set())
     monkeypatch.setattr(cleanup.fcntl, "flock", lambda *args: None)
     original_open = Path.open
@@ -219,6 +250,15 @@ def test_preview_and_apply_keep_dependencies_and_protected_other_directories(
     # Refuse to overwrite evidence, even when an apply is repeated.
     with pytest.raises(FileExistsError):
         cleanup.main(["--repo", str(tmp_path), "--apply", "--report", str(report)])
+    # Operator-reviewed readers reach both container checks and the audit trail.
+    checked.clear()
+    reviewed = tmp_path / "reviewed.jsonl"
+    cleanup.main(
+        ["--repo", str(tmp_path), "--apply", "--report", str(reviewed), "--trust-reader", "portal"]
+    )
+    assert checked == [(frozenset({"portal"}),)] * 2
+    assert json.loads(capsys.readouterr().out)["trusted_readers"] == ["portal"]
+    assert json.loads(reviewed.read_text().splitlines()[0])["trusted_readers"] == ["portal"]
 
 
 def execute_database_guard(monkeypatch):

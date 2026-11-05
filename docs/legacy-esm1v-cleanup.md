@@ -77,6 +77,25 @@ deployment process before applying cleanup; any other readers must also be
 resolved. An open file check alone cannot prove a legacy service will not open
 another file later.
 
+On 5 November the unused cutover pair `wk-maintenance-web19-candidate` and
+`wk-maintenance-frontend17-candidate` was stopped (not removed; its only traffic
+was its own health check). The next reported reader is `openkinetics-data-backend-1`,
+the OpenKinetics data portal. It mounts `media/sequence_info` read-only, and its
+code opens only `seqmap.sqlite3` and `<root>/<sequence_id>.npy` for the fixed
+roots `esm2_layer_33/residue_vecs`, `esmc_layer_32/residue_vecs`,
+`prot_t5_last/residue_vecs` and `pseq2sites_scores` (each path is confined to its
+root); the repository never references ESM1v. For a reader reviewed like this,
+pass `--trust-reader CONTAINER` (repeatable) on preview and apply. It allows only
+read-only mounts by that container, never a legacy worker, and is recorded in
+the summary and the audit report; the open-file audit still runs before
+deletion. Review again if the reader's code or mounts change.
+
+```bash
+sudo python3 /home/saleh/webkinpred-execution-staging/cleanup_legacy_esm1v.py \
+  --apply --limit 10000 --trust-reader openkinetics-data-backend-1 \
+  --report "/home/saleh/webkinpred-execution-staging/esm1v-cleanup-$(date -u +%Y%m%dT%H%M%S).jsonl"
+```
+
 The original preview timed out while scanning about four million catalogue
 records. The partial index addresses that lookup without weakening any retention
 checks or increasing the query timeout. Legacy-reader blockers are independent
