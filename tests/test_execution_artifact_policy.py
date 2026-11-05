@@ -306,11 +306,13 @@ def test_completed_scratch_cleanup_keeps_journals_and_external_project_files(tmp
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cleanup_advances_past_a_page_of_shared_residues_and_honors_release_hints():
+def test_cleanup_advances_past_a_page_of_shared_residues_and_honors_release_hints(monkeypatch):
+    from api.execution import retention
     from api.execution.models import ArtifactSweep
     from api.execution.retention import release_consumed_residues
     from django.db import transaction
 
+    monkeypatch.setattr(retention, "SWEEP_PAGE", 512)
     host, spec, producer = context()
     consumer = WorkStage.objects.create(execution=spec, key="shared-pending", kind="predict")
     artifacts = [

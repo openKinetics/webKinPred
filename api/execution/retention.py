@@ -1,5 +1,6 @@
 """Fenced collection of managed intermediates; legacy/project files stay protected."""
 
+import time
 from collections import defaultdict
 from datetime import timedelta
 
@@ -18,17 +19,35 @@ from api.execution.models import (
 )
 from api.execution.resources import LIVE_STATES
 
+# Most ready locations are permanent and never collectible, and a host can
+# hold millions of them. One fixed 512-location page per call took hours (GPU
+# host: ~43 h) to revisit residue matrices whose consumers had finished, so
+# each call now scans larger pages within a small time budget.
+SWEEP_PAGE = 4096
+SWEEP_SECONDS = 0.5
+HINTS_PER_CLAIM = 512
+PENDING_HINTS = 4096
+BLOBS_PER_CLEANUP = 256
+
 
 def release_consumed_residues(stage):
-    """Enqueue hints at consumer commit; ownership checks still run at deletion."""
+    """Enqueue hints at consumer commit; ownership checks still run at deletion.
+
+    Copies are recorded per artifact id but protected per checksum. Hint every
+    transient copy of the same bytes: a copy registered under an alias whose
+    own consumers finished earlier would otherwise wait for the full sweep.
+    """
+    checksums = Artifact.objects.filter(dependencies__stage=stage, retention="transient").values(
+        "checksum"
+    )
     groups = defaultdict(set)
     for ident, host in ArtifactLocation.objects.filter(
-        artifact__dependencies__stage=stage, artifact__retention="transient", ready=True
+        artifact__checksum__in=checksums, artifact__retention="transient", ready=True
     ).values_list("pk", "host_id"):
         groups[host].add(ident)
     for host, ids in groups.items():
         sweep, _ = ArtifactSweep.objects.select_for_update().get_or_create(host_id=host)
-        sweep.pending = list(dict.fromkeys([*sweep.pending, *sorted(ids)]))[-2048:]
+        sweep.pending = list(dict.fromkeys([*sweep.pending, *sorted(ids)]))[-PENDING_HINTS:]
         sweep.save(update_fields=["pending"])
 
 
@@ -94,18 +113,27 @@ def _claim_cleanup(host_id, *, version=1):
         policy, host=host, ready=True, artifact__regenerable=True
     )
     locations = ArtifactLocation.objects.filter(host=host, ready=True)
-    page = list(
-        locations.filter(pk__gt=sweep.cursor).order_by("pk").values_list("pk", flat=True)[:512]
-    )
-    if not page and sweep.cursor:
-        page = list(locations.order_by("pk").values_list("pk", flat=True)[:512])
-    hinted = sweep.pending[:128]
-    sweep.cursor = max(page) if page else 0
-    candidates = list(
-        base.filter(pk__in=[*page, *hinted])
-        .order_by("pk")
-        .values_list("pk", "artifact__checksum", "artifact__size")
-    )
+    hinted = sweep.pending[:HINTS_PER_CLAIM]
+    fields = ("pk", "artifact__checksum", "artifact__size")
+    found = {row[0]: row for row in base.filter(pk__in=hinted).values_list(*fields)}
+    began, wrapped = time.monotonic(), False
+    while True:
+        page = list(
+            locations.filter(pk__gt=sweep.cursor)
+            .order_by("pk")
+            .values_list("pk", flat=True)[:SWEEP_PAGE]
+        )
+        if not page:
+            if wrapped or not sweep.cursor:
+                sweep.cursor = 0
+                break
+            sweep.cursor, wrapped = 0, True
+            continue
+        sweep.cursor = page[-1]
+        found.update((row[0], row) for row in base.filter(pk__in=page).values_list(*fields))
+        if found or time.monotonic() - began >= SWEEP_SECONDS:
+            break
+    candidates = [found[ident] for ident in sorted(found)]
     # Separate indexed existence checks avoid expanding every alias by all of
     # its producer/consumer attempt history inside a correlated OR subquery.
     checksums = {checksum for _, checksum, _ in candidates if checksum}
@@ -142,13 +170,15 @@ def _claim_cleanup(host_id, *, version=1):
     for ident, checksum, size in candidates:
         if not checksum or checksum in selected or checksum in protected:
             continue
-        if total >= 4 * 1024**3 or len(blobs) >= 64:
+        if total >= 4 * 1024**3 or len(blobs) >= BLOBS_PER_CLEANUP:
             deferred.append(ident)
             continue
         selected.add(checksum)
         blobs.append({"checksum": checksum, "size": size})
         total += size
-    sweep.pending = list(dict.fromkeys([*deferred, *sweep.pending[128:]]))[:2048]
+    sweep.pending = list(dict.fromkeys([*deferred, *sweep.pending[HINTS_PER_CLAIM:]]))[
+        :PENDING_HINTS
+    ]
     sweep.save(update_fields=["cursor", "pending"])
     attempt_ids = []
     if version >= 2:
