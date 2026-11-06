@@ -157,12 +157,12 @@ finally:
 # Redis operations. The session lock fences graph publication for at most 20s;
 # it does not stop active attempts, heartbeats, or existing-stage dispatch.
 DATABASE_GUARD = r"""
-import json, os, select, sys, time
+import json, os, select, sys
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webKinPred.settings")
 import django
 django.setup()
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db.models import Count, Q
 from django.utils import timezone
 from pathlib import Path
@@ -189,16 +189,19 @@ with connection.cursor() as cursor:
     cursor.execute("SET statement_timeout = '20000ms'")
     Artifact.objects.filter(identity__path__startswith=prefix).aggregate(n=Count("retention"))
     cursor.execute("SET statement_timeout = '5000ms'")
-    # Routine artifact collection and graph publication take this lock briefly;
-    # wait for a free moment rather than refusing on the first attempt.
-    deadline = time.monotonic() + float(os.environ.get("WEBKINPRED_ESM1V_LOCK_WAIT", "10"))
-    while True:
-        cursor.execute("SELECT pg_try_advisory_lock(%s)", [481726392])
-        if cursor.fetchone()[0]:
-            break
-        if time.monotonic() >= deadline:
-            raise RuntimeError("Graph is busy; retry later")
-        time.sleep(0.2)
+    # Graph publication and routine collection take this lock back to back, so
+    # polling for a free moment can miss every gap. Queue instead: a waiter is
+    # granted at the next release, before any later try-lock.
+    wait = float(os.environ.get("WEBKINPRED_ESM1V_LOCK_WAIT", "60"))
+    cursor.execute("SET statement_timeout = %s", [str(int(wait * 1000)) + "ms"])
+    try:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [481726392])
+    except OperationalError as error:
+        cause = error.__cause__
+        if "57014" not in {getattr(cause, "sqlstate", None), getattr(cause, "pgcode", None)}:
+            raise
+        raise RuntimeError("Graph is busy; retry later") from None
+    cursor.execute("SET statement_timeout = '5000ms'")
 try:
     now = timezone.now()
     hosts = list(ExecutorHost.objects.filter(pk__in=["production", "gpu"]))
@@ -414,7 +417,8 @@ def database_guard(backend, root_info):
         text=True,
     ) as process:
         try:
-            if not select.select([process.stdout], [], [], 45)[0]:
+            # Warm-up read (<= 20 s), queued graph lock (<= 60 s), then the snapshot.
+            if not select.select([process.stdout], [], [], 100)[0]:
                 raise RuntimeError("Database safety snapshot timed out")
             line = process.stdout.readline()
             if not line:

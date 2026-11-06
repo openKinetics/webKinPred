@@ -26,9 +26,9 @@ OperationalError (SQLSTATE 57014)`: the dependency snapshot read the whole
 4.5 s, both against the guard's five-second statement limit. With the dependency
 index the dependency snapshot takes 0.4 s (built in 12 s, 15.5 MB). The guard now
 also reads the ESM1v artifact rows once before taking the graph lock (20 s
-limit, result unused), so the guarded snapshot reads warm pages, and it retries
-the shared graph lock for up to 10 s, because routine artifact collection holds
-it briefly every few seconds. The whole snapshot step took 4.6–7.1 s on
+limit, result unused), so the guarded snapshot reads warm pages, and it queues
+for the shared graph lock for up to 60 s (6 November: polling for a free moment
+lost to graph publication and collection taking it back to back). The whole snapshot step took 4.6–7.1 s on
 production, including container start-up. Protection rules and the guarded
 statement limit are unchanged.
 
