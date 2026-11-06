@@ -30,6 +30,25 @@ def reservation(peak: dict) -> dict:
     }
 
 
+def external_share(budgets: dict):
+    """Fraction of other work's CPU use that admission treats as unavailable.
+
+    1 by default. Where attempts run in a low-weight cgroup slice the kernel still
+    grants them weight/(weight + 100) of contended CPU beside user sessions (weight
+    100), so that part of other work's use is theirs to schedule: 0.91 at weight 10.
+    None when invalid.
+    """
+    share = budgets.get("cpu_external_share", 1)
+    if (
+        not isinstance(share, (int, float))
+        or isinstance(share, bool)
+        or not math.isfinite(share)
+        or not 0 <= share <= 1
+    ):
+        return None
+    return share
+
+
 def cpu_capacity(budgets: dict, telemetry: dict) -> float:
     """CPUs that attempt reservations may occupy now: the budget, bounded by spare CPUs."""
     capacity = budgets.get("cpu", 0)
@@ -37,7 +56,7 @@ def cpu_capacity(budgets: dict, telemetry: dict) -> float:
         spare = (
             telemetry.get("cpu_count", 0)
             - budgets.get("cpu_headroom", 1)
-            - telemetry["cpu_external"]
+            - telemetry["cpu_external"] * (external_share(budgets) or 1)
         )
         capacity = min(capacity, spare * budgets.get("cpu_overcommit", 1))
     return capacity
@@ -90,11 +109,14 @@ def admit(
         for value in (floor, external_limit)
     ) or not math.isfinite(floor):
         return Admission(False, "invalid_budget")
+    share = external_share(budgets)
+    if share is None:
+        return Admission(False, "invalid_budget")
     if "cpu_external" in telemetry:
         external = telemetry["cpu_external"]
         if not isinstance(external, (int, float)) or not math.isfinite(external) or external < 0:
             return Admission(False, "telemetry_unavailable")
-        spare = telemetry.get("cpu_count", 0) - budgets.get("cpu_headroom", 1) - external
+        spare = telemetry.get("cpu_count", 0) - budgets.get("cpu_headroom", 1) - external * share
         if candidate["cpu"] + sum(
             x["resources"].get("cpu", 0) for x in computing
         ) > spare * overcommit and (

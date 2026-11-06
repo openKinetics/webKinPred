@@ -155,3 +155,21 @@ def test_external_gpu_samples_reach_telemetry_until_they_go_stale(agent, monkeyp
     assert agent.observe()["gpu_external"] == 70
     agent.gpu_external = (time.monotonic() - module.GPU_EXTERNAL_WINDOW_SECONDS - 1, 70)
     assert "gpu_external" not in agent.observe()
+
+
+def test_low_weight_slice_share_of_other_work_is_admissible():
+    from api.execution.resources import cpu_capacity
+
+    # 20 CPUs - 1 headroom - 19 x 0.91 external = 1.71 spare; x 1.6 overcommit = 2.7.
+    budgets = {**BUDGETS, "cpu_overcommit": 1.6, "cpu_external_share": 0.91}
+    assert admit(CPU, [], BUDGETS, SATURATED, gpu=False).reason == "waiting_cpu"
+    assert admit(CPU, [], budgets, SATURATED, gpu=False).fits
+    assert admit(CPU, running(CPU, 1), budgets, SATURATED, gpu=False).reason == "waiting_cpu"
+    assert cpu_capacity(budgets, SATURATED) == pytest.approx(1.71 * 1.6)
+    assert cpu_capacity(BUDGETS, SATURATED) == 0
+
+
+@pytest.mark.parametrize("share", [-0.1, 1.5, True, float("nan"), "0.9"])
+def test_invalid_external_share_admits_nothing(share):
+    budgets = {**BUDGETS, "cpu_external_share": share}
+    assert admit(CPU, [], budgets, TELEMETRY, gpu=False).reason == "invalid_budget"
