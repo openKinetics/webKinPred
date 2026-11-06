@@ -95,46 +95,73 @@ def ingest(
 
 
 def bind_profiles():
-    """Bind only explicit matching execution profiles; missing profiles remain waiting."""
-    for stage in (
+    """Bind only explicit matching execution profiles; missing profiles remain waiting.
+
+    Reads only the compared fields. Loading every unbound stage with its full payload
+    and execution specification exceeded the controller's memory once one large
+    submission published ~1,900 stages, so none of them could ever be claimed.
+    """
+    stages = list(
         WorkStage.objects.filter(
             Q(profile__isnull=True) | Q(profile__suspended=True) | Q(profile__validated=False),
             state="ready",
         )
         .exclude(kind__in=["prepare", "barrier"])
-        .select_related("execution")
-        .iterator()
-    ):
-        profiles = ResourceProfile.objects.filter(
-            stage_kind=stage.kind, method=stage.method, validated=True, suspended=False
+        .values_list(
+            "pk",
+            "profile_id",
+            "kind",
+            "method",
+            "target",
+            "execution_id",
+            "payload__step",
+            "payload__shape",
         )
-        for profile in profiles.order_by("id"):
-            if stage.target not in profile.settings.get("targets", [stage.target]):
+    )
+    if not stages:
+        return
+    specifications = {
+        pk: (versions or {}, methods or {}, execution_versions or {})
+        for pk, versions, methods, execution_versions in ExecutionSpec.objects.filter(
+            pk__in={row[5] for row in stages}
+        ).values_list(
+            "pk",
+            "specification__model_versions",
+            "specification__methods",
+            "specification__execution_versions",
+        )
+    }
+    candidates = {}
+    for profile in (
+        ResourceProfile.objects.filter(validated=True, suspended=False)
+        .defer("evidence")
+        .order_by("id")
+    ):
+        candidates.setdefault((profile.stage_kind, profile.method), []).append(profile)
+    for pk, profile_id, kind, method_key, target, execution_id, step, shape in stages:
+        identity, methods, execution_versions = specifications[execution_id]
+        shape = shape or {}
+        for profile in candidates.get((kind, method_key), []):
+            if target not in profile.settings.get("targets", [target]):
                 continue
-            if profile.settings.get("step") != stage.payload.get("step"):
+            if profile.settings.get("step") != step:
                 continue
             # An envelope measured with other weights/tokenizers is not transferable.
-            identity = stage.execution.specification.get("model_versions", {})
-            method = stage.execution.specification.get("methods", {}).get(
-                stage.target, stage.method
-            )
+            method = methods.get(target, method_key)
             expected = (
                 identity.get(method)
-                if stage.kind in {"embedding", "predict"}
-                else stage.execution.specification.get("execution_versions", {}).get(
-                    stage.kind, identity
-                )
+                if kind in {"embedding", "predict"}
+                else execution_versions.get(kind, identity)
             )
             if expected is None or profile.settings.get("model_identity") != expected:
                 continue
-            shape = stage.payload.get("shape", {})
             if all(shape.get(k, float("inf")) <= v for k, v in profile.limits.items()):
-                WorkStage.objects.filter(
-                    pk=stage.pk, profile_id=stage.profile_id, state="ready"
-                ).update(profile=profile, waiting_reason="")
+                WorkStage.objects.filter(pk=pk, profile_id=profile_id, state="ready").update(
+                    profile=profile, waiting_reason=""
+                )
                 break
         else:
-            WorkStage.objects.filter(pk=stage.pk, state="ready").update(
+            WorkStage.objects.filter(pk=pk, state="ready").update(
                 waiting_reason="profiling_required"
             )
 

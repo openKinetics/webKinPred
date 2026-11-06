@@ -602,6 +602,64 @@ def test_profile_binding_requires_the_measured_model_identity():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_profile_binding_reads_only_the_compared_fields():
+    job = Job.objects.create(public_id="narrow", status="Pending", prediction_type="kcat")
+    execution = control.ingest(
+        job.public_id,
+        {
+            "targets": ["kcat"],
+            "methods": {"kcat": "DLKcat"},
+            "model_versions": {"DLKcat": {"weights": "w"}},
+            "rows": [{"sequence": "M" * 5000}],
+        },
+        "a" * 64,
+    )
+    fits, too_large = (
+        WorkStage.objects.create(
+            execution=execution,
+            key=key,
+            kind="predict",
+            method="DLKcat",
+            target="kcat",
+            payload={"shape": {"units": units}, "seqmap": {"M" * 5000: "sid"}},
+        )
+        for key, units in [("fits", 1), ("large", 2)]
+    )
+    ResourceProfile.objects.create(
+        id="narrow-profile",
+        fingerprint="f" * 64,
+        image="sha256:" + "a" * 64,
+        stage_kind="predict",
+        method="DLKcat",
+        validated=True,
+        settings={"model_identity": {"weights": "w"}},
+        limits={"units": 1},
+    )
+    from api.execution.models import ExecutionSpec
+    from django.db.models.signals import post_init
+
+    loaded = []
+
+    def count(sender, **kwargs):
+        loaded.append(sender.__name__)
+
+    # One large submission publishes thousands of unbound stages; building each with
+    # its whole payload and specification exhausted the controller's memory.
+    for model in (WorkStage, ExecutionSpec):
+        post_init.connect(count, sender=model)
+    try:
+        control.bind_profiles()
+    finally:
+        for model in (WorkStage, ExecutionSpec):
+            post_init.disconnect(count, sender=model)
+    assert loaded == []
+    fits.refresh_from_db()
+    too_large.refresh_from_db()
+    assert fits.profile_id == "narrow-profile" and fits.waiting_reason == ""
+    assert too_large.profile_id is None and too_large.waiting_reason == "profiling_required"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_assembly_profiles_pin_pipeline_independently_of_requested_model_subset():
     pipeline = {"assembly_code": "a" * 64}
     profile = ResourceProfile.objects.create(
