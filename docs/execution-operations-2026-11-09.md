@@ -30,6 +30,19 @@ segment" in a parallel worker) coincided with heavy diagnostic queries; the data
 container has the default 64 MB `/dev/shm`. Diagnostics now run with
 `max_parallel_workers_per_gather = 0`.
 
+## GPU drain barrier (release 126)
+
+The barrier that holds smaller GPU admissions back so a long-waiting GPU stage can fit
+only checked that the waiter fits an empty GPU. While other users' processes held the
+memory it could never fit, so the barrier would have held smaller GPU work back
+indefinitely. It now also requires that the waiter fits in free memory plus memory held
+by this host's own attempts (commit `cccad66`, control image
+`sha256:e5ee462be5cea9bf0003f29607ad12d0f0e67089d640ca553478af0d9b8ccb5c`). Correction to
+that commit message: the 28 candidates that fit at 12:15 were profiles, not queued
+stages. All 3,204 runnable GPU embeddings needed 4–6 GiB plus the 2 GiB guard while
+5.0 GiB was free, so on 9 November the GPU was limited by memory held by the research
+jobs, not by the barrier.
+
 ## Deployment (release 125)
 
 | Component | Image |
