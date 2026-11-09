@@ -282,6 +282,12 @@ def _admission_wait(stage, profile, resources, host, reason, now):
         )
         and resources.get("vram", 0) + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
         <= host.telemetry.get("vram_total", 0)
+        # Only this host's own GPU attempts can make room by finishing. Memory held
+        # by other users' processes is not ours to drain: holding smaller GPU work
+        # back for it idled the GPU for as long as those processes ran.
+        and resources.get("vram", 0) + max(2 * 1024**3, host.telemetry.get("vram_total", 0) // 10)
+        <= host.telemetry.get("vram_free", 0)
+        + sum(value.get("vram", 0) for value in host.telemetry.get("attempts", {}).values())
     )
 
 

@@ -664,13 +664,16 @@ def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, 
     parent = WorkStage.objects.create(
         execution=fitting.execution, key="active-gpu", state="running"
     )
-    ExecutionAttempt.objects.create(
+    # The memory the waiter needs is held by this host's own running attempt.
+    active = ExecutionAttempt.objects.create(
         stage=parent,
         host=host,
-        resources=common["resources"],
+        resources={**common["resources"], "vram": 10 * GIB},
         profile_fingerprint="g" * 64,
         lease_until=now + timedelta(seconds=30),
     )
+    host.telemetry["attempts"] = {str(active.pk): {"vram": 10 * GIB}}
+    host.save(update_fields=["telemetry"])
     with override_settings(EXECUTION_V2_ENABLED=True):
         result = control.claim(host.pk)
     older.refresh_from_db()
@@ -680,6 +683,39 @@ def test_gpu_drain_fairness_counts_eligible_wait_not_dependency_age(ready_work, 
         assert result is None
     else:
         assert result["stage_id"] == str(fitting.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gpu_drain_never_waits_for_memory_held_by_other_users(ready_work):
+    host, stages = ready_work
+    older, fitting = stages
+    now = timezone.now()
+    common = dict(
+        stage_kind="predict",
+        validated=True,
+        resources={"ram": GIB, "cpu": 1, "disk": GIB, "vram": 2 * GIB},
+    )
+    ResourceProfile.objects.filter(pk=older.profile_id).update(
+        **{**common, "resources": {**common["resources"], "vram": 12 * GIB}}
+    )
+    compatible = ResourceProfile.objects.create(
+        id="compatible-gpu", fingerprint="g" * 64, image=older.profile.image, **common
+    )
+    fitting.profile = compatible
+    fitting.save()
+    host.budgets.update(ram=8 * GIB, gpu_slots=2)
+    # 12 of 20 GiB are used by another user's processes; nothing of ours is running.
+    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=8 * GIB, attempts={})
+    host.capabilities.update(profiles=["f" * 64, "g" * 64])
+    host.save()
+    WorkStage.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+    older.payload["admission_wait_started_at"] = (now - timedelta(minutes=11)).isoformat()
+    older.save(update_fields=["payload"])
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        result = control.claim(host.pk)
+    older.refresh_from_db()
+    assert older.waiting_reason == "waiting_vram"
+    assert result["stage_id"] == str(fitting.pk)
 
 
 @pytest.mark.django_db(transaction=True)
