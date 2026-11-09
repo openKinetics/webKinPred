@@ -15,7 +15,9 @@ from api.execution.models import (
     ArtifactLocation,
     ArtifactSweep,
     ExecutionAttempt,
+    ExecutionSpec,
     ExecutorHost,
+    WorkStage,
 )
 from api.execution.resources import LIVE_STATES
 
@@ -102,10 +104,7 @@ def _claim_cleanup(host_id, *, version=1):
     # Full residue matrices are work files, not a reusable long-term cache.
     # Only classified, newly generated platform artifacts in the managed blob
     # store qualify; standalone/project requests and unknown legacy files do not.
-    prediction_owned = Q(artifact__producer__execution__job__isnull=False) | Q(
-        artifact__producer__execution__specification__shared_protein_batch__isnull=False
-    )
-    policy = Q(artifact__retention="transient") & prediction_owned
+    policy = Q(artifact__retention="transient")
     if pressure:
         policy |= Q(artifact__retention="cache", verified_at__lt=cutoff)
     sweep, _ = ArtifactSweep.objects.select_for_update().get_or_create(host=host)
@@ -114,8 +113,43 @@ def _claim_cleanup(host_id, *, version=1):
     )
     locations = ArtifactLocation.objects.filter(host=host, ready=True)
     hinted = sweep.pending[:HINTS_PER_CLAIM]
-    fields = ("pk", "artifact__checksum", "artifact__size")
-    found = {row[0]: row for row in base.filter(pk__in=hinted).values_list(*fields)}
+
+    def collectible(ids):
+        # Join each page only to its artifacts, then resolve job ownership for the
+        # few transient rows. Joining every page row to its stage and execution
+        # specification (detoasting large job specifications) took up to 0.7 s
+        # warm and exceeded this transaction's 1.5 s limit on a cold cache, which
+        # rolled back every call and stalled the sweep.
+        rows = list(
+            base.filter(pk__in=ids).values_list(
+                "pk",
+                "artifact__checksum",
+                "artifact__size",
+                "artifact__retention",
+                "artifact__producer_id",
+            )
+        )
+        producers = {producer for *_, retention, producer in rows if retention == "transient"}
+        stages = list(
+            WorkStage.objects.filter(pk__in=producers).values_list(
+                "pk", "execution_id", "execution__job_id"
+            )
+        )
+        batches = set(
+            ExecutionSpec.objects.filter(
+                pk__in={execution for _, execution, job in stages if job is None},
+                specification__shared_protein_batch__isnull=False,
+            ).values_list("pk", flat=True)
+        )
+        # Only prediction-owned transient intermediates qualify; cache needs none.
+        owned = {pk for pk, execution, job in stages if job is not None or execution in batches}
+        return {
+            pk: (pk, checksum, size)
+            for pk, checksum, size, retention, producer in rows
+            if retention == "cache" or producer in owned
+        }
+
+    found = collectible(hinted)
     began, wrapped = time.monotonic(), False
     while True:
         page = list(
@@ -130,7 +164,7 @@ def _claim_cleanup(host_id, *, version=1):
             sweep.cursor, wrapped = 0, True
             continue
         sweep.cursor = page[-1]
-        found.update((row[0], row) for row in base.filter(pk__in=page).values_list(*fields))
+        found.update(collectible(page))
         if found or time.monotonic() - began >= SWEEP_SECONDS:
             break
     candidates = [found[ident] for ident in sorted(found)]

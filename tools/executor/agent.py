@@ -43,6 +43,13 @@ EXTERNAL_WINDOW_SECONDS = 20
 # a short burst does not stop GPU admission but sustained use does.
 GPU_EXTERNAL_SECONDS = 10
 GPU_EXTERNAL_WINDOW_SECONDS = 60
+# A finished attempt's request/outcome journals (~120 KB each) are kept a day for
+# inspection, then removed. A stage's checkpoint index only lets an interrupted
+# embedding retry resume; after three days a retry simply recomputes.
+JOURNAL_RETENTION_SECONDS = 24 * 3600
+CHECKPOINT_RETENTION_SECONDS = 3 * 24 * 3600
+PRUNE_SECONDS = 120
+PRUNE_BATCH = 500
 
 
 class LeaseLost(Exception):
@@ -95,6 +102,7 @@ class Agent:
         self.jobs = {}
         self.last_contact = time.monotonic()
         self.last_cleanup = 0
+        self.last_prune = 0.0
         self.last_error_log = 0
         self.next_claim_at = 0.0
         self.empty_claim_delay = 1.0
@@ -1203,6 +1211,9 @@ class Agent:
                 if time.monotonic() - self.last_cleanup >= 30:
                     with self.timed("collect"):
                         self.collect_artifacts()
+                if time.monotonic() - self.last_prune >= PRUNE_SECONDS:
+                    with self.timed("prune"):
+                        self.count("journals_pruned", self.prune_journals())
                 for ident in reply.get("stop_attempts", []):
                     if ident in self.jobs:
                         job = self.jobs[ident]
@@ -1387,6 +1398,48 @@ class Agent:
                 # Transfer threads cannot create containers. Wait for them to
                 # finish, then reconcile absence before releasing reservations.
                 job["abandoned"] = True
+
+    def prune_journals(self, now=None):
+        """Remove finished attempts' journals and stale checkpoint indexes.
+
+        An attempt directory is removed only when this supervisor is not running it,
+        its scratch (media/tmp) is already gone, no checkpoint index refers to it, and
+        it has not changed for JOURNAL_RETENTION_SECONDS. Returns the number removed.
+        """
+        now = time.time() if now is None else now
+        self.last_prune = time.monotonic()
+        referenced = set()
+        checkpoints = self.root / "checkpoints"
+        for index in checkpoints.glob("*.json") if checkpoints.is_dir() else []:
+            try:
+                if now - index.stat().st_mtime > CHECKPOINT_RETENTION_SECONDS:
+                    index.unlink()
+                    continue
+                referenced.add(json.loads(index.read_text())["attempt"])
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # Unreadable or replaced meanwhile: keep its attempt.
+        attempts = self.root / "attempts"
+        removed = 0
+        for work in attempts.iterdir() if attempts.is_dir() else []:
+            if removed >= PRUNE_BATCH:
+                break
+            name = work.name
+            try:
+                if (
+                    name in self.jobs
+                    or name in referenced
+                    or work.is_symlink()
+                    or not work.is_dir()
+                    or (work / "media").exists()
+                    or (work / "tmp").exists()
+                    or now - work.stat().st_mtime < JOURNAL_RETENTION_SECONDS
+                ):
+                    continue
+                shutil.rmtree(work)
+                removed += 1
+            except OSError:
+                continue
+        return removed
 
     def collect_artifacts(self):
         # The control plane excludes every pending/active checksum alias before

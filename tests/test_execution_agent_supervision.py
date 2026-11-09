@@ -480,3 +480,34 @@ def test_runtime_transitions_are_logged(agent, pinned, capsys):
     agent.runtime_verified()
     events = [json.loads(line)["event"] for line in capsys.readouterr().out.splitlines()]
     assert events == ["executor.runtime_unverified", "executor.runtime_verified"]
+
+
+def test_finished_journals_and_stale_checkpoint_indexes_are_pruned(agent):
+    now = time.time()
+    day = module.JOURNAL_RETENTION_SECONDS
+
+    def attempt(name, age, scratch=False):
+        work = agent.root / "attempts" / name
+        (work / "media" if scratch else work).mkdir(parents=True)
+        (work / "request.json").write_text("{}")
+        os.utime(work, (now - age, now - age))
+        return work
+
+    finished = attempt("finished", day + 60)
+    recent = attempt("recent", 60)
+    scratch = attempt("awaiting-release", day + 60, scratch=True)
+    running = attempt("running", day + 60)
+    resumable = attempt("resumable", day + 60)
+    expired = attempt("expired-index", day + 60)
+    agent.jobs = {"running": {}}
+    indexes = agent.root / "checkpoints"
+    indexes.mkdir()
+    (indexes / "stage-a.json").write_text(json.dumps({"attempt": "resumable"}))
+    old = indexes / "stage-b.json"
+    old.write_text(json.dumps({"attempt": "expired-index"}))
+    stale = now - module.CHECKPOINT_RETENTION_SECONDS - 60
+    os.utime(old, (stale, stale))
+    assert agent.prune_journals(now) == 2
+    assert not finished.exists() and not expired.exists() and not old.exists()
+    assert recent.exists() and scratch.exists() and running.exists() and resumable.exists()
+    assert (indexes / "stage-a.json").exists()
