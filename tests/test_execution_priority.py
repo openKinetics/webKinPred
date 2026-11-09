@@ -200,15 +200,21 @@ def test_prioritized_gpu_work_drains_lower_gpu_admissions_but_allows_cpu_work(
         specification={}, checksum="a" * 64, input_checksum="b" * 64, paused=False
     )
     active = WorkStage.objects.create(execution=owner, key="active", state="running")
-    ExecutionAttempt.objects.create(
+    # The memory the prioritized stage needs is held by this host's own attempt.
+    running = ExecutionAttempt.objects.create(
         stage=active,
         host=host,
-        resources=compatible.resources,
+        resources={**compatible.resources, "vram": 10 * GIB},
         profile_fingerprint=compatible.fingerprint,
         lease_until=timezone.now() + timedelta(seconds=30),
     )
     host.budgets.update(cpu=8, ram=8 * GIB, disk=8 * GIB, gpu_slots=2)
-    host.telemetry.update(gpu_uuid="gpu", vram_total=20 * GIB, vram_free=8 * GIB)
+    host.telemetry.update(
+        gpu_uuid="gpu",
+        vram_total=20 * GIB,
+        vram_free=8 * GIB,
+        attempts={str(running.pk): {"vram": 10 * GIB}},
+    )
     host.capabilities.update(
         profiles=[p.fingerprint, compatible.fingerprint, cpu.fingerprint],
     )
