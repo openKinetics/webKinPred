@@ -172,7 +172,10 @@ class Artifact(models.Model):
 
 
 class ArtifactLocation(models.Model):
-    artifact = models.ForeignKey(Artifact, on_delete=models.PROTECT, related_name="locations")
+    # Lookups by artifact use the artifact_host_location index.
+    artifact = models.ForeignKey(
+        Artifact, on_delete=models.PROTECT, related_name="locations", db_index=False
+    )
     host = models.ForeignKey(ExecutorHost, on_delete=models.PROTECT)
     verified_at = models.DateTimeField(default=timezone.now)
     ready = models.BooleanField(default=False)
