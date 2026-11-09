@@ -184,3 +184,37 @@ def test_large_backlogs_are_collected_in_bounded_batches(monkeypatch):
         finish_cleanup(host.pk, cleanup)
     assert sorted(collected) == list("12345")
     assert ArtifactSweep.objects.get(host=host).pending == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cleanup_waits_briefly_for_graph_publication_to_release_its_lock():
+    import threading
+
+    from django.db import close_old_connections, connection
+
+    host, execution, producer = residue_context()
+    done = WorkStage.objects.create(execution=execution, key="d", kind="predict", state="completed")
+    artifact, _ = residue(host, producer, "1", "1")
+    ArtifactDependency.objects.create(artifact=artifact, stage=done, path="r.npy")
+    held, release = threading.Event(), threading.Event()
+
+    def publication():
+        close_old_connections()
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_xact_lock(%s)", [481726392])
+                held.set()
+                release.wait(0.3)  # A short graph publication.
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(target=publication)
+    thread.start()
+    assert held.wait(3)
+    try:
+        cleanup = claim_cleanup(host.pk)
+    finally:
+        release.set()
+        thread.join()
+    assert cleanup["blobs"] == [{"checksum": "1" * 64, "size": 100}]

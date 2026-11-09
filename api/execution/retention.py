@@ -58,9 +58,10 @@ def claim_cleanup(host_id, *, version=1):
         return _claim_cleanup(host_id, version=version)
     except OperationalError as error:
         cause = error.__cause__
-        if getattr(cause, "sqlstate", None) == "57014" or getattr(cause, "pgcode", None) == "57014":
-            # An optional scan must not monopolize a host lock or API worker.
-            # The savepoint/transaction has rolled back before this response.
+        state = getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)
+        if state in {"57014", "55P03"}:
+            # An optional scan must not monopolize a host lock or API worker
+            # (statement or lock timeout). The transaction has rolled back.
             return None
         raise
 
@@ -73,9 +74,13 @@ def _claim_cleanup(host_id, *, version=1):
         cursor.execute("SET LOCAL statement_timeout = 1500")
         cursor.execute("SET LOCAL jit = off")
         cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
-        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
-        if not cursor.fetchone()[0]:
-            return None
+        # Graph publication holds this lock most of the time while a large backlog
+        # is prepared (82% of samples on 9 November), so a non-blocking try rarely
+        # found it free and cleanup starved. Queue briefly instead: a waiter is
+        # granted at the next release, and the worker is held for under a second.
+        cursor.execute("SET LOCAL lock_timeout = 900")
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [481726392])
+        cursor.execute("SET LOCAL lock_timeout = 0")
     host = (
         ExecutorHost.objects.select_for_update(skip_locked=True, no_key=True)
         .filter(pk=host_id)

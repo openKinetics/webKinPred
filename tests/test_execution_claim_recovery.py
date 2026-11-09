@@ -147,6 +147,7 @@ def test_unknown_container_is_confirmed_stopped_before_releasing_reservation(tmp
 
 @pytest.mark.django_db(transaction=True)
 def test_cleanup_skips_busy_preparation_lock_instead_of_blocking_http_worker(ready_work):
+    # Queues for at most 0.9 s behind graph publication, then gives up.
     host, _ = ready_work
     held, release = threading.Event(), threading.Event()
 
