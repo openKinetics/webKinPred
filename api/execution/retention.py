@@ -78,10 +78,11 @@ def _claim_cleanup(host_id, *, version=1):
         # found it free and cleanup starved. Queue briefly instead: a waiter is
         # granted at the next release. Preparation chunks held it for about 20 s
         # on 10 November and a 0.9 s wait succeeded in 16 of 127 calls, so wait up
-        # to 3.5 s. The statement limit counts lock waits, so it applies after the
-        # lock; the remaining queries normally take under a second, ending within
-        # the executor's five-second request (a lost reply resumes the cleanup).
-        cursor.execute("SET LOCAL lock_timeout = 3500")
+        # to 2.5 s. The statement limit counts lock waits, so it applies after the
+        # lock. The remaining queries took up to 2.5 s, which keeps the call within
+        # the executor's five-second request: a lost reply leaves the cleanup
+        # pending, which fences that host's claims until its next collection.
+        cursor.execute("SET LOCAL lock_timeout = 2500")
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [481726392])
         cursor.execute("SET LOCAL lock_timeout = 0")
         cursor.execute("SET LOCAL statement_timeout = 1500")
