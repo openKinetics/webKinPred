@@ -50,7 +50,20 @@ _profile_cursor = 0
 def merged_payload(stages, profile):
     """Reject differing non-sequence options and every unmeasured shape."""
     payload = deepcopy(stages[0].payload)
-    varying = {"seq_id_to_seq", "outputs", "output_artifacts", "shape", "admission_wait_started_at"}
+    # Recovery bookkeeping differs per lost producer, not per computation. A
+    # merged unit is its own origin, so later recovery narrows its own mapping.
+    for key in ("recovery_origin", "recovery_group"):
+        payload.pop(key, None)
+    varying = {
+        "seq_id_to_seq",
+        "outputs",
+        "output_artifacts",
+        "shape",
+        "admission_wait_started_at",
+        "recovery_origin",
+        "recovery_group",
+        "cohort_source_stages",
+    }
     fixed = {k: v for k, v in payload.items() if k not in varying}
     sequences, outputs, paths, shape, inputs = {}, {}, {}, {}, {}
     for stage in stages:
@@ -187,8 +200,10 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4, pendi
         query = (
             WorkStage.objects.select_for_update(skip_locked=True, of=("self",))
             .filter(
+                # Recovery copies its lost producer's profile, which may be this
+                # enlarged one; each copy holds only the few sequences it lost.
+                Q(profile__in=sources) | Q(profile=profile, key__startswith="restore-batch:"),
                 state="ready",
-                profile__in=sources,
                 execution__paused=False,
                 execution__job__status__in=["Pending", "Processing"],
                 available_at__lte=timezone.now(),

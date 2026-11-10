@@ -655,3 +655,38 @@ def test_recovered_binding_cohort_splits_original_tables_instead_of_sequence_fil
     )
     old.job.refresh_from_db()
     assert old.job.status == "Completed"
+
+
+def test_recovery_copies_of_lost_producers_merge_into_one_unit():
+    import uuid
+
+    _, _, _, large, stages, head = setup_cohort()
+    # Recovery copies a lost producer's payload and profile: here an enlarged
+    # cohort whose stale source list and recovery origin differ per copy.
+    for generation, stage in enumerate(stages):
+        stage.key = f"restore-batch:{uuid.uuid4().hex}:{generation}"
+        stage.profile = large
+        stage.payload.update(
+            recovery_origin=str(uuid.uuid4()),
+            recovery_group=uuid.uuid4().hex,
+            cohort_source_stages=[str(uuid.uuid4())],
+        )
+        stage.save(update_fields=["key", "profile", "payload"])
+    created = coalesce()
+    assert len(created) == 1
+    unit = WorkStage.objects.get(pk=created[0])
+    assert unit.payload["shape"]["sequences"] == 32
+    assert "recovery_origin" not in unit.payload and "recovery_group" not in unit.payload
+    assert set(unit.payload["cohort_source_stages"]) == {str(s.pk) for s in stages}
+    assert set(head.dependencies.values_list("pk", flat=True)) == {unit.pk}
+    assert Artifact.objects.filter(producer=unit).count() == 32
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="canceled").count() == 4
+
+
+def test_enlarged_units_that_are_not_recovery_copies_are_not_merged_again():
+    _, _, _, large, stages, _ = setup_cohort()
+    for stage in stages:
+        stage.profile = large
+        stage.save(update_fields=["profile"])
+    assert coalesce() == []
+    assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 4
