@@ -144,6 +144,27 @@ which is capped at 4,096 and overflowed while collection was starved, so the loc
 sweep (4,096 locations per page over 7.2 million) collects them over several hours.
 A one-off hint refill was not run.
 
+## Supervisors reread every input to verify it (release 138)
+
+From 15:45 short I/O pressure spikes on the GPU host (`full avg10` above 5 %) refused
+84 launches in 30 minutes as `host_pressure`, mostly predictions, some six times (five
+minutes of back-off). The largest I/O load was the GPU supervisor itself: 170 MB/s read
+and 31 MB/s written. Before each attempt it hashed every local input blob in full and
+then read it again to copy it; publication also rehashed an existing identical blob.
+
+Commit `437eb8f` keeps each blob's verdict in the store while its inode, size and
+modification time are unchanged, for at most six hours. Blobs are only replaced
+atomically, so any replacement or change is hashed again and a mismatch is still
+discarded; blobs the store writes itself are recorded as verified. Inputs are still
+copied into each attempt. Supervisor images `webkinpred-supervisor:r138-gpu`
+(`sha256:eec047413293b01d71fc2b57f904d0ec99af60358c3a5cc7253801894fa84e64`) and
+`webkinpred-supervisor:r138-production`
+(`sha256:648aa115bda3d8f058693173668809c85ec8d7f093ec1a1815fc17be17cea6ec`) run since
+16:26; rollback containers `*-rollback138`. Three minutes later the GPU supervisor read
+0.6 MB/s and wrote 2.4 MB/s with seven attempts running, I/O pressure was 0.09 %, and no
+launch had been refused for host pressure. The control image still carries the
+previous `artifacts.py`; it takes the change with its next release.
+
 ## GPU host clock
 
 The GPU host's clock is 91 s ahead of production, and NTP is inactive there
