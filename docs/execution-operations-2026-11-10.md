@@ -81,6 +81,18 @@ Control image `webkinpred-control-fix:r132`
 09:29; environment backups `live20/*.before132`. All 2,007 unfinished jobs were present
 afterwards with unchanged checksums; the legacy Redis queue still held 5,002 messages.
 
+### Release 133
+
+Waiting until no deletion was pending still lost the race: production deletions are
+claimed and finished within the same second, and at 09:32 one was claimed between the
+wait and the publication, holding nfAfUCe. Commit `a85000e` retries the chunk's first
+publication instead (up to two minutes). The refusal rolls back publication's savepoint,
+which releases the graph lock (verified on PostgreSQL 17), and nothing else in the
+chunk has run at that point. Control image `webkinpred-control-fix:r133`
+(`sha256:f11a5d88b218ba6455f6b86e0932cb618d40350a541889af06232e1adc956a7b`, 22 layers)
+runs since 09:57; all 2,005 unfinished jobs were present afterwards with unchanged
+checksums and the legacy queue still held 5,002 messages.
+
 ## GPU host clock
 
 The GPU host's clock is 91 s ahead of production, and NTP is inactive there
