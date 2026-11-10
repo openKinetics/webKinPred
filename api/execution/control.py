@@ -291,6 +291,33 @@ def _admission_wait(stage, profile, resources, host, reason, now):
     )
 
 
+def _offline_input_stages(stages, offline_hosts, reachable_hosts):
+    """IDs of ``stages`` with an input whose only ready copies are on offline hosts.
+
+    Resolved from the runnable stages' own inputs. An offline GPU host holds
+    millions of ready locations; deriving the stranded set from the catalogue
+    took longer than the claim statement limit, so no host could claim at all.
+    """
+    inputs = list(
+        ArtifactDependency.objects.filter(stage__in=stages.values("pk")).values_list(
+            "stage_id", "artifact_id"
+        )
+    )
+    stranded = set(
+        ArtifactLocation.objects.filter(
+            artifact_id__in={artifact for _, artifact in inputs},
+            ready=True,
+            host_id__in=offline_hosts,
+        ).values_list("artifact_id", flat=True)
+    )
+    stranded -= set(
+        ArtifactLocation.objects.filter(
+            artifact_id__in=stranded, ready=True, host_id__in=reachable_hosts
+        ).values_list("artifact_id", flat=True)
+    )
+    return {stage for stage, artifact in inputs if artifact in stranded}
+
+
 @transaction.atomic
 def claim(host_id: str):
     attempts = claim_batch(host_id, 1)
@@ -402,27 +429,7 @@ def claim_batch(host_id: str, limit: int = 1):
     offline_hosts = list(
         ExecutorHost.objects.exclude(pk__in=reachable_hosts).values_list("pk", flat=True)
     )
-    offline_locations = ArtifactLocation.objects.filter(ready=True, host_id__in=offline_hosts)
-    # Availability is a property of locations, not of every candidate/artifact
-    # pair. The old nested correlated EXISTS ran millions of checks just to
-    # order a backlog, including when every host was online.
-    offline = Value(False, output_field=BooleanField())
-    if offline_locations.exists():
-        reachable_artifacts = ArtifactLocation.objects.filter(
-            ready=True, host_id__in=reachable_hosts
-        ).values("artifact_id")
-        offline_artifacts = offline_locations.exclude(artifact_id__in=reachable_artifacts).values(
-            "artifact_id"
-        )
-        offline = Exists(
-            ArtifactDependency.objects.filter(
-                stage_id=OuterRef("pk"), artifact_id__in=offline_artifacts
-            )
-        )
-    active_executions = ExecutionAttempt.objects.filter(state__in=LIVE_STATES).values(
-        "stage__execution_id"
-    )
-    candidates = (
+    runnable = (
         WorkStage.objects.filter(
             state="ready",
             execution__paused=False,
@@ -435,7 +442,21 @@ def claim_batch(host_id: str, limit: int = 1):
         .filter(eligible)
         .annotate(has_blocked_dependency=Exists(blocked))
         .filter(has_blocked_dependency=False)
-        .annotate(
+    )
+    # Availability is a property of locations, not of every candidate/artifact
+    # pair. The old nested correlated EXISTS ran millions of checks just to
+    # order a backlog, including when every host was online.
+    offline_stages = set()
+    if ArtifactLocation.objects.filter(ready=True, host_id__in=offline_hosts).exists():
+        offline_stages = _offline_input_stages(runnable, offline_hosts, reachable_hosts)
+    offline = Value(False, output_field=BooleanField())
+    if offline_stages:
+        offline = Case(When(pk__in=offline_stages, then=Value(True)), default=Value(False))
+    active_executions = ExecutionAttempt.objects.filter(state__in=LIVE_STATES).values(
+        "stage__execution_id"
+    )
+    candidates = (
+        runnable.annotate(
             effective_background=Case(
                 When(Q(execution__background=True) & ~Q(pk__in=needed), then=Value(True)),
                 default=Value(False),

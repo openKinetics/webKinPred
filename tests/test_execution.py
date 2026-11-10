@@ -256,6 +256,35 @@ def test_offline_artifact_backlog_does_not_hide_reachable_work(ready_work):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_only_inputs_without_a_reachable_ready_copy_count_as_offline(ready_work):
+    from api.execution.models import Artifact, ArtifactDependency, ArtifactLocation
+
+    host, available = ready_work
+    peer = ExecutorHost.objects.create(id="offline")
+    execution = available[0].execution
+
+    def stage_reading(ident, locations):
+        artifact = Artifact.objects.create(
+            id=ident * 64, identity={"id": ident}, checksum=ident * 64, size=1
+        )
+        for location_host, ready in locations:
+            ArtifactLocation.objects.create(artifact=artifact, host=location_host, ready=ready)
+        stage = WorkStage.objects.create(
+            execution=execution, key=f"reads:{ident}", kind="predict", profile=available[0].profile
+        )
+        ArtifactDependency.objects.create(stage=stage, artifact=artifact, path="input.npy")
+        return stage
+
+    stranded = stage_reading("1", [(peer, True)])
+    copied = stage_reading("2", [(peer, True), (host, True)])
+    unfinished_copy = stage_reading("3", [(peer, False)])
+    elsewhere = stage_reading("4", [(peer, True)])
+    stages = WorkStage.objects.filter(pk__in=[stranded.pk, copied.pk, unfinished_copy.pk])
+    assert control._offline_input_stages(stages, [peer.pk], [host.pk]) == {stranded.pk}
+    assert elsewhere.pk not in control._offline_input_stages(stages, [peer.pk], [host.pk])
+
+
+@pytest.mark.django_db(transaction=True)
 def test_retired_profiles_do_not_keep_attention_alert_active(ready_work):
     from api.execution.metrics import render
 
