@@ -75,6 +75,10 @@ sudo sh -c 'cd /home/saleh/webkinpred-execution-staging/release129 && ./migrate1
 `./migrate129.sh plan` lists pending migrations (only 0045 on 9 November). Roll back
 with `migrate api 0044` from the same image.
 
+Applied on 10 November at 14:47 UTC (about 6 s, no service restarted): all six
+indexes dropped, none left invalid, the database fell from 25 GB to 22 GB and production
+free space rose from 24.1 to 27.9 GiB. Claim latency was unchanged.
+
 ## Still growing
 
 * **Execution database, 99 MB/h on 9 November** (41 MB/h on 6 November, at lower
