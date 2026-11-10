@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from api.execution.artifacts import ArtifactStore, sha256_file
-from api.execution.control import digest
+from api.execution.control import bind_profiles, digest
 from api.execution.models import (
     Artifact,
     ArtifactDependency,
@@ -264,6 +265,23 @@ def attach_prediction_input(stage, artifact, path, *, repair=False):
         existing.save(update_fields=["artifact"])
     else:
         attach(stage, artifact, path)
+
+
+CLEANUP_WAIT_SECONDS = 120
+
+
+def _wait_for_cleanup(host_id):
+    """Wait briefly for a pending artifact deletion before publishing a chunk.
+
+    Publication refuses to run beside a pending deletion. Failing the chunk
+    holds the whole request for a minute and replans its committed chunks.
+    """
+    from api.execution.models import ArtifactCleanup
+
+    deadline = time.monotonic() + CLEANUP_WAIT_SECONDS
+    pending = ArtifactCleanup.objects.filter(host_id=host_id, completed_at__isnull=True)
+    while pending.exists() and time.monotonic() < deadline:
+        time.sleep(1)
 
 
 @graph_transaction
@@ -661,6 +679,7 @@ def prepare(execution, media: Path, blob_root: Path, *, repair_validation=False)
         chunk_dir.mkdir(parents=True, exist_ok=True)
         chunk_path = chunk_dir / f"{chunk_index}.csv"
         frame.to_csv(chunk_path, index=False)
+        _wait_for_cleanup("production")
         with transaction.atomic():
             chunk = publish_file(
                 chunk_path,
@@ -813,6 +832,10 @@ def prepare(execution, media: Path, blob_root: Path, *, repair_validation=False)
                 prediction.save(update_fields=["payload"])
                 prediction_stages.append(prediction)
         offset += len(frame)
+        # Committed chunks are complete; make them claimable while later chunks
+        # are planned. Binding otherwise waited for the whole request, and the
+        # controller does nothing else while a large request is prepared.
+        bind_profiles()
     with transaction.atomic():
         assembly, _ = WorkStage.objects.get_or_create(
             execution=execution,
