@@ -93,6 +93,29 @@ chunk has run at that point. Control image `webkinpred-control-fix:r133`
 runs since 09:57; all 2,005 unfinished jobs were present afterwards with unchanged
 checksums and the legacy queue still held 5,002 messages.
 
+## Recovered embeddings ran one tiny batch at a time (release 134)
+
+From 09:50 the GPU averaged 8 % busy (48 of 60 one-second samples idle) while 5,400
+embedding stages were ready, and completions fell to 1–14 jobs per 30 minutes. The
+five normal requests reuse proteins embedded by earlier jobs, whose residue-level
+outputs had been deleted after their consumers finished (only pooled vectors are kept).
+Recovery regenerates them with one stage per lost producer holding only the lost
+sequences: 1,932 stages of 1–5 sequences, each a 17–20 s attempt dominated by model
+start-up. Cohort planning could not merge them: `recovery_origin`/`recovery_group`
+differ per lost producer, and copies of an enlarged producer keep that cohort profile,
+which was never a merge source.
+
+Commit `7338ce1` lets recovery copies (`restore-batch:` keys, selected without reading
+payloads) merge under their enlarged profile and ignores recovery bookkeeping when
+comparing otherwise identical work; the merged unit is its own recovery origin.
+Sequences are still embedded one at a time with the same model and settings. Within
+four minutes of the deploy 1,484 recovery stages had merged into 193 units and 377
+remained; GPU attempts carried 10–128 sequences instead of 1–3. Control image
+`webkinpred-control-fix:r134`
+(`sha256:2c50d88d7b824ba351490217126d4fdd90049fcf57451fb13f6b4b13a8ac28e6`, 23 layers)
+runs since 10:30; all 2,004 unfinished jobs were present afterwards with unchanged
+checksums and the legacy queue still held 5,002 messages.
+
 ## GPU host clock
 
 The GPU host's clock is 91 s ahead of production, and NTP is inactive there
