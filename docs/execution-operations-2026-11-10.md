@@ -52,6 +52,35 @@ control worker since 02:26. Environment backups `live20/*.before131`. All 3,497
 unfinished jobs were present afterwards with unchanged checksums, and the legacy
 Redis queue still held 5,002 messages.
 
+## Large requests held their own chunks back (release 132)
+
+Four normal 2,379-row requests and a 1,269-row request arrived from 09:01. The
+controller binds resource profiles only after a preparation returns and does nothing
+else meanwhile; each large request takes about eight minutes to plan, so stages of
+committed chunks waited unbound (98 since 09:08, 184 since 09:12), and the 6-row
+request submitted at 09:07 waited behind them. Two preparations also failed with
+`Artifact cleanup is in progress` when a production deletion was pending, which holds
+the request for a minute and replans its committed chunks on resume (27Ri6Pe after 13
+chunks). Commit `1bd58c8` binds after every committed chunk and waits up to two minutes
+for a pending deletion before publishing a chunk (the deletion fence is unchanged).
+After the deploy no stage stayed unbound.
+
+### Image depth limit
+
+The overlay chain had reached 127 layers: the first r132 build (one more `COPY`) failed
+to start with `max depth exceeded`. Above `webkinpred-execution-web:r19` (19 layers, a
+layer prefix of r131) every layer only copied code into `/app` or set metadata, and the
+environment, command, working directory and health check were identical. Release 132
+is therefore `FROM webkinpred-execution-web:r19` plus one layer holding the 73 code files
+that differ between r19 and r131 (taken from r131) and the r132 overlay: 21 layers. Its
+code checksums equal r131's except `planning.py`, and its `models/` and `fastas/` file
+lists (sizes and times) equal r131's. Build later releases on r132.
+
+Control image `webkinpred-control-fix:r132`
+(`sha256:bba5d4f64e463211a22e0abe575c12f3f6d462cf08977100516d4487ed7d04dd`) runs since
+09:29; environment backups `live20/*.before132`. All 2,007 unfinished jobs were present
+afterwards with unchanged checksums; the legacy Redis queue still held 5,002 messages.
+
 ## GPU host clock
 
 The GPU host's clock is 91 s ahead of production, and NTP is inactive there
