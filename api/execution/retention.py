@@ -71,7 +71,6 @@ def _claim_cleanup(host_id, *, version=1):
     # Cleanup is optional. Never occupy an HTTP worker waiting behind graph
     # preparation, or block the executor's five-second supervision deadline.
     with connection.cursor() as cursor:
-        cursor.execute("SET LOCAL statement_timeout = 1500")
         cursor.execute("SET LOCAL jit = off")
         cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
         # Graph publication holds this lock most of the time while a large backlog
@@ -79,11 +78,13 @@ def _claim_cleanup(host_id, *, version=1):
         # found it free and cleanup starved. Queue briefly instead: a waiter is
         # granted at the next release. Preparation chunks held it for about 20 s
         # on 10 November and a 0.9 s wait succeeded in 16 of 127 calls, so wait up
-        # to 2.5 s; with the 1.5 s statement limit this stays within the
-        # executor's five-second request.
-        cursor.execute("SET LOCAL lock_timeout = 2500")
+        # to 3.5 s. The statement limit counts lock waits, so it applies after the
+        # lock; the remaining queries normally take under a second, ending within
+        # the executor's five-second request (a lost reply resumes the cleanup).
+        cursor.execute("SET LOCAL lock_timeout = 3500")
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [481726392])
         cursor.execute("SET LOCAL lock_timeout = 0")
+        cursor.execute("SET LOCAL statement_timeout = 1500")
     host = (
         ExecutorHost.objects.select_for_update(skip_locked=True, no_key=True)
         .filter(pk=host_id)
