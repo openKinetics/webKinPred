@@ -27,7 +27,7 @@ from api.execution.resources import LIVE_STATES
 # each call now scans larger pages within a small time budget.
 SWEEP_PAGE = 4096
 SWEEP_SECONDS = 0.5
-HINTS_PER_CLAIM = 512
+HINTS_PER_CLAIM = 1024
 PENDING_HINTS = 4096
 BLOBS_PER_CLEANUP = 1024
 
@@ -77,8 +77,11 @@ def _claim_cleanup(host_id, *, version=1):
         # Graph publication holds this lock most of the time while a large backlog
         # is prepared (82% of samples on 9 November), so a non-blocking try rarely
         # found it free and cleanup starved. Queue briefly instead: a waiter is
-        # granted at the next release, and the worker is held for under a second.
-        cursor.execute("SET LOCAL lock_timeout = 900")
+        # granted at the next release. Preparation chunks held it for about 20 s
+        # on 10 November and a 0.9 s wait succeeded in 16 of 127 calls, so wait up
+        # to 2.5 s; with the 1.5 s statement limit this stays within the
+        # executor's five-second request.
+        cursor.execute("SET LOCAL lock_timeout = 2500")
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [481726392])
         cursor.execute("SET LOCAL lock_timeout = 0")
     host = (
