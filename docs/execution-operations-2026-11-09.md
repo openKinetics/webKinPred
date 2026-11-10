@@ -53,9 +53,32 @@ jobs, not by the barrier.
 
 Rollback containers `*-rollback125`; environment backups `live20/*.before125`.
 
+## Duplicate catalogue indexes (release 129, prepared)
+
+Over 13 hours to 23:50 the execution database grew 99 MB/h. Six indexes duplicate
+other indexes and held 3.0 GB, and every catalogue insert writes them: Django's
+`varchar_pattern_ops` copies of `api_artifact.id`, `api_artifact.checksum`,
+`api_artifactdependency.artifact_id`, `api_artifactlocation.artifact_id` and
+`api_artifactlocation.host_id` (nothing searches these by prefix), and
+`api_artifactlocation.artifact_id`, which the `artifact_host_location` unique index
+covers. Migration `0045_drop_duplicate_artifact_indexes` (commit `76b6228`) drops them
+concurrently; reversing it recreates them. Control image
+`sha256:55f5068481a967125bfbccfb9d5987dbda79e5969b6b95c661c8eff4edd2d5bf`
+(`webkinpred-control-fix:r129`) adds only the migration and the model flag. Running
+services stay on release 128, since nothing changes at runtime. Apply on production;
+this does not recreate any service:
+
+```bash
+sudo sh -c 'cd /home/saleh/webkinpred-execution-staging/release129 && ./migrate129.sh apply'
+```
+
+`./migrate129.sh plan` lists pending migrations (only 0045 on 9 November). Roll back
+with `migrate api 0044` from the same image.
+
 ## Still growing
 
-* **Execution database, ~41 MB/h (~1 GB/day).** No catalogue rows are ever deleted:
+* **Execution database, 99 MB/h on 9 November** (41 MB/h on 6 November, at lower
+  throughput). No catalogue rows are ever deleted:
   `api_artifact` 12.3 MB/h (8,225 inserts and 28,589 non-HOT updates per hour),
   `api_artifactdependency` 9.5 MB/h, `api_workstage` 8.4 MB/h, `api_artifactlocation`
   7.8 MB/h. Pruning history of finished jobs (rows of deleted transient artifacts and
