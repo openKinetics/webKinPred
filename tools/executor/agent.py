@@ -276,8 +276,18 @@ class Agent:
         if operation == "claim":
             # Allow a bounded cold admission without extending any compute
             # lease. Leave at least five seconds before local fencing is due.
+            # Only leases that heartbeats renew count: an attempt awaiting its
+            # commit or abandoned has no lease left to keep, and counting it cut
+            # the wait to one second, so committed claims went unreceived.
             oldest = max(
-                (time.monotonic() - job["renewed"] for job in self.jobs.values()), default=0
+                (
+                    time.monotonic() - job["renewed"]
+                    for job in self.jobs.values()
+                    if not (
+                        job.get("abandoned") or "completion" in job or job.get("commit_unknown")
+                    )
+                ),
+                default=0,
             )
             timeout = max(1, min(8, 15 - oldest))
         with urllib.request.urlopen(request, timeout=timeout) as response:

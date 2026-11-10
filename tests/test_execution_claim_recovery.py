@@ -3,7 +3,7 @@
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
@@ -217,6 +217,39 @@ def test_claim_wait_budget_preserves_time_for_compute_fencing(
     try:
         assert agent.request(operation) == {}
         assert waits == [expected]
+    finally:
+        agent.transfers.shutdown(wait=True)
+
+
+def test_attempts_without_a_renewable_lease_do_not_shorten_the_claim_wait(tmp_path, monkeypatch):
+    import io
+
+    from tools.executor import agent as module
+
+    agent = Agent(
+        {
+            "root": str(tmp_path),
+            "host_id": "test",
+            "control_url": "http://control",
+            "token": "private-test",
+        }
+    )
+    # Heartbeats skip these; their containers have finished or been fenced.
+    agent.jobs["committing"] = {"renewed": 70, "completion": Future()}
+    agent.jobs["unknown"] = {"renewed": 70, "commit_unknown": True}
+    agent.jobs["abandoned"] = {"renewed": 70, "abandoned": True}
+    agent.jobs["running"] = {"renewed": 98}
+    monkeypatch.setattr(module.time, "monotonic", lambda: 100)
+    waits = []
+
+    def open_url(request, timeout):
+        waits.append(timeout)
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", open_url)
+    try:
+        agent.request("claim")
+        assert waits == [8]
     finally:
         agent.transfers.shutdown(wait=True)
 
