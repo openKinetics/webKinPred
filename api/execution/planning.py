@@ -268,20 +268,26 @@ def attach_prediction_input(stage, artifact, path, *, repair=False):
 
 
 CLEANUP_WAIT_SECONDS = 120
+CLEANUP_PENDING = "[Errno 11] Artifact cleanup is in progress"
 
 
-def _wait_for_cleanup(host_id):
-    """Wait briefly for a pending artifact deletion before publishing a chunk.
+def _publish_after_cleanup(path, identity, host_id, store):
+    """Publish a chunk once no artifact deletion is pending on ``host_id``.
 
-    Publication refuses to run beside a pending deletion. Failing the chunk
-    holds the whole request for a minute and replans its committed chunks.
+    Publication refuses to run beside a pending deletion. Failing the chunk held
+    the whole request for a minute and replanned its committed chunks. Production
+    deletions are claimed and finished within a second, so retry briefly. The
+    refusal rolls back publication's savepoint, which releases the graph lock,
+    and nothing else in the chunk has run yet.
     """
-    from api.execution.models import ArtifactCleanup
-
     deadline = time.monotonic() + CLEANUP_WAIT_SECONDS
-    pending = ArtifactCleanup.objects.filter(host_id=host_id, completed_at__isnull=True)
-    while pending.exists() and time.monotonic() < deadline:
-        time.sleep(1)
+    while True:
+        try:
+            return publish_file(path, identity, host_id, store)
+        except BlockingIOError as error:
+            if str(error) != CLEANUP_PENDING or time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
 
 
 @graph_transaction
@@ -679,9 +685,8 @@ def prepare(execution, media: Path, blob_root: Path, *, repair_validation=False)
         chunk_dir.mkdir(parents=True, exist_ok=True)
         chunk_path = chunk_dir / f"{chunk_index}.csv"
         frame.to_csv(chunk_path, index=False)
-        _wait_for_cleanup("production")
         with transaction.atomic():
-            chunk = publish_file(
+            chunk = _publish_after_cleanup(
                 chunk_path,
                 {"job_input": execution.input_checksum, "chunk": chunk_index},
                 "production",
