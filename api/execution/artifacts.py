@@ -7,9 +7,12 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 HEX = re.compile(r"^[a-f0-9]{64}$")
+VERIFIED_SECONDS = 6 * 3600
+VERIFIED_LIMIT = 200_000
 
 
 def sha256_file(path: Path) -> str:
@@ -53,6 +56,39 @@ def safe_relative(path: str) -> Path:
 class ArtifactStore:
     def __init__(self, root: Path):
         self.root = root.resolve()
+        # Blobs are only ever replaced atomically, never rewritten in place. Every
+        # attempt hashed each input in full before copying it, so most host reads
+        # were repeated verification. A blob keeps its verdict while its inode,
+        # size and modification time are unchanged, for a bounded time.
+        self._verified = {}
+
+    def _identity(self, path: Path):
+        stat = path.stat()
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+    def _remember(self, path: Path, identity):
+        if len(self._verified) >= VERIFIED_LIMIT:
+            self._verified.clear()
+        self._verified[str(path)] = (identity, time.monotonic())
+
+    def verified(self, path: Path, checksum: str) -> bool:
+        """Whether ``path`` holds ``checksum``; rehashed after any replacement."""
+        try:
+            identity = self._identity(path)
+        except FileNotFoundError:
+            return False
+        known = self._verified.get(str(path))
+        if known and known[0] == identity and time.monotonic() - known[1] < VERIFIED_SECONDS:
+            return True
+        if sha256_file(path) != checksum:
+            self._verified.pop(str(path), None)
+            return False
+        try:
+            if self._identity(path) == identity:
+                self._remember(path, identity)
+        except FileNotFoundError:
+            return False
+        return True
 
     def path(self, checksum: str) -> Path:
         if not HEX.fullmatch(checksum):
@@ -69,7 +105,7 @@ class ArtifactStore:
         if (
             destination.is_file()
             and destination.stat().st_size == size
-            and sha256_file(destination) == checksum
+            and self.verified(destination, checksum)
         ):
             return destination
         if shutil.disk_usage(self.root).free - size < minimum_free:
@@ -95,6 +131,7 @@ class ArtifactStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, destination)
+            self._remember(destination, self._identity(destination))
             return destination
         finally:
             if os.path.exists(temporary):

@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 
-from api.execution.artifacts import HEX, safe_relative, sha256_file
+from api.execution.artifacts import HEX, safe_relative
 from api.execution.errors import MissingEmbedding
 
 
@@ -135,7 +135,7 @@ def materialize(agent, request, work):
             continue
         blob = agent.store.path(checksum)
         if blob.exists() and (
-            blob.stat().st_size != artifact["size"] or sha256_file(blob) != checksum
+            blob.stat().st_size != artifact["size"] or not agent.store.verified(blob, checksum)
         ):
             blob.unlink()
         if blob.exists():

@@ -184,3 +184,33 @@ def test_capability_reload_cannot_change_images_or_allow_unknown_mixtures(tmp_pa
     )
     with pytest.raises(ValueError):
         agent.refresh_capabilities()
+
+
+def test_blob_verification_is_reused_until_the_blob_is_replaced_or_changed(tmp_path, monkeypatch):
+    import os
+
+    from api.execution import artifacts
+
+    store = ArtifactStore(tmp_path / "blobs")
+    data = b"residue matrix"
+    checksum = hashlib.sha256(data).hexdigest()
+    blob = store.publish(io.BytesIO(data), checksum, len(data))
+    hashed = []
+    real = artifacts.sha256_file
+    monkeypatch.setattr(artifacts, "sha256_file", lambda path: hashed.append(path) or real(path))
+    # A blob this store wrote, or once hashed, is not read again for each use.
+    assert store.verified(blob, checksum) and store.verified(blob, checksum)
+    assert hashed == []
+    # Atomic replacement gives a new inode: hash again and detect corruption.
+    replacement = blob.with_name(".replacement")
+    replacement.write_bytes(b"residue matrlx")
+    os.replace(replacement, blob)
+    assert not store.verified(blob, checksum)
+    assert len(hashed) == 1
+    # An in-place rewrite changes the modification time.
+    os.utime(blob, ns=(1, 1))
+    blob.write_bytes(data)
+    assert store.verified(blob, checksum) and store.verified(blob, checksum)
+    assert len(hashed) == 2
+    blob.unlink()
+    assert not store.verified(blob, checksum)
