@@ -116,6 +116,34 @@ remained; GPU attempts carried 10–128 sequences instead of 1–3. Control imag
 runs since 10:30; all 2,004 unfinished jobs were present afterwards with unchanged
 checksums and the legacy queue still held 5,002 messages.
 
+## Residue collection starved behind continuous preparation (releases 135–137)
+
+While the background preparation queue was worked through after 12:00, each planning
+chunk held the graph lock for about 20 s (9 of 10 samples at 13:20). Collection waited
+0.9 s for it and succeeded in 16 of 127 calls, removing about 6,400 residue matrices
+per 30 minutes while the GPU host produced about 9,800; residues without any
+unfinished consumer reached 40 GB there.
+
+* r135 (`a30ba6e`): wait up to 2.5 s and resolve 1,024 queued hints per call (was
+  512). PostgreSQL counts lock waits against `statement_timeout`, so with the 1.5 s
+  limit set first the wait still ended after 1.5 s (2 of 17 calls succeeded).
+* r136 (`e5b6cfd`): apply the statement limit after the lock is held; wait 3.5 s. In
+  five minutes 5 calls removed 3,114 matrices (about 18,700 per 30 minutes), but the
+  slowest calls took 6.0 s, past the executor's five-second request; a lost reply
+  leaves the cleanup pending, which fences the host's claims until its next
+  collection.
+* r137 (`e85042a`): wait 2.5 s; calls now take at most 2.5 s. Control image
+  `webkinpred-control-fix:r137`
+  (`sha256:420b4aad9a5a46ceecb8d2f09c780722c490ab180a2d0bc4fff08552295d8c2c`) runs since
+  13:39; all 1,540 unfinished jobs were present afterwards with unchanged checksums and
+  the legacy queue still held 5,002 messages.
+
+At 13:45 only 2.2 GB of the GPU host's 39 GB of residues still had an unfinished
+consumer. Most of the other 37 GB (about 17,000 files) never entered the hint queue,
+which is capped at 4,096 and overflowed while collection was starved, so the location
+sweep (4,096 locations per page over 7.2 million) collects them over several hours.
+A one-off hint refill was not run.
+
 ## GPU host clock
 
 The GPU host's clock is 91 s ahead of production, and NTP is inactive there
