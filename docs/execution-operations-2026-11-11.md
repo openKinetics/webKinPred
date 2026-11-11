@@ -43,3 +43,27 @@ carrying release 138's verified-blob store) runs since 11:54. Both unfinished jo
 present afterwards with unchanged checksums and the legacy queue still held 5,002
 messages. Status requests for that job then took 108 ms (median) and I/O pressure fell
 to 1.4 % within two minutes.
+
+## History pruning (release 140, user-approved)
+
+`execution_prune_history` (commits `9c8c15e`, `7bab5d0`, `8d3a5e6`; dry run unless
+`--apply`) removes, for requests completed at least 24 h ago without a pending progress
+projection, the input links of their finished prediction, similarity and assembly stages,
+and the catalogue and location rows of residue matrices already deleted from disk that
+nothing references and whose producer finished. Embedding stages and the KinForm pool and
+binding steps keep their inputs (recovery regenerates lost outputs from them); stage
+payloads, job, stage and attempt records, results and pooled vectors are kept. It runs in a
+one-off container (`staging/release140/prune140.sh`, image `webkinpred-control-fix:r140`);
+no service is recreated.
+
+* Dry run (15:50, 12.5 min): 10,460,656 of 13,899,232 input links qualified.
+* 15:04–15:30: input links 13.9 M → 3.41 M. Autovacuum then cleaned
+  `api_artifactdependency` (15:29) and `api_artifact` (15:43), so the space is reused.
+* The residue phase raised I/O pressure on production's rotating disk to ~15 %, above the
+  5 % at which launches are refused, and nine requests waited at their final assembly; the
+  run was stopped at 15:38 (about 130,000 residue rows removed, all nine requests
+  completed by 15:47). Commit `8d3a5e6` makes the command wait while I/O pressure exceeds
+  3 %; the residue phase was resumed at 15:49 with `--skip-links --batch 2000 --pause 1`
+  and trickles at about 1,000 rows per minute (1.42 M transient rows to examine).
+
+The database files do not shrink; deleted rows leave space that new requests reuse.
