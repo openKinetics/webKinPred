@@ -5,7 +5,6 @@ from datetime import timedelta
 import pytest
 from api.execution.models import (
     Artifact,
-    ArtifactDependency,
     ExecutionAttempt,
     ExecutionSpec,
     WorkStage,
@@ -81,6 +80,7 @@ def test_invalid_overcommit_admits_nothing(factor):
 
 @pytest.mark.django_db(transaction=True)
 def test_status_counts_shared_producer_attempts_with_indexed_lookups(ready_work):
+    from api.execution.planning import attach
     from api.execution.status import execution_status
 
     host, stages = ready_work
@@ -99,7 +99,8 @@ def test_status_counts_shared_producer_attempts_with_indexed_lookups(ready_work)
     artifact = Artifact.objects.create(
         id="e" * 64, identity={}, checksum="f" * 64, size=1, producer=producer
     )
-    ArtifactDependency.objects.create(artifact=artifact, stage=consumer, path="x.npy")
+    # Attaching an input links its consumer to the producer stage.
+    attach(consumer, artifact, "x.npy")
     ExecutionAttempt.objects.create(
         stage=producer,
         host=host,
@@ -119,3 +120,19 @@ def test_status_counts_shared_producer_attempts_with_indexed_lookups(ready_work)
     with override_settings(EXECUTION_V2_ENABLED=True):
         state = execution_status(execution.job)
     assert state["active_execution_seconds"] == 70
+
+
+@pytest.mark.django_db(transaction=True)
+def test_status_reads_input_producers_from_the_stage_graph_not_every_artifact(ready_work):
+    from api.execution.status import execution_status
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    _, stages = ready_work
+    execution = stages[0].execution
+    with override_settings(EXECUTION_V2_ENABLED=True), CaptureQueriesContext(connection) as seen:
+        execution_status(execution.job)
+    assert not any(
+        '"api_artifactdependency"' in query["sql"] and '"api_artifact"' in query["sql"]
+        for query in seen
+    )

@@ -9,7 +9,7 @@ from django.db import connection
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
-from api.execution.models import ArtifactDependency, ExecutionAttempt, ExecutionSpec, WorkStage
+from api.execution.models import ExecutionAttempt, ExecutionSpec, WorkStage
 
 _queue_snapshot = None
 _queue_snapshot_lock = threading.Lock()
@@ -147,14 +147,17 @@ def execution_status(job):
     else:
         state = "waiting_cpu"
     now = timezone.now()
-    # Resolve the request's stages and their artifact producers with indexed
+    # Resolve the request's stages and the producers of their inputs with indexed
     # lookups. A single UNION subquery let the planner sequentially scan the
-    # whole stage table for every public status poll.
+    # whole stage table for every public status poll. Attaching an input links
+    # its consumer to the producer stage (cohort and recovery rewrites move those
+    # links), so read the stage graph instead of joining every input artifact:
+    # for a 6,707-row request that join read 134,460 rows per poll (about 19 s).
     own_stages = list(WorkStage.objects.filter(execution=execution).values_list("pk", flat=True))
     related_stages = set(own_stages) | set(
-        ArtifactDependency.objects.filter(stage_id__in=own_stages)
-        .exclude(artifact__producer_id__isnull=True)
-        .values_list("artifact__producer_id", flat=True)
+        WorkStage.dependencies.through.objects.filter(
+            from_workstage_id__in=own_stages
+        ).values_list("to_workstage_id", flat=True)
     )
     intervals = sorted(
         (max(started, execution.created_at), min(finished or now, lease))
