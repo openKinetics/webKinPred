@@ -142,17 +142,34 @@ class Command(BaseCommand):
             if pk not in ready and pk not in linked and producer in finished
         ]
 
+    def residue_page(self, after):
+        # The partial (retention, checksum) index holds only transient and cache rows;
+        # paging by id read every catalogue row to find them. Aliases share a
+        # checksum, so a page always ends with all rows of its last checksum.
+        transient = Artifact.objects.filter(retention="transient")
+        page = list(
+            transient.filter(checksum__gt=after)
+            .order_by("checksum")
+            .values_list("pk", "producer_id", "checksum")[: self.batch]
+        )
+        if not page:
+            return [], after
+        last = page[-1][2]
+        seen = {pk for pk, *_ in page}
+        page += [
+            row
+            for row in transient.filter(checksum=last).values_list("pk", "producer_id", "checksum")
+            if row[0] not in seen
+        ]
+        return [(pk, producer) for pk, producer, _ in page], last
+
     def prune_residues(self):
         last, artifacts, locations = "", 0, 0
         while not self.expired():
-            page = list(
-                Artifact.objects.filter(retention="transient", pk__gt=last)
-                .order_by("pk")
-                .values_list("pk", "producer_id")[: self.batch]
-            )
+            start = last
+            page, last = self.residue_page(start)
             if not page:
                 break
-            last = page[-1][0]
             eligible = self.eligible_residues(page)
             if not eligible:
                 continue
@@ -177,6 +194,6 @@ class Command(BaseCommand):
                     ]
                     artifacts += Artifact.objects.filter(pk__in=eligible).delete()[0]
             except OperationalError:
-                last = page[0][0][:-1]  # Retry this page after the lock is free.
+                last = start  # Retry this page after the lock is free.
             time.sleep(self.pause)
         return {"residue_artifacts": artifacts, "residue_locations": locations}

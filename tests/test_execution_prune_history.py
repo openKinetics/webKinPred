@@ -118,3 +118,21 @@ def test_requests_with_pending_progress_projection_are_kept():
     )
     assert prune("--apply")["input_links"] == 0
     assert prediction.artifacts.count() == 2
+
+
+def test_paging_keeps_aliases_of_one_checksum_together():
+    host = ExecutorHost.objects.create(id="gpu")
+    old = request("aliasjob", "Completed", finished_hours_ago=48)
+    producer = stage(old, "embed", "embedding")
+    for ident in "89":
+        Artifact.objects.create(
+            id=ident * 64,
+            identity={"id": ident},
+            checksum="c" * 64,
+            size=1,
+            retention="transient",
+            producer=producer,
+        )
+        ArtifactLocation.objects.create(artifact_id=ident * 64, host=host, ready=False)
+    assert prune("--apply", "--batch", "1")["residue_artifacts"] == 2
+    assert not Artifact.objects.filter(checksum="c" * 64).exists()
