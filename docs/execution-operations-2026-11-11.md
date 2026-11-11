@@ -91,3 +91,20 @@ From about 16:00 the user's research `train.py` held 14.4 GiB of GPU memory and 
 GPU (one-minute mean), above the 40 % back-off, so GPU work paused as configured and requests
 from 15:49 onwards waited. Two CatPred embedding attempts ran out of GPU memory at 15:58 as that
 job allocated; the automatic response suspended `gpu76-cohort-gpu16-CatPred-catpred_embed-Km`.
+
+## Cohort passes rolled back for large requests (control release 141)
+
+A KinForm-H `kinform_t5_residues` cohort ran out of GPU memory at 23:16 while research
+processes held about 12 GiB, and the automatic response suspended
+`gpu68-cohort-gpu16-KinForm-H-kinform_t5_residues`; seven cohorts on that profile then waited
+as `profiling_required`. They were never split: `split_cohort` projected the request's
+progress synchronously inside the cohort pass's graph transaction, which took 2–3 s for the
+40,130-row LJEc7C9 and exceeded the pass's 3 s statement limit, so every pass since about
+22:41 rolled back (62 "Protein cohort planning deferred" warnings in 30 minutes) and nothing
+was split or merged. Commit `e645a18` calls `request_refresh` instead, which projects small
+requests immediately and queues large ones to the outbox. Control image
+`webkinpred-control-fix:r141`
+(`sha256:ca7e522740747b24c7c4de561cf6d1c994f131f0e0f6c105483192e1a4081ade`) runs since
+23:53; the three unfinished requests were present afterwards with unchanged checksums and
+the legacy queue still held 5,002 messages. Within two minutes no pass was deferred and the
+seven cohorts had been split into small units.
