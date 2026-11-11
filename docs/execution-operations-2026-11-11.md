@@ -67,3 +67,11 @@ no service is recreated.
   and trickles at about 1,000 rows per minute (1.42 M transient rows to examine).
 
 The database files do not shrink; deleted rows leave space that new requests reuse.
+
+The resumed residue phase finished at about 16:10 (225,975 catalogue rows and 270,079
+location rows; with the stopped run about 356,000 catalogue rows in all). The 1.19 million
+transient rows left are all still linked, from the KinForm pooling and binding steps
+(kept because recovery regenerates pooled vectors from them) and from shared batch
+stages, which belong to no single request. After pruning: 3.46 M input links (from 13.9 M),
+6.59 M artifacts (from 6.95 M), 7.74 M locations (from 8.19 M); the database stays 24 GB on
+disk with the freed space reused by new requests.
