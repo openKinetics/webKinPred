@@ -56,7 +56,7 @@ payloads, job, stage and attempt records, results and pooled vectors are kept. I
 one-off container (`staging/release140/prune140.sh`, image `webkinpred-control-fix:r140`);
 no service is recreated.
 
-* Dry run (15:50, 12.5 min): 10,460,656 of 13,899,232 input links qualified.
+* Dry run (14:50, 12.5 min): 10,460,656 of 13,899,232 input links qualified.
 * 15:04–15:30: input links 13.9 M → 3.41 M. Autovacuum then cleaned
   `api_artifactdependency` (15:29) and `api_artifact` (15:43), so the space is reused.
 * The residue phase raised I/O pressure on production's rotating disk to ~15 %, above the
