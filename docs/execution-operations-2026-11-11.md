@@ -23,3 +23,23 @@ reason is recorded in each profile's `evidence.envelope_extension`), created wit
   `max_molecule_length` 1024, RAM ×1.25.
 
 All 46 stages were bound immediately; none remained `profiling_required` or unbound.
+
+## Status polls saturated production I/O (control release 139)
+
+From about 11:20 the 6,707-row normal request aLMfftl waited at its final assembly
+while production's I/O pressure stayed near 30 % (`full avg300`) and its assembly
+launches were refused as `host_pressure`. The load was the job's own status page: each
+`/api/job-status/aLMfftl/` request took about 19 s, polled every ~20 s by the
+submitter's browser. To report active execution time, `execution_status` joined every
+input artifact of the request's stages to find their producers: 134,460 dependency
+rows joined to the 5.7-million-row artifact table, read at about 390 MB/s per poll.
+
+Attaching an input links its consumer to the producer stage, and cohort and recovery
+rewrites move those links; the scheduler waits on the same links. Commit `c74e3cd`
+reads the producers from that stage graph instead (381 producers in 0.5 s for this
+request). Control image `webkinpred-control-fix:r139`
+(`sha256:c6314a3cad683833b78799481521631af63db82d463c05e68bc34a8aa4b2f0c6`, also
+carrying release 138's verified-blob store) runs since 11:54. Both unfinished jobs were
+present afterwards with unchanged checksums and the legacy queue still held 5,002
+messages. Status requests for that job then took 108 ms (median) and I/O pressure fell
+to 1.4 % within two minutes.
