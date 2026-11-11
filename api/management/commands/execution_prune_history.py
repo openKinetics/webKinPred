@@ -18,6 +18,7 @@ tables; the database files do not shrink.
 import json
 import time
 from datetime import timedelta
+from pathlib import Path
 
 from api.execution.models import (
     Artifact,
@@ -47,6 +48,8 @@ class Command(BaseCommand):
         parser.add_argument("--batch", type=int, default=5000)
         parser.add_argument("--pause", type=float, default=0.2)
         parser.add_argument("--max-seconds", type=float, default=0)
+        parser.add_argument("--max-io-pressure", type=float, default=3.0)
+        parser.add_argument("--skip-links", action="store_true")
 
     def handle(self, *args, **options):
         self.apply, self.batch, self.pause = options["apply"], options["batch"], options["pause"]
@@ -54,16 +57,36 @@ class Command(BaseCommand):
             time.monotonic() + options["max_seconds"] if options["max_seconds"] else None
         )
         self.cutoff = timezone.now() - timedelta(hours=options["older_than_hours"])
+        self.max_io_pressure = options["max_io_pressure"]
         with connection.cursor() as cursor:
             cursor.execute("SET jit = off")
             cursor.execute("SET max_parallel_workers_per_gather = 0")
         summary = {"apply": self.apply, "cutoff": self.cutoff.isoformat()}
-        summary["input_links"] = self.prune_links()
+        summary["input_links"] = 0 if options["skip_links"] else self.prune_links()
         summary.update(self.prune_residues())
         self.stdout.write(json.dumps(summary))
 
     def expired(self):
         return self.deadline is not None and time.monotonic() >= self.deadline
+
+    def yield_to_load(self):
+        """Pause while host I/O pressure would refuse execution launches.
+
+        Supervisors refuse launches above 5 % (full avg10). Deleting and then
+        vacuuming catalogue rows on production's rotating disk held it near 15 %
+        and left nine requests waiting at their final assembly.
+        """
+        time.sleep(self.pause)
+        while not self.expired():
+            try:
+                lines = Path("/proc/pressure/io").read_text().splitlines()
+                full = next(x for x in lines if x.startswith("full "))
+                pressure = float(dict(p.split("=") for p in full.split()[1:])["avg10"])
+            except (OSError, StopIteration, KeyError, ValueError):
+                return
+            if pressure <= self.max_io_pressure:
+                return
+            time.sleep(5)
 
     def finished_requests(self):
         pending = set()
@@ -108,7 +131,7 @@ class Command(BaseCommand):
                         with connection.cursor() as cursor:
                             cursor.execute("SET LOCAL statement_timeout = 30000")
                         ArtifactDependency.objects.filter(pk__in=ids).delete()
-                    time.sleep(self.pause)
+                    self.yield_to_load()
         return deleted
 
     def eligible_residues(self, page):
@@ -195,5 +218,5 @@ class Command(BaseCommand):
                     artifacts += Artifact.objects.filter(pk__in=eligible).delete()[0]
             except OperationalError:
                 last = start  # Retry this page after the lock is free.
-            time.sleep(self.pause)
+            self.yield_to_load()
         return {"residue_artifacts": artifacts, "residue_locations": locations}

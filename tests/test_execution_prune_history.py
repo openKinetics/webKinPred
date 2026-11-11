@@ -57,7 +57,15 @@ def link(consumer, row, path):
 
 def prune(*arguments):
     output = io.StringIO()
-    call_command("execution_prune_history", *arguments, "--pause", "0", stdout=output)
+    call_command(
+        "execution_prune_history",
+        *arguments,
+        "--pause",
+        "0",
+        "--max-io-pressure",
+        "100",
+        stdout=output,
+    )
     return json.loads(output.getvalue())
 
 
@@ -136,3 +144,26 @@ def test_paging_keeps_aliases_of_one_checksum_together():
         ArtifactLocation.objects.create(artifact_id=ident * 64, host=host, ready=False)
     assert prune("--apply", "--batch", "1")["residue_artifacts"] == 2
     assert not Artifact.objects.filter(checksum="c" * 64).exists()
+
+
+def test_pruning_waits_while_host_io_pressure_would_refuse_launches(monkeypatch):
+    from api.management.commands import execution_prune_history as module
+
+    readings = iter(
+        ["full avg10=15.00 avg60=1 avg300=1 total=1", "full avg10=1.00 avg60=1 avg300=1 total=1"]
+    )
+    waits = []
+
+    class Pressure:
+        def __init__(self, path):
+            assert str(path) == "/proc/pressure/io"
+
+        def read_text(self):
+            return "some avg10=1 avg60=1 avg300=1 total=1\n" + next(readings)
+
+    monkeypatch.setattr(module, "Path", Pressure)
+    monkeypatch.setattr(module.time, "sleep", waits.append)
+    command = module.Command()
+    command.pause, command.max_io_pressure, command.deadline = 0.2, 3.0, None
+    command.yield_to_load()
+    assert waits == [0.2, 5]
