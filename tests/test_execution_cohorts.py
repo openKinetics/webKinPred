@@ -690,3 +690,24 @@ def test_enlarged_units_that_are_not_recovery_copies_are_not_merged_again():
         stage.save(update_fields=["profile"])
     assert coalesce() == []
     assert WorkStage.objects.filter(pk__in=[s.pk for s in stages], state="ready").count() == 4
+
+
+def test_large_request_split_queues_progress_instead_of_projecting_in_the_pass(monkeypatch):
+    from api.execution import progress
+    from api.execution.cohorts import split_cohort
+    from api.execution.models import ExecutionOutbox
+
+    _, execution, _, large, _, _ = setup_cohort()
+    execution.job.requested_rows = 40130
+    execution.job.save(update_fields=["requested_rows"])
+    cohort = WorkStage.objects.get(pk=coalesce()[0])
+    large.suspended = True
+    large.save(update_fields=["suspended"])
+    projected = []
+    monkeypatch.setattr(progress, "refresh", lambda *args, **kwargs: projected.append(args))
+    assert split_cohort(cohort.pk)
+    # Projecting a large request inside the cohort pass exceeded its statement limit.
+    assert projected == []
+    assert ExecutionOutbox.objects.filter(
+        key=f"progress:{execution.pk}", published_at__isnull=True
+    ).exists()

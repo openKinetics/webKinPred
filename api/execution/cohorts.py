@@ -579,9 +579,12 @@ def split_cohort(ident):
         stage.state = "canceled"
         stage.waiting_reason = "cohort_split"
         stage.save(update_fields=["state", "waiting_reason"])
-        from api.execution.progress import refresh
+        from api.execution.progress import request_refresh
 
-        refresh(stage.execution)
+        # Large requests project progress from the outbox, outside this graph
+        # transaction: recomputing a 40,130-row request here took 2-3 s, so every
+        # cohort pass hit its statement limit and rolled back all splits and merges.
+        request_refresh(stage.execution)
         return True
 
     return split()
