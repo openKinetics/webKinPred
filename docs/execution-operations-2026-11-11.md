@@ -75,3 +75,19 @@ transient rows left are all still linked, from the KinForm pooling and binding s
 stages, which belong to no single request. After pruning: 3.46 M input links (from 13.9 M),
 6.59 M artifacts (from 6.95 M), 7.74 M locations (from 8.19 M); the database stays 24 GB on
 disk with the freed space reused by new requests.
+
+## 50,000-row similarity and assembly envelopes
+
+LJEc7C9 (40,130 rows, normal priority) and UJhjjZ9 (4,153 rows) were submitted at 21:58.
+Every similarity and assembly profile admitted at most 20,000 rows, so the large request's
+final stages would have waited as `profiling_required`. Assembly appends one 128-row input
+chunk at a time and similarity streams the output in 128-row chunks, so memory does not grow
+with rows; disk use does. `staging/extend_rows_1111.py` cloned all 27 `-rows20000`
+similarity and assembly profiles to `-rows50000` (same image, fingerprint, settings and model
+identity; disk ×2.5, RAM ×1.25; reason in `evidence.envelope_extension`). The largest new
+reservation is 4.8 GiB of disk and 3.1 GiB of RAM, within production's 8 GiB and 10 GiB budgets.
+
+From about 16:00 the user's research `train.py` held 14.4 GiB of GPU memory and 47–60 % of the
+GPU (one-minute mean), above the 40 % back-off, so GPU work paused as configured and requests
+from 15:49 onwards waited. Two CatPred embedding attempts ran out of GPU memory at 15:58 as that
+job allocated; the automatic response suspended `gpu76-cohort-gpu16-CatPred-catpred_embed-Km`.
