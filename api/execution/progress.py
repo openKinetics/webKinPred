@@ -1,10 +1,23 @@
 """Project concurrent stage events into the existing target progress contract."""
 
+import time
+
 from django.db import OperationalError, connection, models, transaction
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
 from api.models import Job, JobProgressStage
+
+# A large request's projection waits at least LARGE_COOLDOWN seconds, and at
+# least SCAN_SHARE times its last scan: on 12 November the 40,130-row LJEc7C9
+# took 6-9 s per scan (shared embedding links joined to the artifact table),
+# so a fixed 15 s kept production's database reading about half of the time.
+LARGE_COOLDOWN = 15
+SCAN_SHARE = 9
+
+
+def _cooldown(large, scan_seconds):
+    return max(LARGE_COOLDOWN, SCAN_SHARE * scan_seconds) if large else 0
 
 
 @transaction.atomic
@@ -26,7 +39,8 @@ def request_refresh(execution, *, force=False):
     )
     event = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
     previous = event.event
-    cooldown = 15 if large else 0
+    scan_seconds = previous.get("scan_seconds", 0)
+    cooldown = _cooldown(large, scan_seconds)
     forced = force or previous.get("force", False)
     event.event = {
         "progress_execution_ids": list(
@@ -34,6 +48,7 @@ def request_refresh(execution, *, force=False):
         ),
         "generation": previous.get("generation", 0) + 1,
         "cooldown": cooldown,
+        "scan_seconds": scan_seconds,
         "last_projected_at": previous.get("last_projected_at", 0),
         "not_before": 0 if forced else previous.get("last_projected_at", 0) + cooldown,
         "force": forced,
@@ -63,6 +78,7 @@ def _project_one():
         return False
     owners = event.event["progress_execution_ids"]
     generation = event.event.get("generation", 0)
+    began = time.monotonic()
     if owners:
         owner = (
             ExecutionSpec.objects.filter(pk=owners[0])
@@ -71,15 +87,32 @@ def _project_one():
             .first()
         )
         if owner and owner.job_id:
-            with transaction.atomic():
-                if connection.vendor == "postgresql":
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
-                            "SET LOCAL lock_timeout = '250ms'; "
-                            "SET LOCAL statement_timeout = '10000ms'"
+            try:
+                with transaction.atomic():
+                    if connection.vendor == "postgresql":
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+                                "SET LOCAL lock_timeout = '250ms'; "
+                                "SET LOCAL statement_timeout = '10000ms'"
+                            )
+                    refresh(owner, scan_before_lock=True)
+            except OperationalError:
+                # Otherwise a scan that keeps timing out reruns at every control
+                # tick, back to back. Wait as after a scan of that length.
+                with transaction.atomic():
+                    current = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
+                    scan = time.monotonic() - began
+                    if current.event.get("cooldown"):
+                        now = timezone.now().timestamp()
+                        current.event.update(
+                            scan_seconds=round(scan, 3),
+                            last_projected_at=now,
+                            not_before=now + _cooldown(True, scan),
                         )
-                refresh(owner, scan_before_lock=True)
+                        current.save(update_fields=["event"])
+                raise
+    scan = time.monotonic() - began
     with transaction.atomic():
         current = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
         payload = current.event
@@ -89,10 +122,11 @@ def _project_one():
         payload.update(
             progress_execution_ids=remaining,
             generation=payload.get("generation", 0) + 1,
+            scan_seconds=round(scan, 3),
             last_projected_at=now.timestamp(),
             not_before=0
             if unchanged or payload.get("force")
-            else now.timestamp() + payload.get("cooldown", 0),
+            else now.timestamp() + _cooldown(payload.get("cooldown"), scan),
             force=False if unchanged else payload.get("force", False),
         )
         current.event = payload
@@ -102,8 +136,6 @@ def _project_one():
 
 
 def project_pending(limit=4, seconds=0.5):
-    import time
-
     deadline = time.monotonic() + seconds
     count = 0
     while count < limit and time.monotonic() < deadline:

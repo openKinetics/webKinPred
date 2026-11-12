@@ -121,6 +121,78 @@ def test_large_job_progress_coalesces_without_postponing_refresh_on_each_update(
     assert progress.project_pending() == 1
 
 
+def large_owner_with_clock(ready_work, monkeypatch):
+    from datetime import timedelta
+
+    from api.execution import progress
+    from django.utils import timezone
+
+    owner = ready_work[1][0].execution
+    owner.job.requested_rows = 40130
+    owner.job.save(update_fields=["requested_rows"])
+    clock = {"now": timezone.now(), "monotonic": 100.0}
+
+    def advance(seconds):
+        clock["now"] += timedelta(seconds=seconds)
+        clock["monotonic"] += seconds
+
+    monkeypatch.setattr(progress.timezone, "now", lambda: clock["now"])
+    monkeypatch.setattr(progress.time, "monotonic", lambda: clock["monotonic"])
+    return owner, clock, advance
+
+
+@pytest.mark.django_db(transaction=True)
+def test_large_projection_waits_in_proportion_to_its_scan(ready_work, monkeypatch):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox
+
+    owner, clock, advance = large_owner_with_clock(ready_work, monkeypatch)
+
+    def slow_scan(*args, **kwargs):
+        advance(6)
+        progress.request_refresh(owner)  # The request keeps changing meanwhile.
+
+    monkeypatch.setattr(progress, "refresh", Mock(side_effect=slow_scan))
+    progress.request_refresh(owner)
+    assert progress.project_pending() == 1
+    event = ExecutionOutbox.objects.get(key=f"progress:{owner.pk}")
+    due = clock["now"].timestamp() + 54
+    assert event.event["scan_seconds"] == 6 and event.event["not_before"] == due
+    progress.request_refresh(owner)
+    event.refresh_from_db()
+    assert event.event["not_before"] == due
+    monkeypatch.setattr(progress, "refresh", Mock())
+    advance(53)
+    assert progress.project_pending() == 0
+    advance(1)
+    assert progress.project_pending() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_timed_out_large_projection_is_postponed_not_rerun_each_tick(ready_work, monkeypatch):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox
+    from django.db import OperationalError
+
+    owner, clock, advance = large_owner_with_clock(ready_work, monkeypatch)
+
+    def timeout(*args, **kwargs):
+        advance(10)
+        raise OperationalError("canceling statement due to statement timeout")
+
+    monkeypatch.setattr(progress, "refresh", Mock(side_effect=timeout))
+    progress.request_refresh(owner)
+    assert progress.project_pending() == 0
+    event = ExecutionOutbox.objects.get(key=f"progress:{owner.pk}")
+    assert event.published_at is None and event.event["progress_execution_ids"] == [owner.pk]
+    assert event.event["not_before"] == clock["now"].timestamp() + 90
+    monkeypatch.setattr(progress, "refresh", Mock())
+    progress.request_refresh(owner)
+    assert progress.project_pending() == 0
+    advance(90)
+    assert progress.project_pending() == 1
+
+
 @pytest.mark.django_db(transaction=True)
 def test_progress_update_arriving_during_scan_is_not_lost(ready_work, monkeypatch):
     from api.execution import progress
