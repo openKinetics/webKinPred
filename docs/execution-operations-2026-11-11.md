@@ -108,3 +108,13 @@ requests immediately and queues large ones to the outbox. Control image
 23:53; the three unfinished requests were present afterwards with unchanged checksums and
 the legacy queue still held 5,002 messages. Within two minutes no pass was deferred and the
 seven cohorts had been split into small units.
+
+## OmniESI long-SMILES envelopes (12 November)
+
+Normal requests Cw4hF1w and jwGWMWw have substrate SMILES up to 464 characters; four
+OmniESI and OmniESI-O2DENet prediction stages exceeded `max_molecule_length` 257 and waited as
+`profiling_required`. OmniESI builds one DGL molecular graph per substrate (one node per atom,
+no fixed padding) and cross-attends it with at most 1,000 protein residues, a few MB beside the
+2 GiB reservation. `staging/extend_envelopes_1112.py` cloned all six OmniESI and
+OmniESI-O2DENet prediction profiles to `-mol1024` (RAM ×1.25); the four stages were bound
+immediately.
