@@ -38,6 +38,10 @@ CLAIM_BATCH = 8
 RUNTIME_CHECK_SECONDS = 30
 LEGACY_CHECK_SECONDS = 30
 DISK_CHECK_SECONDS = 5
+# Launches and completions run one job after another in a tick. On 13 November
+# ticks with a dozen launches ran past the 30 s control lease, which then expired
+# for every other running attempt; renew again whenever this much time passed.
+RENEWAL_SECONDS = 8
 EXTERNAL_WINDOW_SECONDS = 20
 # Other GPU users are sampled beside supervision and averaged over a minute, so
 # a short burst does not stop GPU admission but sustained use does.
@@ -123,7 +127,7 @@ class Agent:
         self.legacy_checked_at = -math.inf
         self.legacy_consumers = []
         self.inspected = {}
-        self.timings, self.counts, self.iterations = {}, {}, 0
+        self.timings, self.slowest, self.counts, self.iterations = {}, {}, {}, 0
         self.timings_since = time.monotonic()
         self.external_samples = deque()
         self.runtime, self.runtime_stamps = None, {}
@@ -865,7 +869,11 @@ class Agent:
             [job["container"] for job in self.jobs.values() if job["container"]]
         )
         self.renew_leases()
+        renewed = time.monotonic()
         for ident, job in list(self.jobs.items()):
+            if time.monotonic() - renewed >= RENEWAL_SECONDS:
+                self.renew_leases()
+                renewed = time.monotonic()
             try:
                 if job.get("lease_error") and not job.get("abandoned"):
                     code = job.pop("lease_error")
@@ -1268,7 +1276,9 @@ class Agent:
         try:
             yield
         finally:
-            self.timings[phase] = self.timings.get(phase, 0.0) + time.monotonic() - began
+            elapsed = time.monotonic() - began
+            self.timings[phase] = self.timings.get(phase, 0.0) + elapsed
+            self.slowest[phase] = max(self.slowest.get(phase, 0.0), elapsed)
 
     def report_timings(self):
         """Emit one bounded supervision summary per minute for admission tuning."""
@@ -1288,12 +1298,17 @@ class Agent:
                         key: round(value / self.iterations, 3)
                         for key, value in sorted(self.timings.items())
                     },
+                    # A mean hides the one slow iteration that lets leases expire.
+                    "max_phase_seconds": {
+                        key: round(value, 3) for key, value in sorted(self.slowest.items())
+                    },
                     **self.counts,
                 }
             ),
             flush=True,
         )
-        self.timings, self.counts, self.iterations, self.timings_since = {}, {}, 0, now
+        self.timings, self.slowest, self.counts = {}, {}, {}
+        self.iterations, self.timings_since = 0, now
 
     def count(self, key, amount=1):
         self.counts[key] = self.counts.get(key, 0) + amount

@@ -102,6 +102,25 @@ def test_launch_uses_the_batched_post_transfer_renewal(agent):
     assert [call.args[0] for call in agent.request.call_args_list] == ["heartbeats"]
 
 
+def test_slow_tick_renews_remaining_leases_between_jobs(agent, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    agent.jobs = {
+        name: {"request": {"token": name}, "container": None, "renewed": clock[0]}
+        for name in "abc"
+    }
+    agent.inspect_many = lambda containers: {}
+    renewals = []
+    agent.renew_leases = lambda: renewals.append(clock[0])
+
+    def slow(ident, job):
+        clock[0] += 6  # For example, a burst of container launches.
+
+    agent.tick_job = slow
+    agent.tick_jobs()
+    assert renewals == [100.0, 112.0]
+
+
 def test_older_controller_falls_back_to_individual_heartbeats(agent):
     agent.jobs = {"a": {"request": {"token": "t"}, "container": None, "renewed": 0}}
     agent.request = Mock(side_effect=urllib.error.HTTPError("url", 404, "missing", {}, None))
@@ -338,7 +357,23 @@ def test_loop_summary_reports_mean_phase_costs_once_a_minute(agent, monkeypatch,
     summary = json.loads(capsys.readouterr().out)
     assert summary["event"] == "executor.loop" and summary["iterations"] == 2
     assert summary["mean_phase_seconds"] == {"claim": 1.5} and summary["claimed"] == 6
-    assert agent.iterations == 0 and agent.counts == {}
+    assert summary["max_phase_seconds"] == {"claim": 1.5}
+    assert agent.iterations == 0 and agent.counts == {} and agent.slowest == {}
+
+
+def test_loop_summary_reports_the_slowest_iteration_of_each_phase(agent, monkeypatch, capsys):
+    clock = [1000.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    agent.timings_since = clock[0]
+    for seconds in (1.0, 31.0, 1.0):
+        with agent.timed("tick_jobs"):
+            clock[0] += seconds
+        agent.iterations += 1
+    clock[0] += 60
+    agent.report_timings()
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["mean_phase_seconds"] == {"tick_jobs": 11.0}
+    assert summary["max_phase_seconds"] == {"tick_jobs": 31.0}
 
 
 def test_external_cpu_reports_the_recent_floor_not_churn_spikes(agent, monkeypatch):
