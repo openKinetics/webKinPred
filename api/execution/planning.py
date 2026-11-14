@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import time
+from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 
@@ -269,6 +270,38 @@ def attach_prediction_input(stage, artifact, path, *, repair=False):
 
 CLEANUP_WAIT_SECONDS = 120
 CLEANUP_PENDING = "[Errno 11] Artifact cleanup is in progress"
+
+
+CLEANUP_YIELD_SECONDS = 20
+CLEANUP_STARVED_SECONDS = 60
+
+
+def _yield_to_cleanup():
+    """Leave the graph lock free between chunks while a host's deletions starve.
+
+    A chunk holds the lock for its whole transaction and the collector waits at
+    most 2.5 s for it. The 5,000-row requests of 14 November held it for 30-45 s
+    per chunk with gaps of about a second, so production created no cleanup for
+    over half an hour while 896 consumed residue matrices (1.2 GB) filled its
+    disk. Supervisors ask for cleanups about every 16 s; wait until each host
+    with pending hints has had one recently, or for at most 20 s.
+    """
+    from api.execution.models import ArtifactCleanup, ArtifactSweep
+
+    deadline = time.monotonic() + CLEANUP_YIELD_SECONDS
+    while True:
+        recent = timezone.now() - timedelta(seconds=CLEANUP_STARVED_SECONDS)
+        starved = [
+            host
+            for host, pending in ArtifactSweep.objects.values_list("host_id", "pending")
+            if pending
+            and not ArtifactCleanup.objects.filter(host_id=host)
+            .filter(Q(created_at__gte=recent) | Q(completed_at__isnull=True))
+            .exists()
+        ]
+        if not starved or time.monotonic() >= deadline:
+            return
+        time.sleep(1)
 
 
 def _publish_after_cleanup(path, identity, host_id, store):
@@ -841,6 +874,7 @@ def prepare(execution, media: Path, blob_root: Path, *, repair_validation=False)
         # are planned. Binding otherwise waited for the whole request, and the
         # controller does nothing else while a large request is prepared.
         bind_profiles()
+        _yield_to_cleanup()
     with transaction.atomic():
         assembly, _ = WorkStage.objects.get_or_create(
             execution=execution,

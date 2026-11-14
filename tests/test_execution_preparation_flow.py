@@ -48,6 +48,50 @@ def test_each_committed_chunk_is_bound_before_the_next_is_planned(tmp_path, monk
     assert execution.stages.get(key="prepare").state == "completed"
 
 
+def test_chunks_leave_the_graph_lock_to_a_starved_collector(tmp_path, monkeypatch):
+    from api.execution.models import ArtifactSweep
+
+    host = ExecutorHost.objects.create(id="production")
+    execution, media, blobs = request(tmp_path, 129)
+    ArtifactSweep.objects.create(host=host, pending=[1, 2, 3])
+    monkeypatch.setattr(planning, "bind_profiles", lambda: None)
+    waits = []
+
+    def collector_turn(seconds):
+        # The collector takes the free lock and creates a cleanup meanwhile.
+        waits.append(seconds)
+        ArtifactCleanup.objects.create(host=host, blobs=[], completed_at=timezone.now())
+
+    monkeypatch.setattr(planning.time, "sleep", collector_turn)
+    with override_settings(EXECUTION_V2_ENABLED=True):
+        planning.prepare(execution, media, blobs)
+    # The first chunk yields once; the second finds a recent cleanup.
+    assert waits == [1]
+    assert execution.stages.get(key="prepare").state == "completed"
+
+
+def test_chunks_do_not_wait_without_pending_deletions_or_past_the_bound(monkeypatch):
+    from api.execution.models import ArtifactSweep
+
+    clock = [0.0]
+    monkeypatch.setattr(planning.time, "monotonic", lambda: clock[0])
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(planning.time, "sleep", sleep)
+    host = ExecutorHost.objects.create(id="production")
+    sweep = ArtifactSweep.objects.create(host=host, pending=[])
+    planning._yield_to_cleanup()
+    assert waits == []
+    sweep.pending = [1]
+    sweep.save(update_fields=["pending"])
+    planning._yield_to_cleanup()  # The collector never gets a turn.
+    assert len(waits) == planning.CLEANUP_YIELD_SECONDS
+
+
 def test_chunk_publication_waits_for_a_pending_cleanup_instead_of_failing(tmp_path, monkeypatch):
     host = ExecutorHost.objects.create(id="production")
     execution, media, blobs = request(tmp_path, 3)
