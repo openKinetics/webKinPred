@@ -23,3 +23,21 @@ Control image `webkinpred-control-fix:r144`
 runs since 03:57:50; all 167 unfinished requests were present afterwards with unchanged
 checksums and the legacy queue still held 5,002 messages. Within three minutes production's
 pending hints fell from 896 to 0 (two cleanups, 256 blobs) and its free space rose to 19.1 GiB.
+
+## Nightly backup no longer fit production's disk (backup tool)
+
+The verified nightly backup (`webkinpred-backup.timer`, 04:10 UTC) wrote each `pg_dump` to
+`/var/lib/webkinpred/backup-scratch` before uploading it. The live database (25 GB) now dumps
+to about 5 GB, and with production at about 19 GiB free the run failed at 04:32 with "Backup
+reached its scratch headroom guard" (15 GiB floor). systemd retries failed runs every 30 min
+(`Restart=on-failure`, `RestartSec=30min`); the 05:02 retry dumped 5.3 GB by 05:20 and held
+production at 15 GiB free, below the headroom that admits execution work, so production ran
+nothing while it dumped.
+
+Commit `d8423ba` streams each dump from `pg_dump` into the existing verified upload (the media
+archive was already streamed): scratch holds only the manifest, the round-trip
+download/checksum verification is unchanged, and a non-zero `pg_dump` exit fails the run
+before any completion manifest is written. Installed at
+`/usr/local/lib/webkinpred-execution/backup.py` at 05:21 (previous version kept as
+`backup.py.before-stream`); the old-code retry was left to fail at its guard and clean up its
+own scratch, and the next systemd retry runs the streaming version.
