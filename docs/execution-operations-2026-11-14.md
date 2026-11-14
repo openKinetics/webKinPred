@@ -47,3 +47,21 @@ The streaming retry started at 05:52:23 and finished at 06:27:41 with
 the manifest, each downloaded and checksum-verified) under
 `s3://openkinetics-backup/backups/execution-v2/2026-11-14T05-52-23Z`. Its scratch directory
 stayed empty and production's free space held at 18.4-19.0 GiB throughout.
+
+## Backend workers exhausted by completions waiting on preparation (release 145)
+
+At 07:01-07:02 six attempt completions (`.../attempts/<id>/complete`) took 28-32 s at the
+backend, and 145 took over 5 s in 90 minutes. `finish` locks the output artifacts with
+`select_for_update`, and a preparation chunk of the 5,000-row batch that attaches the same
+artifacts holds them for its whole 30-45 s transaction. The backend ran 6 sync gunicorn
+workers while the two supervisors commit up to 4 completions each, so the waiting completions
+occupied every worker; the GPU supervisor's batched heartbeats then timed out (07:03:13 and
+07:03:26) and two leases expired.
+
+Release 145 changes only the private override `live20/compose.local.json`: the backend runs
+12 workers (`--workers 12`) with a 2 GiB memory limit (was 6 and 1.5 GiB), on the same control
+image as release 144 (`sha256:da2456fc...`). Only the backend was recreated (07:20:21-26;
+`staging/release145/deploy_control145.sh`); all 151 unfinished requests were present
+afterwards with unchanged checksums and the legacy queue still held 5,002 messages. Five
+minutes later the backend used 1.1 GiB of 2 GiB, completions still waited up to 11 s on
+preparation locks, and no heartbeat timed out or lease was lost.
