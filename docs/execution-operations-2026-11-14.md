@@ -137,3 +137,24 @@ payloads (18 KB average compressed: completed predictions 40 KB, completed embed
 canceled embeddings 12 KB); `api_artifact` is 9.9 GB and `api_artifactdependency` 5.8 GB.
 The disk is 97 % used (422 of 439 GB); images take 127 GB and the staging directory 42 GB
 (36 GB of it `models-release`).
+
+## A shared batch's projection bypassed spacing (control release 151)
+
+At 19:14 production ran nothing although 79 assemblies and 37 similarity stages were ready: a
+rolled-back claim showed every candidate refused for `host_pressure` (I/O stall 11-15 %,
+avg60). One controller connection was reading about 1 GB every 5 s for the shared-embedding
+count of the 40,000-row request 23452, which appeared in 26 of 45 samples taken every 2 s
+(10 s scans, about 14 s apart). The scan ran under the progress event of cohort batch 23955,
+whose source requests start with 23452. A shared batch's event has no cooldown, so the scan,
+which reached the projector's 10 s statement limit, was neither advanced nor postponed and
+reran at every control tick, while request 23452's own event waited for its 35-minute spacing.
+
+Commit `bfed0ca` hands each large source request (over 1,024 rows) of a batch event to the
+request's own event, which keeps its spacing; small source requests are still projected under
+the batch event. Control image `webkinpred-control-fix:r151`
+(`sha256:2bd7dfee8e593b24775e135b80d562e38153caf4629207f97a0635655dba6f71`, overlay on r150)
+runs since 19:25:32; all 337 unfinished requests were present afterwards with unchanged
+checksums and the legacy queue still held 5,002 messages. The batch event drained at 19:25:38,
+the scan appeared in none of 45 samples, I/O stall fell to 1.3 % (avg10) and production
+completed an assembly at 19:25:49. Request 23452's own scan still reaches the 10 s limit, so
+its public progress is not refreshed; it now runs once per spacing (about 35 minutes).
