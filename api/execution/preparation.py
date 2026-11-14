@@ -24,6 +24,30 @@ def cpu_candidates():
     return Q(job__prediction_type="kcat", job__kcat_method="DLKcat")
 
 
+def preparation_candidates(rules, now, limit=4):
+    """Requests whose preparation stage is due, in preparation order.
+
+    A request has one stage per key, so the join yields one row per request.
+    DISTINCT over these rows sorted every job specification on each controller
+    tick and spilled to temporary files (11 MB/s on 14 November).
+    """
+    from django.db.models.functions import Coalesce
+
+    return (
+        ExecutionSpec.objects.filter(
+            paused=False,
+            stages__key="prepare",
+            stages__state="ready",
+            stages__available_at__lte=now,
+        )
+        .filter(rules)
+        .select_related("job")
+        .order_by("background", "-priority", Coalesce("job__submission_time", "created_at"), "pk")[
+            :limit
+        ]
+    )
+
+
 def prepared_requests(*, cpu, exclude=None):
     attention = WorkStage.objects.filter(execution_id=OuterRef("pk")).filter(
         Q(state="held") | Q(waiting_reason="profiling_required")

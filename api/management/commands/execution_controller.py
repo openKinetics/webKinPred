@@ -4,12 +4,11 @@ from pathlib import Path
 
 from api.execution.background import higher_preparation
 from api.execution.control import bind_profiles, ensure_hosts, require_postgres
-from api.execution.models import ExecutionOutbox, ExecutionSpec
+from api.execution.models import ExecutionOutbox
 from api.execution.planning import prepare
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import OperationalError, connection
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 
@@ -58,26 +57,10 @@ class Command(BaseCommand):
                                 "Shared dependency queue-age refresh deferred"
                             )
                         last_dependency_order_refresh = time.monotonic()
-                    from api.execution.preparation import candidate_rules
+                    from api.execution.preparation import candidate_rules, preparation_candidates
 
                     preparation_rules = candidate_rules()
-                    for execution in (
-                        ExecutionSpec.objects.filter(
-                            paused=False,
-                            stages__key="prepare",
-                            stages__state="ready",
-                            stages__available_at__lte=timezone.now(),
-                        )
-                        .filter(preparation_rules)
-                        .select_related("job")
-                        .distinct()
-                        .order_by(
-                            "background",
-                            "-priority",
-                            Coalesce("job__submission_time", "created_at"),
-                            "pk",
-                        )[:4]
-                    ):
+                    for execution in preparation_candidates(preparation_rules, timezone.now()):
                         # A priority request arriving during this batch should
                         # not wait behind the other prefetched normal requests.
                         if higher_preparation(execution).filter(preparation_rules).exists():

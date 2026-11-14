@@ -113,3 +113,19 @@ def test_chunk_publication_waits_for_a_pending_cleanup_instead_of_failing(tmp_pa
     finally:
         timer.cancel()
     assert execution.stages.get(key="prepare").state == "completed"
+
+
+def test_preparation_candidates_are_ordered_once_without_sorting_specifications():
+    from api.execution.preparation import preparation_candidates
+    from django.db import connection
+    from django.db.models import Q
+    from django.test.utils import CaptureQueriesContext
+
+    executions = []
+    for public_id in ("first", "second"):
+        Job.objects.create(public_id=public_id, prediction_type="kcat", status="Pending")
+        executions.append(control.ingest(public_id, SPEC, "a" * 64, paused=False))
+    with CaptureQueriesContext(connection) as queries:
+        found = list(preparation_candidates(Q(), timezone.now()))
+    assert [e.pk for e in found] == [e.pk for e in executions]
+    assert "DISTINCT" not in queries[0]["sql"]
