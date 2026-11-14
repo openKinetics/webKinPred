@@ -108,10 +108,25 @@ def _project_one():
         owner = (
             ExecutionSpec.objects.filter(pk=owners[0])
             .only("id", "job_id", "background")
-            .annotate(projected_targets=models.F("specification__targets"))
+            .annotate(
+                projected_targets=models.F("specification__targets"),
+                requested_rows=models.F("job__requested_rows"),
+            )
             .first()
         )
-        if owner and owner.job_id:
+        if (
+            owner
+            and owner.job_id
+            and owner.requested_rows > 1024
+            and event.key != f"progress:{owner.pk}"
+        ):
+            # A shared batch's event has no cooldown. Scanning a large source
+            # request under it bypassed that request's own spacing, and a scan
+            # that timed out reran at every control tick: on 14 November one
+            # 10 s scan ran back to back and production's I/O pressure (12 %)
+            # refused every launch there. Hand it to its own spaced event.
+            request_refresh(owner)
+        elif owner and owner.job_id:
             try:
                 with transaction.atomic():
                     if connection.vendor == "postgresql":

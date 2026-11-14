@@ -200,6 +200,45 @@ def test_background_projections_share_the_projector_across_large_requests(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_shared_batch_hands_large_source_requests_to_their_own_spaced_projection(
+    ready_work, monkeypatch
+):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox, ExecutionSpec
+
+    owner, clock, advance = large_owner_with_clock(ready_work, monkeypatch)
+    shared = ExecutionSpec.objects.create(
+        specification={"shared_protein_batch": {"source_requests": [{"id": owner.pk}]}},
+        checksum="a" * 64,
+        input_checksum="b" * 64,
+    )
+    # The request's own projection ran just now and chose a 90 s spacing.
+    ExecutionOutbox.objects.create(
+        key=f"progress:{owner.pk}",
+        event={
+            "progress_execution_ids": [],
+            "cooldown": 90,
+            "scan_seconds": 10,
+            "last_projected_at": clock["now"].timestamp(),
+            "not_before": 0,
+        },
+        published_at=clock["now"],
+    )
+    refresh = Mock()
+    monkeypatch.setattr(progress, "refresh", refresh)
+    progress.request_refresh(shared)
+    assert progress.project_pending() == 1
+    refresh.assert_not_called()
+    assert ExecutionOutbox.objects.get(key=f"progress:{shared.pk}").published_at is not None
+    own = ExecutionOutbox.objects.get(key=f"progress:{owner.pk}")
+    assert own.published_at is None
+    assert own.event["not_before"] == clock["now"].timestamp() + 90
+    advance(90)
+    assert progress.project_pending() == 1
+    refresh.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_timed_out_large_projection_is_postponed_not_rerun_each_tick(ready_work, monkeypatch):
     from api.execution import progress
     from api.execution.models import ExecutionOutbox
