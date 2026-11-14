@@ -65,3 +65,23 @@ image as release 144 (`sha256:da2456fc...`). Only the backend was recreated (07:
 afterwards with unchanged checksums and the legacy queue still held 5,002 messages. Five
 minutes later the backend used 1.1 GiB of 2 GiB, completions still waited up to 11 s on
 preparation locks, and no heartbeat timed out or lease was lost.
+
+## Completion commits scanned every artifact location (control release 146)
+
+`pg_stat_database` showed the live database writing temporary files at 45 per minute and
+65.6 MB/s (8.8 TB since its statistics were last reset) on production's rotating disk.
+Logging temporary files over 20 MB for 75 s (`log_temp_files`, reset afterwards) attributed all
+of them to `release_consumed_residues`, which runs inside every attempt completion: its join of
+ready locations to the artifact table was planned as a sequential scan of all 7.4 M locations
+with a hash that spilled to disk (8.0 s, 1 GB read and 522 MB of temporary files for one stage
+with 129 inputs). `work_mem` is the default 4 MB and `shared_buffers` 160 MB.
+
+Commit `254a7ed` resolves the stage's transient checksums, their aliases and their ready
+copies with three indexed queries (0.03 s warm, 1.0 s cold for the same stage) and skips
+unproduced (empty) checksums. Control image `webkinpred-control-fix:r146`
+(`sha256:fab4170f4f15b1182b2e84cade66a70bc9c74498816a2d68986c0e1e4680aba4`, overlay on r144,
+backend still 12 workers) runs since 11:18:47; all 129 unfinished requests were present
+afterwards with unchanged checksums and the legacy queue still held 5,002 messages. Five
+minutes later temporary files fell to 1 per minute and 1.9 MB/s, completions took 164 ms
+(median, 159 calls; 95th percentile 637 ms, against 5-32 s before), and production's I/O
+pressure fell to 2.5 % (avg60).
