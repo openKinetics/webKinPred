@@ -41,3 +41,9 @@ before any completion manifest is written. Installed at
 `/usr/local/lib/webkinpred-execution/backup.py` at 05:21 (previous version kept as
 `backup.py.before-stream`); the old-code retry was left to fail at its guard and clean up its
 own scratch, and the next systemd retry runs the streaming version.
+
+The streaming retry started at 05:52:23 and finished at 06:27:41 with
+`{"complete": true, "objects_verified": 5}` (three database dumps, the job-media archive and
+the manifest, each downloaded and checksum-verified) under
+`s3://openkinetics-backup/backups/execution-v2/2026-11-14T05-52-23Z`. Its scratch directory
+stayed empty and production's free space held at 18.4-19.0 GiB throughout.
