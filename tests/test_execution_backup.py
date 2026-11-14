@@ -27,17 +27,18 @@ def test_backup_publishes_completion_only_after_verified_objects(
     }
     uploaded = {}
 
-    def dump(command, stdout, check):
-        stdout.write(b"isolated postgres snapshot")
-
     def upload(cfg, stream, uri, size):
         data = stream.read()
         if fail_archive and uri.endswith("jobs.tar.gz"):
             raise RuntimeError("Injected off-host verification failure")
         uploaded[uri] = data
+        # Dumps stream to the destination; none is written to the scratch disk.
+        assert not any(p.name.endswith(".dump") for p in (tmp_path / "scratch").rglob("*"))
         return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
 
-    monkeypatch.setattr(backup.subprocess, "run", dump)
+    monkeypatch.setattr(
+        backup, "dump_command", lambda cfg, database: ["printf", "isolated postgres snapshot"]
+    )
     monkeypatch.setattr(backup, "upload", upload)
     if fail_archive:
         with pytest.raises(RuntimeError, match="Injected"):
@@ -54,6 +55,33 @@ def test_backup_publishes_completion_only_after_verified_objects(
                 == (source / "input.csv").read_bytes()
             )
     assert not list((tmp_path / "scratch").iterdir())
+
+
+def test_failed_dump_is_never_followed_by_a_completion_manifest(tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    (media / "jobs").mkdir(parents=True)
+    config = {
+        "scratch": str(tmp_path / "scratch"),
+        "minimum_free": 0,
+        "databases": ["application"],
+        "media": str(media),
+        "s3_prefix": "s3://existing-backup/execution-v2",
+    }
+    uploaded = []
+
+    def upload(cfg, stream, uri, size):
+        uploaded.append((uri, stream.read()))
+        return {"sha256": "", "bytes": 0}
+
+    # Partial output, then a failing exit: the bytes upload but are no snapshot.
+    monkeypatch.setattr(
+        backup, "dump_command", lambda cfg, database: ["sh", "-c", "printf partial; exit 3"]
+    )
+    monkeypatch.setattr(backup, "upload", upload)
+    with pytest.raises(RuntimeError, match="Database dump failed"):
+        backup.backup(config)
+    assert len(uploaded) == 1 and uploaded[0][0].endswith("/application.dump")
+    assert uploaded[0][1] == b"partial"
 
 
 @pytest.mark.parametrize("corrupt", [False, True])

@@ -73,41 +73,55 @@ def upload(config, stream, uri, expected_size):
     return result
 
 
+def dump_command(config, database):
+    return [
+        "docker",
+        "exec",
+        config["container"],
+        "nice",
+        "-n",
+        "19",
+        "pg_dump",
+        "-U",
+        config["role"],
+        "-Fc",
+        database,
+    ]
+
+
+# Only for the CLI's multipart part size (it needs one above 50 GB); a dump is
+# verified by its streamed digest and length, not by this bound.
+DUMP_SIZE_BOUND = 128 * 1024**3
+
+
 def backup(config):
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     prefix = config["s3_prefix"].rstrip("/") + "/" + stamp
     scratch = Path(config["scratch"])
     scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if shutil.disk_usage(scratch).free < config["minimum_free"] + 2 * 1024**3:
+    # Scratch now holds only the manifest. Dumps written there first no longer
+    # fit on 14 November: the 25 GB live database dumped to about 5 GB beside
+    # production's 15 GiB free-space floor, so every retry hit the guard, and
+    # meanwhile held the host below the headroom that admits execution work.
+    if shutil.disk_usage(scratch).free < config["minimum_free"]:
         raise RuntimeError("Insufficient backup scratch headroom")
     records = {}
     with tempfile.TemporaryDirectory(prefix="snapshot-", dir=scratch) as directory:
         for database in config["databases"]:
             name = database + ".dump"
-            path = Path(directory) / name
-            with path.open("wb") as handle:
-                subprocess.run(
-                    [
-                        "docker",
-                        "exec",
-                        config["container"],
-                        "nice",
-                        "-n",
-                        "19",
-                        "pg_dump",
-                        "-U",
-                        config["role"],
-                        "-Fc",
-                        database,
-                    ],
-                    stdout=handle,
-                    check=True,
-                )
-            if shutil.disk_usage(scratch).free < config["minimum_free"]:
-                raise RuntimeError("Backup reached its scratch headroom guard")
-            with path.open("rb") as handle:
-                records[name] = upload(config, handle, prefix + "/" + name, path.stat().st_size)
-            path.unlink()
+            dump = subprocess.Popen(dump_command(config, database), stdout=subprocess.PIPE)
+            try:
+                records[name] = upload(config, dump.stdout, prefix + "/" + name, DUMP_SIZE_BOUND)
+            except BaseException:
+                dump.kill()
+                dump.wait()
+                raise
+            finally:
+                dump.stdout.close()
+            # A dump that failed part-way was uploaded and verified as bytes, but
+            # it is not a snapshot: fail before any completion manifest exists.
+            if dump.wait():
+                raise RuntimeError("Database dump failed")
         media = Path(config["media"])
         # Jobs contain original inputs and final/target results. Shared embedding
         # caches are regenerable and are not copied into the backup scratch disk.
