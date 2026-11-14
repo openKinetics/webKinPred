@@ -85,3 +85,26 @@ afterwards with unchanged checksums and the legacy queue still held 5,002 messag
 minutes later temporary files fell to 1 per minute and 1.9 MB/s, completions took 164 ms
 (median, 159 calls; 95th percentile 637 ms, against 5-32 s before), and production's I/O
 pressure fell to 2.5 % (avg60).
+
+## Progress and preparation queries that still loaded production (control releases 147-149)
+
+After release 146, production's I/O pressure was still 8-11 % (avg60). Sampling
+`pg_stat_activity` showed the progress projector's shared-embedding count
+(`shared_embedding_summaries`) in 130 of 240 samples: release 142 spaced each large request by
+nine times its scan, but about 40 background requests of the 5,000-row batch were large at
+once, so the projector ran continuously. Commit `d4de94c` (release 147) makes a background
+request also wait for every other large projection pending (`_spacing`), so together they stay
+near a ninth of the projector; normal requests keep their own spacing. Afterwards the query
+appeared in 1 of 240 samples, 20 large projections were spaced 9-25 minutes apart, and I/O
+pressure fell below 1 % (avg60).
+
+Temporary files then rose to 81 per minute (12.8 MB/s). Logging temporary files over 5 MB
+(reset afterwards) attributed them to the controller's per-tick query for due preparations,
+which ordered whole request rows, job specifications included. Commit `7c51b00` (release 148)
+removed its redundant DISTINCT (one stage per key), which did not stop the spill; commit
+`791faae` (release 149) ranks the due requests' identifiers only and loads the chosen rows by
+key. Control image `webkinpred-control-fix:r149`
+(`sha256:b74c2576e01690f2cbe233e190acc853020944ae26ab3acf6381d82d53b0ae98`) runs since
+17:52:28; all 345 unfinished requests were present afterwards with unchanged checksums and the
+legacy queue still held 5,002 messages. Four minutes later temporary files were 1 per minute
+(0.1 MB/s) and I/O pressure 0.75 % (avg60).
