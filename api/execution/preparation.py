@@ -28,12 +28,13 @@ def preparation_candidates(rules, now, limit=4):
     """Requests whose preparation stage is due, in preparation order.
 
     A request has one stage per key, so the join yields one row per request.
-    DISTINCT over these rows sorted every job specification on each controller
-    tick and spilled to temporary files (11 MB/s on 14 November).
+    Rank identifiers only, then load the few chosen rows: ordering the full rows
+    (DISTINCT at first) carried every job specification through the sort on each
+    controller tick and spilled to temporary files (11-13 MB/s on 14 November).
     """
     from django.db.models.functions import Coalesce
 
-    return (
+    ranked = list(
         ExecutionSpec.objects.filter(
             paused=False,
             stages__key="prepare",
@@ -41,11 +42,11 @@ def preparation_candidates(rules, now, limit=4):
             stages__available_at__lte=now,
         )
         .filter(rules)
-        .select_related("job")
-        .order_by("background", "-priority", Coalesce("job__submission_time", "created_at"), "pk")[
-            :limit
-        ]
+        .order_by("background", "-priority", Coalesce("job__submission_time", "created_at"), "pk")
+        .values_list("pk", flat=True)[:limit]
     )
+    rows = ExecutionSpec.objects.select_related("job").in_bulk(ranked)
+    return [rows[pk] for pk in ranked if pk in rows]
 
 
 def prepared_requests(*, cpu, exclude=None):

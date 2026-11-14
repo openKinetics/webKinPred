@@ -126,6 +126,9 @@ def test_preparation_candidates_are_ordered_once_without_sorting_specifications(
         Job.objects.create(public_id=public_id, prediction_type="kcat", status="Pending")
         executions.append(control.ingest(public_id, SPEC, "a" * 64, paused=False))
     with CaptureQueriesContext(connection) as queries:
-        found = list(preparation_candidates(Q(), timezone.now()))
+        found = preparation_candidates(Q(), timezone.now())
     assert [e.pk for e in found] == [e.pk for e in executions]
-    assert "DISTINCT" not in queries[0]["sql"]
+    assert found[0].job.public_id == "first"
+    # Ranking reads identifiers only; specifications are loaded for the chosen rows.
+    ranking = queries[0]["sql"]
+    assert "DISTINCT" not in ranking and '"specification"' not in ranking
