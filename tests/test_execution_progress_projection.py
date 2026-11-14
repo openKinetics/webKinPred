@@ -169,6 +169,37 @@ def test_large_projection_waits_in_proportion_to_its_scan(ready_work, monkeypatc
 
 
 @pytest.mark.django_db(transaction=True)
+def test_background_projections_share_the_projector_across_large_requests(
+    ready_work, monkeypatch
+):
+    from api.execution import progress
+    from api.execution.models import ExecutionOutbox
+
+    owner, clock, advance = large_owner_with_clock(ready_work, monkeypatch)
+    owner.background = True
+    owner.save(update_fields=["background"])
+    # Another large request's projection is pending (not yet due).
+    ExecutionOutbox.objects.create(
+        key="progress:other",
+        event={"progress_execution_ids": [0], "cooldown": 15, "not_before": 1e12},
+    )
+
+    def slow_scan(*args, **kwargs):
+        advance(6)
+        progress.request_refresh(owner)
+
+    monkeypatch.setattr(progress, "refresh", Mock(side_effect=slow_scan))
+    progress.request_refresh(owner)
+    assert progress.project_pending() == 1
+    event = ExecutionOutbox.objects.get(key=f"progress:{owner.pk}")
+    # Nine times its 6 s scan, for each of the two large projections pending.
+    assert event.event["not_before"] == clock["now"].timestamp() + 108
+    progress.request_refresh(owner)
+    event.refresh_from_db()
+    assert event.event["not_before"] == clock["now"].timestamp() + 108
+
+
+@pytest.mark.django_db(transaction=True)
 def test_timed_out_large_projection_is_postponed_not_rerun_each_tick(ready_work, monkeypatch):
     from api.execution import progress
     from api.execution.models import ExecutionOutbox

@@ -20,6 +20,30 @@ def _cooldown(large, scan_seconds):
     return max(LARGE_COOLDOWN, SCAN_SHARE * scan_seconds) if large else 0
 
 
+def _spacing(scan_seconds, background):
+    """Seconds until a large request's next projection.
+
+    The cooldown bounds one request. A background request also waits for every
+    other large projection pending, so together they keep within about
+    1/SCAN_SHARE of the projector: on 14 November some 40 background requests of
+    5,000 rows, each within its own cooldown, kept one connection projecting for
+    over half of the time. Normal requests keep their own cooldown.
+    """
+    spacing = _cooldown(True, scan_seconds)
+    if background:
+        from api.execution.models import ExecutionOutbox
+
+        competing = sum(
+            1
+            for cooldown in ExecutionOutbox.objects.filter(
+                published_at__isnull=True, event__has_key="progress_execution_ids"
+            ).values_list("event__cooldown", flat=True)
+            if cooldown
+        )
+        spacing *= max(1, competing)
+    return spacing
+
+
 @transaction.atomic
 def request_refresh(execution, *, force=False):
     """Coalesce expensive progress work independently of execution leases."""
@@ -40,7 +64,8 @@ def request_refresh(execution, *, force=False):
     event = ExecutionOutbox.objects.select_for_update().get(pk=event.pk)
     previous = event.event
     scan_seconds = previous.get("scan_seconds", 0)
-    cooldown = _cooldown(large, scan_seconds)
+    # Keep the spacing the projector last chose for this request.
+    cooldown = max(_cooldown(large, scan_seconds), previous.get("cooldown", 0)) if large else 0
     forced = force or previous.get("force", False)
     event.event = {
         "progress_execution_ids": list(
@@ -82,7 +107,7 @@ def _project_one():
     if owners:
         owner = (
             ExecutionSpec.objects.filter(pk=owners[0])
-            .only("id", "job_id")
+            .only("id", "job_id", "background")
             .annotate(projected_targets=models.F("specification__targets"))
             .first()
         )
@@ -92,7 +117,8 @@ def _project_one():
                     if connection.vendor == "postgresql":
                         with connection.cursor() as cursor:
                             cursor.execute(
-                                "SET LOCAL jit = off; SET LOCAL max_parallel_workers_per_gather = 0; "
+                                "SET LOCAL jit = off; "
+                                "SET LOCAL max_parallel_workers_per_gather = 0; "
                                 "SET LOCAL lock_timeout = '250ms'; "
                                 "SET LOCAL statement_timeout = '10000ms'"
                             )
@@ -105,10 +131,12 @@ def _project_one():
                     scan = time.monotonic() - began
                     if current.event.get("cooldown"):
                         now = timezone.now().timestamp()
+                        spacing = _spacing(scan, owner.background)
                         current.event.update(
                             scan_seconds=round(scan, 3),
+                            cooldown=spacing,
                             last_projected_at=now,
-                            not_before=now + _cooldown(True, scan),
+                            not_before=now + spacing,
                         )
                         current.save(update_fields=["event"])
                 raise
@@ -119,14 +147,16 @@ def _project_one():
         unchanged = payload.get("generation", 0) == generation
         remaining = owners[1:] if unchanged else payload["progress_execution_ids"]
         now = timezone.now()
+        spacing = 0
+        if payload.get("cooldown"):
+            spacing = _spacing(scan, bool(owners and owner and owner.background))
         payload.update(
             progress_execution_ids=remaining,
             generation=payload.get("generation", 0) + 1,
             scan_seconds=round(scan, 3),
+            cooldown=spacing,
             last_projected_at=now.timestamp(),
-            not_before=0
-            if unchanged or payload.get("force")
-            else now.timestamp() + _cooldown(payload.get("cooldown"), scan),
+            not_before=0 if unchanged or payload.get("force") else now.timestamp() + spacing,
             force=False if unchanged else payload.get("force", False),
         )
         current.event = payload
