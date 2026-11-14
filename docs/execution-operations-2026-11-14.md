@@ -108,3 +108,32 @@ key. Control image `webkinpred-control-fix:r149`
 17:52:28; all 345 unfinished requests were present afterwards with unchanged checksums and the
 legacy queue still held 5,002 messages. Four minutes later temporary files were 1 per minute
 (0.1 MB/s) and I/O pressure 0.75 % (avg60).
+
+## Cleanup batches and production's disk (control release 150)
+
+With production's free space (16.3 GiB) under its cache target (headroom 15 GiB + 10 GiB),
+older cache copies become collectible, but a sweep call stopped at the first page that held
+any candidate. Commit `df1c0a5` keeps paging within the same 0.5 s budget until 256 candidates
+are found and ends the pass at the last location instead of wrapping once it holds candidates.
+Control image `webkinpred-control-fix:r150`
+(`sha256:5e188b5cef8759483f05f39372537a0fedf7b46c1fb3a857fe87ff325a0f6a3f`, overlay on r149)
+runs since 18:57:53; all 342 unfinished requests were present afterwards with unchanged
+checksums and the legacy queue still held 5,002 messages.
+
+The gain on production is small. Of its 13,949 ready regenerable cache copies (1.68 GiB),
+13,103 share their bytes with a permanent or non-regenerable artifact and 96 with unfinished
+stages, so only 344 (21 MiB) are collectible; the rest are correctly retained. By distinct
+checksum, production's blob store holds 6.76 GiB of permanent regenerable embeddings (pooled
+vectors), 2.48 GiB of permanent non-regenerable files, 0.21 GiB protected and under 0.1 GiB of
+cache and transient files.
+
+Production's free space fell from 28.8 GiB (9 November) to 16.3 GiB, 3.8 GiB of it since
+midnight: blobs +1.45 GiB (permanent embeddings), the database volume +1.33 GiB and job media
++0.48 GiB; the legacy `media/sequence_info` (136.6 GiB) is unchanged. Admission keeps the 15 GiB
+headroom free, so production runs one attempt at a time (a CPU prediction reserves 1.01 GiB,
+the 1 GiB disk floor) and completed 1-7 attempts per 10 minutes against about 150 on the GPU
+host. In the database, `api_workstage` is 6.5 GB, almost all of it TOAST holding live stage
+payloads (18 KB average compressed: completed predictions 40 KB, completed embeddings 28 KB,
+canceled embeddings 12 KB); `api_artifact` is 9.9 GB and `api_artifactdependency` 5.8 GB.
+The disk is 97 % used (422 of 439 GB); images take 127 GB and the staging directory 42 GB
+(36 GB of it `models-release`).
