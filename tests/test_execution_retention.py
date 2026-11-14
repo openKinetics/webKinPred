@@ -139,6 +139,39 @@ def test_last_consumer_hints_copies_registered_under_aliases():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_consumer_hints_use_indexed_lookups_not_a_location_join():
+    from api.execution.models import ArtifactSweep
+    from api.execution.retention import release_consumed_residues
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, execution, producer = residue_context()
+    copied, copied_location = residue(host, producer, "1", "a")
+    consumer = WorkStage.objects.create(execution=execution, key="reader", kind="predict")
+    ArtifactDependency.objects.create(artifact=copied, stage=consumer, path="r.npy")
+    with transaction.atomic(), CaptureQueriesContext(connection) as queries:
+        release_consumed_residues(consumer)
+    assert ArtifactSweep.objects.get(host=host).pending == [copied_location.pk]
+    # Locations are read by artifact id; joining them to the artifact table was
+    # planned as a sequential scan of every location with a spilling hash.
+    location_reads = [q["sql"] for q in queries if 'FROM "api_artifactlocation"' in q["sql"]]
+    assert location_reads and not any('JOIN "api_artifact"' in sql for sql in location_reads)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_consumer_without_transient_inputs_issues_one_query():
+    from api.execution.retention import release_consumed_residues
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    host, execution, producer = residue_context()
+    consumer = WorkStage.objects.create(execution=execution, key="reader", kind="predict")
+    with CaptureQueriesContext(connection) as queries:
+        release_consumed_residues(consumer)
+    assert len(queries) == 1
+
+
+@pytest.mark.django_db(transaction=True)
 def test_sweep_skips_pages_without_candidates_within_one_call(monkeypatch):
     from api.execution import retention
     from api.execution.models import ArtifactSweep

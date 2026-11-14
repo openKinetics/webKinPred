@@ -38,13 +38,31 @@ def release_consumed_residues(stage):
     Copies are recorded per artifact id but protected per checksum. Hint every
     transient copy of the same bytes: a copy registered under an alias whose
     own consumers finished earlier would otherwise wait for the full sweep.
+
+    Resolve the inputs, their aliases and their ready copies with three indexed
+    lookups. One join of the ready locations to the artifact table was planned as
+    a sequential scan of every location (7 M rows) and a hash that spilled to
+    disk, inside each completion: about 45 times a minute and 65 MB/s of
+    temporary files on production on 14 November.
     """
-    checksums = Artifact.objects.filter(dependencies__stage=stage, retention="transient").values(
-        "checksum"
+    checksums = set(
+        Artifact.objects.filter(dependencies__stage=stage, retention="transient").values_list(
+            "checksum", flat=True
+        )
+    )
+    # An input not yet produced has no checksum and no ready copy; matching the
+    # empty checksum would select every unproduced transient artifact.
+    checksums.discard("")
+    if not checksums:
+        return
+    aliases = list(
+        Artifact.objects.filter(checksum__in=checksums, retention="transient").values_list(
+            "pk", flat=True
+        )
     )
     groups = defaultdict(set)
     for ident, host in ArtifactLocation.objects.filter(
-        artifact__checksum__in=checksums, artifact__retention="transient", ready=True
+        artifact_id__in=aliases, ready=True
     ).values_list("pk", "host_id"):
         groups[host].add(ident)
     for host, ids in groups.items():
