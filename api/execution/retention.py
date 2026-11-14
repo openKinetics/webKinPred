@@ -27,6 +27,11 @@ from api.execution.resources import LIVE_STATES
 # each call now scans larger pages within a small time budget.
 SWEEP_PAGE = 4096
 SWEEP_SECONDS = 0.5
+# A call keeps paging within SWEEP_SECONDS until it holds this many candidates.
+# Stopping at the first page with any candidate collected about 13 blobs per
+# cleanup, so production's 13,000 regenerable cache blobs would have taken over
+# a day to reclaim while its disk held work at the headroom (14 November).
+SWEEP_BATCH = 256
 HINTS_PER_CLAIM = 1024
 PENDING_HINTS = 4096
 BLOBS_PER_CLEANUP = 1024
@@ -186,14 +191,14 @@ def _claim_cleanup(host_id, *, version=1):
             .values_list("pk", flat=True)[:SWEEP_PAGE]
         )
         if not page:
-            if wrapped or not sweep.cursor:
+            if wrapped or not sweep.cursor or found:
                 sweep.cursor = 0
                 break
             sweep.cursor, wrapped = 0, True
             continue
         sweep.cursor = page[-1]
         found.update(collectible(page))
-        if found or time.monotonic() - began >= SWEEP_SECONDS:
+        if len(found) >= SWEEP_BATCH or time.monotonic() - began >= SWEEP_SECONDS:
             break
     candidates = [found[ident] for ident in sorted(found)]
     # Separate indexed existence checks avoid expanding every alias by all of

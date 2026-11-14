@@ -193,10 +193,25 @@ def test_sweep_skips_pages_without_candidates_within_one_call(monkeypatch):
     ArtifactDependency.objects.create(artifact=location.artifact, stage=done, path="r.npy")
     cleanup = claim_cleanup(host.pk)
     assert cleanup["blobs"] == [{"checksum": "7" * 64, "size": 100}]
-    assert ArtifactSweep.objects.get(host=host).cursor == location.pk
+    # The call kept paging for a fuller batch, reached the end and wrapped.
+    assert ArtifactSweep.objects.get(host=host).cursor == 0
     finish_cleanup(host.pk, cleanup)
     assert claim_cleanup(host.pk) is None
     assert ArtifactSweep.objects.get(host=host).cursor == 0  # The pass wrapped and ended.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_one_call_collects_candidates_beyond_the_first_page(monkeypatch):
+    from api.execution import retention
+
+    monkeypatch.setattr(retention, "SWEEP_PAGE", 1)
+    host, execution, producer = residue_context()
+    done = WorkStage.objects.create(execution=execution, key="d", kind="predict", state="completed")
+    for ident in "123":
+        artifact, _ = residue(host, producer, ident, ident)
+        ArtifactDependency.objects.create(artifact=artifact, stage=done, path=ident)
+    cleanup = claim_cleanup(host.pk)
+    assert sorted(b["checksum"] for b in cleanup["blobs"]) == [i * 64 for i in "123"]
 
 
 @pytest.mark.django_db(transaction=True)
