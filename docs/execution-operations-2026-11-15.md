@@ -26,3 +26,21 @@ rollback container `webkinpred-gpu-executor-rollback152`) runs on the GPU host s
 The drain finished in 26 s without stopping any attempt; all 332 unfinished requests were
 present afterwards with unchanged checksums and the legacy queue still held 5,002 messages.
 Production's supervisor (r138) is unchanged.
+
+## Production's disk held finished requests back
+
+From 21:51 on 14 November no request completed. Production had 16.1-16.2 GiB free against its
+15 GiB headroom, so its 1.19 GiB assembly reservation (the 1 GiB disk floor over a measured
+207 MB peak) fitted only for the smallest inputs, and background preparation (which waits for
+headroom plus 2 GiB) stayed paused for 295 queued requests. By 03:14 the GPU host had finished
+every prepared embedding and prediction and was idle. At 03:22 and 03:28 two normal requests
+(gW5xsFA, 9 rows, and OzlZMcA, 309 rows) computed every prediction within seconds, but their
+final assemblies waited for disk: 1,176 MiB was available above the headroom against 1,222 MiB
+reserved.
+
+The preservation snapshots taken around each control release (`preservation113`, 242 MB) were
+all verified, and the database is the record they checked. Removing 270 intermediate snapshot
+files (222 MB), keeping the first baseline (`*-before.*`) and the snapshots of releases
+150-152, left 16.36 GiB free. Assemblies resumed at 03:48:55, and both normal requests
+completed at 03:50:05 and 03:50:09. Assemblies with larger inputs still wait (`waiting_disk`);
+preparation stays paused until production has 17 GiB free.
