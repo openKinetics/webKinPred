@@ -103,6 +103,10 @@ class Agent:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.store = ArtifactStore(self.root / "blobs")
         self.store.root.mkdir(exist_ok=True)
+        # Output checksums each supervised attempt publishes, until it leaves
+        # supervision; collection never deletes them (see collect_artifacts).
+        self.store_lock = threading.Lock()
+        self.publishing = {}
         self.jobs = {}
         self.last_contact = time.monotonic()
         self.last_cleanup = 0
@@ -1131,8 +1135,15 @@ class Agent:
             for folder in ("media", "tmp"):
                 shutil.rmtree(outcome_path.parent / folder, ignore_errors=True)
 
+    def hold_published(self, ident, artifacts):
+        # Recorded before the store checks for an existing copy, so a collection
+        # either deletes first (the copy is then written again) or keeps it.
+        with self.store_lock:
+            self.publishing.setdefault(ident, set()).update(a["checksum"] for a in artifacts)
+
     def publish_partial(self, request, directory):
         result = partial_manifest(request, directory)
+        self.hold_published(directory.name, result["artifacts"])
         for artifact in result["artifacts"]:
             source = directory / safe_relative(artifact.pop("source"))
             with source.open("rb") as stream:
@@ -1146,6 +1157,7 @@ class Agent:
 
     def publish_outcome(self, outcome_path):
         outcome = json.loads(outcome_path.read_text())
+        self.hold_published(outcome_path.parent.name, outcome.get("artifacts", []))
         for artifact in outcome.get("artifacts", []):
             source = (outcome_path.parent / safe_relative(artifact.pop("source"))).resolve()
             if not source.is_relative_to(outcome_path.parent):
@@ -1474,8 +1486,17 @@ class Agent:
             # The durable cleanup record fences admissions on this host. It
             # remains pending across lost responses and executor restarts.
             atomic_json(self.root / "cleanup.json", cleanup)
-            for blob in cleanup["blobs"]:
-                self.store.path(blob["checksum"]).unlink(missing_ok=True)
+            # Bytes collectible under a finished artifact can be published again
+            # by a running attempt as a new artifact, whose checksum control
+            # learns only at commit. Deleting them then left a committed location
+            # without a file: three residues on 15 November had to be rebuilt.
+            with self.store_lock:
+                for ident in [i for i in self.publishing if i not in self.jobs]:
+                    del self.publishing[ident]
+                held = set().union(*self.publishing.values())
+                for blob in cleanup["blobs"]:
+                    if blob["checksum"] not in held:
+                        self.store.path(blob["checksum"]).unlink(missing_ok=True)
             for ident in cleanup.get("attempt_ids", []):
                 work = self.root / "attempts" / safe_relative(ident)
                 if not work.resolve().is_relative_to(self.root / "attempts"):

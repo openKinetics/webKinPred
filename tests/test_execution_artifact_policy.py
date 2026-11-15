@@ -1,4 +1,6 @@
+import hashlib
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -238,6 +240,44 @@ def test_executor_collects_only_approved_managed_blobs_while_unrelated_attempt_r
     assert not path.exists()
     assert project.read_bytes() == b"preserve"
     assert calls == ["collect-artifacts", "collected-artifacts"]
+
+
+def test_collection_keeps_bytes_a_supervised_attempt_publishes_again(tmp_path):
+    agent = Agent({"root": str(tmp_path / "executor"), "host_id": "test"})
+    agent.config["budgets"] = {"disk_headroom": 0}
+    agent.jobs = {"running": SimpleNamespace()}
+    paths = {}
+    for name in ("same", "other", "stale"):
+        checksum = hashlib.sha256(name.encode()).hexdigest()
+        paths[name] = agent.store.path(checksum)
+        paths[name].parent.mkdir(parents=True, exist_ok=True)
+        paths[name].write_bytes(name.encode())
+    # The running attempt produced the same bytes as a collectible residue and
+    # found the stored copy; its commit has not registered the checksum yet.
+    work = agent.root / "attempts" / "running"
+    work.mkdir(parents=True)
+    (work / "out.npy").write_bytes(b"same")
+    (work / "outcome.json").write_text(
+        json.dumps(
+            {"artifacts": [{"source": "out.npy", "checksum": paths["same"].name, "size": 4}]}
+        )
+    )
+    agent.publish_outcome(work / "outcome.json")
+    agent.hold_published("finished", [{"checksum": paths["stale"].name}])
+    blobs = [{"checksum": paths[name].name} for name in ("same", "other", "stale")]
+
+    def request(operation, data=None):
+        if operation == "collect-artifacts":
+            return {"cleanup": {"id": "test", "token": "test", "blobs": blobs}}
+        return {}
+
+    agent.request = request
+    agent.collect_artifacts()
+    assert paths["same"].read_bytes() == b"same"
+    assert not paths["other"].exists()
+    # An attempt no longer supervised has committed or been abandoned.
+    assert not paths["stale"].exists()
+    assert set(agent.publishing) == {"running"}
 
 
 @pytest.mark.django_db(transaction=True)
