@@ -44,3 +44,27 @@ files (222 MB), keeping the first baseline (`*-before.*`) and the snapshots of r
 150-152, left 16.36 GiB free. Assemblies resumed at 03:48:55, and both normal requests
 completed at 03:50:05 and 03:50:09. Assemblies with larger inputs still wait (`waiting_disk`);
 preparation stays paused until production has 17 GiB free.
+
+## Long-SMILES Km envelopes and the approved disk cleanup
+
+At 20:29 the 9,738-row normal EITLEM request gG8zEPK (kcat and Km) planned seven Km prediction
+stages whose substrate SMILES exceed the 257-character envelope; they waited as
+`profiling_required`. The 4 November `-mol1024` clones covered EITLEM and UniKP kcat but not
+Km. EITLEM's Km and kcat models share one architecture and encode substrates as 167-bit MACCS
+keys, and UniKP's Km and kcat runs share one SMILES transformer with a fixed 220-token window,
+so neither computation's memory grows with SMILES length. `staging/extend_envelopes_1115.py`
+cloned `gpu16-EITLEM-predict-Km`, `production70-EITLEM-Km`, `gpu16-UniKP-predict-Km` and
+`production70-UniKP-Km` to `-mol1024` (`max_molecule_length` 1024, RAM ×1.25; same image,
+fingerprint, settings and model identity); the seven stages were bound at once.
+
+The request's final assemblies then needed 1,222-1,233 MiB above production's 15 GiB headroom,
+with 1,044 MiB available, and 1,003 background requests waited for preparation. With the
+owner's approval, production's system journal was vacuumed to 500 MB (1.9 GB freed) and these
+staging folders were removed after checking that no container mounts them, no process holds
+them open and no live configuration references them: `cutover19` (pre-cutover database
+dumps; `deploy-before-execution-v2.sh`, recorded in `live20/deployment-guard.json`, was kept),
+`container-model-backup` (a copy of the CatRange model files, which remain in `models/CatRange`
+and `models-release/CatRange`), `log-archive` (container console logs of 4 and 9 November),
+`probes` and `cpu-coverage70` (profiling probe outputs). Free space rose from 16.0 to 22.8 GiB;
+gG8zEPK completed at 23:08:57 and background preparation resumed. journald has no size cap,
+so the journal will grow again.
