@@ -57,14 +57,24 @@ cloned `gpu16-EITLEM-predict-Km`, `production70-EITLEM-Km`, `gpu16-UniKP-predict
 `production70-UniKP-Km` to `-mol1024` (`max_molecule_length` 1024, RAM ×1.25; same image,
 fingerprint, settings and model identity); the seven stages were bound at once.
 
-The request's final assemblies then needed 1,222-1,233 MiB above production's 15 GiB headroom,
-with 1,044 MiB available, and 1,003 background requests waited for preparation. With the
-owner's approval, production's system journal was vacuumed to 500 MB (1.9 GB freed) and these
-staging folders were removed after checking that no container mounts them, no process holds
-them open and no live configuration references them: `cutover19` (pre-cutover database
-dumps; `deploy-before-execution-v2.sh`, recorded in `live20/deployment-guard.json`, was kept),
-`container-model-backup` (a copy of the CatRange model files, which remain in `models/CatRange`
-and `models-release/CatRange`), `log-archive` (container console logs of 4 and 9 November),
-`probes` and `cpu-coverage70` (profiling probe outputs). Free space rose from 16.0 to 22.8 GiB;
-gG8zEPK completed at 23:08:57 and background preparation resumed. journald has no size cap,
-so the journal will grow again.
+At 20:50 the request's final assemblies needed 1,222-1,233 MiB above production's 15 GiB
+headroom, with 1,044 MiB available, and 1,003 background requests waited for preparation. The
+assemblies ran later without intervention, and gG8zEPK completed at 23:08:56. Production then
+stayed near 16 GiB free, so background preparation stayed paused overnight. The GPU host ran
+out of prepared work and was mostly idle: 0-50 attempts an hour from 00:00 to 02:59, and none
+from 06:00 to 07:59 or from 09:00 to 10:59.
+
+The owner approved a cleanup at about 11:15 on 16 November. From 11:17 to 11:18, production's
+system journal was vacuumed to 500 MB (1.9 GB freed). These staging folders were removed after
+checking that no container mounts them, no process holds them open and no live configuration
+references them:
+
+* `cutover19`: pre-cutover database dumps. `deploy-before-execution-v2.sh`, recorded in
+  `live20/deployment-guard.json`, was kept.
+* `container-model-backup`: a copy of the CatRange model files, which remain in
+  `models/CatRange` and `models-release/CatRange`.
+* `log-archive`: container console logs of 4 and 9 November.
+* `probes` and `cpu-coverage70`: profiling probe outputs.
+
+Free space rose from 15.8 to 22.7 GiB (Prometheus, 11:16 and 11:26), and background preparation
+resumed. journald has no size cap, so the journal will grow again.
