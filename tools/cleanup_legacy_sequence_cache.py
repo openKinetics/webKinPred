@@ -29,11 +29,12 @@ DIRECTORIES = [
     "catpred_esm2",
 ]
 # Production's own load keeps full I/O pressure near 1 %; unthrottled unlinking raised the
-# one-minute average to 5 % within minutes (its journal writes land after each burst).
+# one-minute average to 5 % within minutes (its journal writes land after each burst), and
+# 750 files a second still produced one-minute peaks of 8-10 %; 200 a second is the cap.
 LIMIT = float(os.environ.get("CLEANUP_MAX_IO_FULL", "2.0"))
 LIMIT60 = float(os.environ.get("CLEANUP_MAX_IO_FULL60", "2.5"))
-BATCH = 200
-PAUSE = 0.25
+BATCH = 100
+PAUSE = 0.5
 LOG = sys.argv[1]
 
 

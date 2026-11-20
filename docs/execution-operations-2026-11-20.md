@@ -73,8 +73,10 @@ It refuses any path inside the portal's roots. It runs at idle CPU and I/O prior
 Throttling matters on this rotating disk. Production's own load keeps full I/O pressure near
 1 %. The first, unthrottled run raised the one-minute average to 5 %, the supervisors'
 host-pressure limit, within minutes, because each burst's journal writes land after it. The
-script now unlinks at most 200 files every 0.25 s and waits while full pressure exceeds 2 %
-(10 s) or 2.5 % (60 s), so about 200 files a second and several hours in all.
+script waits while full pressure exceeds 2 % (10 s) or 2.5 % (60 s). At up to 800 files a
+second it still produced one-minute peaks of 8-10 % at 12:15 and 12:45, because each burst ran
+until the 10 s average caught up. Since 12:48 it unlinks at most 100 files every 0.5 s, so the
+remaining 5.3 million files take most of a day.
 
 On the GPU host the owner's research downloaded `esm1v_t33_650M_UR90S_2.pt` (7.8 GB) to
 `/home/msp/.cache/torch` at 11:20. That cache belongs to the research, and it was left alone.
