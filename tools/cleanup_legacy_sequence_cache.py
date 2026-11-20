@@ -9,6 +9,7 @@ the supervisors' 5 % host-pressure gate stays open.
 """
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -35,6 +36,14 @@ LIMIT = float(os.environ.get("CLEANUP_MAX_IO_FULL", "2.0"))
 LIMIT60 = float(os.environ.get("CLEANUP_MAX_IO_FULL60", "2.5"))
 BATCH = 100
 PAUSE = 0.5
+# Even at that pace, an artifact transfer at 13:12 was stopped by the host-pressure check,
+# so deletion waits while any request is pending or processing.
+UNFINISHED = (
+    "docker", "exec", "webkinpred-execution-db-1", "psql", "-U", "webkinpred",
+    "-d", "webkinpred_live_20261028", "-tAc",
+    "select count(*) from api_job where status in ('Pending', 'Processing')",
+)
+checked_at = 0.0
 LOG = sys.argv[1]
 
 
@@ -52,8 +61,27 @@ def pressure(field=1):
     return 0.0
 
 
+def busy():
+    """True while requests are unfinished (or the count fails); checked every 10 s."""
+    global checked_at
+    if time.monotonic() - checked_at < 10:
+        return False
+    try:
+        result = subprocess.run(UNFINISHED, capture_output=True, text=True, timeout=20)
+        unfinished = int(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        unfinished = -1
+    if unfinished == 0:
+        checked_at = time.monotonic()
+        return False
+    return True
+
+
 def quiet():
     waited = 0
+    while busy():
+        time.sleep(30)
+        waited += 30
     while pressure() > LIMIT or pressure(2) > LIMIT60:
         time.sleep(5)
         waited += 5

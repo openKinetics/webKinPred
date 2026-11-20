@@ -75,8 +75,11 @@ Throttling matters on this rotating disk. Production's own load keeps full I/O p
 host-pressure limit, within minutes, because each burst's journal writes land after it. The
 script waits while full pressure exceeds 2 % (10 s) or 2.5 % (60 s). At up to 800 files a
 second it still produced one-minute peaks of 8-10 % at 12:15 and 12:45, because each burst ran
-until the 10 s average caught up. Since 12:48 it unlinks at most 100 files every 0.5 s, so the
-remaining 5.3 million files take most of a day.
+until the 10 s average caught up. Since 12:48 it unlinks at most 100 files every 0.5 s. At 13:12 an EITLEM prediction on
+production was still stopped by the host-pressure check during its artifact transfer
+("Capacity changed during artifact transfer"; it was retried). Since 13:20 the cleanup also
+waits while any request is pending or processing, so it deletes only while the queue is empty.
+Production had 35.7 GiB free by then.
 
 On the GPU host the owner's research downloaded `esm1v_t33_650M_UR90S_2.pt` (7.8 GB) to
 `/home/msp/.cache/torch` at 11:20. That cache belongs to the research, and it was left alone.
