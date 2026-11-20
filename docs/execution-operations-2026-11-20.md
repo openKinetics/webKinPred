@@ -108,3 +108,16 @@ Left in place:
 * Release build directories in staging (1.5 GB).
 * `production-backup/models` on the GPU host: mostly hard links to the model tree, and the
   source for `repair_model_copy.py`.
+
+The cleanup finished at 22:05:46. Its runs removed 7.1 million files in total; the last run
+logged 5,004,855 files (29.7 GiB), most of them the 4,758,926 CatPred files. All the portal's
+data was intact afterwards:
+
+* `esm2_layer_33/residue_vecs`: 17,067 files
+* `esmc_layer_32/residue_vecs`: 17,067 files
+* `prot_t5_last/residue_vecs`: 17,486 files
+* `pseq2sites_scores`: 146,949 files
+* `seqmap.sqlite3`: opens read-only from inside `openkinetics-data-backend-1`
+
+`media/sequence_info` is now 97 GB. Production went from 17.2 GB free that morning to 79.7 GB
+(74.3 GiB). No request waited for the cleanup.
