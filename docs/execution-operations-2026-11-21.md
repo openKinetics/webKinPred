@@ -53,10 +53,11 @@ per-process I/O ran from 09:47 to 10:17. In 27 minutes no 5 s interval stalled f
 job media, the legacy cache and staging, plus `docker system df`, which walks the volumes.
 On the rotating disk that was the 7-10 % minute at :14-:16 and :44-:46 of every hour.
 
-Since 10:15 `staging/monitor_sizes.sh` measures only small directories on every pass. The
-large trees and `docker system df` are measured at most every three hours, at idle CPU and I/O
+Since 10:15 `staging/monitor_sizes.sh` measures only small directories on every pass. Since
+12:46 Loki's data volume (328,488 chunk files) also counts as a large tree. The large trees
+and `docker system df` are measured at most every three hours, at idle CPU and I/O
 priority, and the last values are repeated in between (`/var/tmp/webkinpred-monitor-heavy.txt`).
-A pass now takes 3 s instead of about 30 s. The previous script is kept as
+The size step of a pass now takes under a second instead of about 30 s. The previous script is kept as
 `monitor_sizes.sh.before1121`.
 
 ## Similarity summaries longer than 300 s are cut off
