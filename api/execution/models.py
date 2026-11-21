@@ -228,6 +228,17 @@ class ExecutionOutbox(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     published_at = models.DateTimeField(null=True)
 
+    class Meta:
+        indexes = [
+            # The progress projector polls for unpublished events several times a
+            # second; without this it scanned all published rows each time.
+            models.Index(
+                fields=["id"],
+                condition=models.Q(published_at__isnull=True),
+                name="outbox_unpublished_id",
+            )
+        ]
+
 
 class QuotaDay(models.Model):
     subject = models.CharField(max_length=128)
