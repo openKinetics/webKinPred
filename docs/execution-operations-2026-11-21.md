@@ -56,7 +56,9 @@ On the rotating disk that was the 7-10 % minute at :14-:16 and :44-:46 of every 
 Since 10:15 `staging/monitor_sizes.sh` measures only small directories on every pass. Since
 12:46 Loki's data volume (328,488 chunk files) also counts as a large tree. Since 19:46 the
 database volume does too. Its 3,500 files' metadata is evicted between passes, and reading it again
-from the rotating disk still gave 2-4 % minutes. The status query reports the database size anyway. The large trees
+from the rotating disk still gave 2-4 % minutes. The status query reports the database size anyway. The three-hourly walk itself still
+gives one 4-5 % minute, so since 23:16 it also waits while any request is pending or processing,
+unless its values are 12 hours old. The large trees
 and `docker system df` are measured at most every three hours, at idle CPU and I/O
 priority, and the last values are repeated in between (`/var/tmp/webkinpred-monitor-heavy.txt`).
 The size step of a pass now takes under a second instead of about 30 s. The previous script is kept as
