@@ -138,6 +138,13 @@ class ExecutionAttempt(models.Model):
         indexes = [
             models.Index(models.F("outcome__category"), name="attempt_outcome_category"),
             models.Index(fields=["finished_at"], name="attempt_finished_time"),
+            # Every cleanup claim looks for a host's attempts whose scratch is not yet
+            # released; without this it read every attempt that host ever ran.
+            models.Index(
+                fields=["host", "started_at"],
+                condition=models.Q(scratch_released_at__isnull=True),
+                name="attempt_unreleased_scratch",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
