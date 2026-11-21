@@ -5,8 +5,9 @@
 On 20 November at 14:16, and again on 21 November at 08:15, production's one-minute full I/O
 pressure reached 7-10 % with no request running and no cleanup or backup active. In 30 s
 Postgres read 435,000-531,000 blocks (3.4-4.3 GB) from outside its 128 MB shared buffers.
-Per-table counters (`pg_statio_user_tables`, `pg_stat_user_tables`) over 60 s showed two
-causes:
+Those spikes turned out to be the monitoring pass itself (see the next section). The reads
+were a separate, constant load. Per-table counters (`pg_statio_user_tables`,
+`pg_stat_user_tables`) over 60 s showed two causes:
 
 * **Outbox.** The progress projector asks for the oldest unpublished event
   (`published_at IS NULL ... ORDER BY id LIMIT 1`) about 5.5 times a second. With no index
@@ -42,6 +43,21 @@ active-execution queries, but it fits in shared buffers.
 
 **Build the next control release from `webkinpred-control-fix:r154`, so that it keeps
 migrations 0046 and 0047.**
+
+## The monitoring pass caused the idle pressure spikes
+
+The spikes continued after the indexes (6.7 % at 09:45). A sampler of disk stall time and
+per-process I/O ran from 09:47 to 10:17. In 27 minutes no 5 s interval stalled for more than
+400 ms until 10:14, the next monitoring pass, when `monitor_sizes.sh` stalled the disk for
+0.4-1.2 s per interval. Each pass ran `du` over the blob store (millions of small files),
+job media, the legacy cache and staging, plus `docker system df`, which walks the volumes.
+On the rotating disk that was the 7-10 % minute at :14-:16 and :44-:46 of every hour.
+
+Since 10:15 `staging/monitor_sizes.sh` measures only small directories on every pass. The
+large trees and `docker system df` are measured at most every three hours, at idle CPU and I/O
+priority, and the last values are repeated in between (`/var/tmp/webkinpred-monitor-heavy.txt`).
+A pass now takes 3 s instead of about 30 s. The previous script is kept as
+`monitor_sizes.sh.before1121`.
 
 ## Similarity summaries longer than 300 s are cut off
 
