@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 from typing import Any
 
@@ -87,7 +89,14 @@ def lookup_experimental(
         if isinstance(row, pd.DataFrame):
             row = row.iloc[0]
 
-        result = row.to_dict()
+        # Blank CSV cells arrive as NaN. A request's specification is stored as JSON
+        # and checksummed with allow_nan=False, so a matched row with a blank field
+        # (an SD, pH or mutation, for example) made the whole submission fail
+        # (22 November). The Extra Information text treats None and NaN alike.
+        result = {
+            key: None if isinstance(value, float) and math.isnan(value) else value
+            for key, value in row.to_dict().items()
+        }
         result["found"] = True
         result["idx"] = idx
         results.append(result)
