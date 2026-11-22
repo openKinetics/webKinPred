@@ -61,7 +61,9 @@ gives one 4-5 % minute, so since 23:16 it also waits while any request is pendin
 unless its values are 12 hours old. On 22 November it reached 6.6 % for a minute at 09:44, so since then
 it runs every six hours instead of three. On 22 November at 16:14 it still reached 7.2 %, so since 16:20
 the blob store, database volume, Loki and job media are walked every six hours, and the static
-trees (legacy cache, staging, `docker system df`) daily. Each tree is followed by a 15 s pause. The large trees
+trees (legacy cache, staging, `docker system df`) daily. Each tree is followed by a 15 s pause. The six-hourly walk still reached 5.0 % at 22:44, so
+since 22:50 the blob store and Loki are walked only daily. Free space is read on every pass, so
+total growth is still seen at once. The large trees
 and `docker system df` are measured at most every three hours, at idle CPU and I/O
 priority, and the last values are repeated in between (`/var/tmp/webkinpred-monitor-heavy.txt`).
 The size step of a pass now takes under a second instead of about 30 s. The previous script is kept as
