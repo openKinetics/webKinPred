@@ -1161,6 +1161,19 @@ def finish(host_id, attempt_id, data):
     for output in outputs:
         artifact = existing.get(output["id"])
         update = False
+        if artifact is not None and artifact.producer_id not in (None, stage.pk):
+            # Recovery gave this output to another stage, which owns its bytes. Keep
+            # that copy and commit this stage's own outputs instead of rejecting them all.
+            log.warning(
+                "Output owned by another stage",
+                extra={
+                    "event": "execution.output_reassigned",
+                    "attempt_id": str(attempt.pk),
+                    "artifact_id": artifact.pk,
+                    "producer_id": str(artifact.producer_id),
+                },
+            )
+            continue
         if artifact is None:
             artifact = Artifact(
                 id=output["id"],

@@ -360,3 +360,63 @@ def test_stopped_attempt_keeps_its_retry_payload_and_profile():
     batch.refresh_from_db()
     assert batch.payload == before
     assert RecoveryBatch.objects.get().generation == 2
+
+
+def test_unfinished_batch_keeps_its_outputs_when_the_same_job_needs_them_again():
+    _, artifacts = fixture(4)
+    first = consumer("same-job-first", artifacts[:2])
+    missing_dependencies(first.pk, None)
+    batch = RecoveryBatch.objects.get().stage
+    host = ExecutorHost.objects.create(id="gpu")
+    ExecutionAttempt.objects.create(
+        stage=batch,
+        host=host,
+        state="stopped",
+        lease_until=timezone.now(),
+        finished_at=timezone.now(),
+        outcome={"category": "executor_reconciled"},
+    )
+    second = WorkStage.objects.create(
+        execution=first.execution,
+        key="prediction-2",
+        kind="predict",
+        method="EITLEM",
+        target="kcat",
+        state="recovering",
+    )
+    attach(second, artifacts[0], artifacts[0].identity["path"])
+    missing_dependencies(second.pk, None)
+    assert RecoveryBatch.objects.get().generation == 1
+    artifacts[0].refresh_from_db()
+    assert artifacts[0].producer_id == batch.pk
+    assert second.dependencies.filter(pk=batch.pk).exists()
+
+
+def test_completion_keeps_an_output_that_recovery_gave_to_another_stage():
+    _, artifacts = fixture(2)
+    head = consumer("reassigned-head", artifacts)
+    missing_dependencies(head.pk, None)
+    batch = RecoveryBatch.objects.get().stage
+    newer = WorkStage.objects.create(
+        execution=batch.execution,
+        key="restore-batch:newer:2",
+        kind="embedding",
+        method="EITLEM",
+        target="kcat",
+        state="completed",
+    )
+    host = ExecutorHost.objects.create(id="gpu")
+    moved, own = artifacts
+    Artifact.objects.filter(pk=moved.pk).update(producer=newer, checksum="c" * 64, size=12)
+    ArtifactLocation.objects.create(artifact=moved, host=host, ready=True)
+    attempt = ExecutionAttempt.objects.create(
+        stage=batch, host=host, state="running", lease_until=timezone.now() + timedelta(seconds=30)
+    )
+    produced = [{**o, "checksum": "d" * 64, "size": 12} for o in batch.payload["outputs"]]
+    body = {"token": str(attempt.token), "stopped": True, "artifacts": produced}
+    assert control.finish(host.pk, attempt.pk, body) == {"state": "completed"}
+    moved.refresh_from_db()
+    own.refresh_from_db()
+    assert (moved.producer_id, moved.checksum) == (newer.pk, "c" * 64)
+    assert (own.producer_id, own.checksum) == (batch.pk, "d" * 64)
+    assert ArtifactLocation.objects.get(artifact=own, host=host).ready

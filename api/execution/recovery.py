@@ -195,7 +195,14 @@ def missing_dependencies(stage_id, host_id):
         if not artifact.regenerable or not _recoverable(original):
             unrecoverable = True
             continue
-        if _live(original) or original.state == "held":
+        if (
+            _live(original)
+            or original.state == "held"
+            or (original.key.startswith("restore-batch:") and original.state not in FINISHED)
+        ):
+            # An unfinished restore batch will still produce this output. Moving the
+            # output to a newer batch left the older one unable to commit (it no longer
+            # owned every declared output), so it retried forever (22 November).
             stage.dependencies.add(original)
             pending = True
             continue
