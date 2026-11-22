@@ -59,7 +59,9 @@ database volume does too. Its 3,500 files' metadata is evicted between passes, a
 from the rotating disk still gave 2-4 % minutes. The status query reports the database size anyway. The three-hourly walk itself still
 gives one 4-5 % minute, so since 23:16 it also waits while any request is pending or processing,
 unless its values are 12 hours old. On 22 November it reached 6.6 % for a minute at 09:44, so since then
-it runs every six hours instead of three. The large trees
+it runs every six hours instead of three. On 22 November at 16:14 it still reached 7.2 %, so since 16:20
+the blob store, database volume, Loki and job media are walked every six hours, and the static
+trees (legacy cache, staging, `docker system df`) daily. Each tree is followed by a 15 s pause. The large trees
 and `docker system df` are measured at most every three hours, at idle CPU and I/O
 priority, and the last values are repeated in between (`/var/tmp/webkinpred-monitor-heavy.txt`).
 The size step of a pass now takes under a second instead of about 30 s. The previous script is kept as
