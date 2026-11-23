@@ -74,4 +74,4 @@ an unchanged checksum, and the legacy queue still held 5,002 messages. In the fi
 the backend served 161 requests without an error. One GPU attempt stopped as `interrupted`
 around the restart; that category is temporary, so its stage retries.
 
-**Build the next control release from `webkinpred-control-fix:r156`.**
+Release 157 replaced it on 23 November (`docs/execution-operations-2026-11-23.md`).
