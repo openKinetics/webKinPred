@@ -82,7 +82,8 @@ def download_job_output(request, public_id):
 
     media_url = settings.MEDIA_ROOT + f"/{job.output_file.name}"
 
-    if not os.path.exists(media_url):
+    # An unfinished job has no output name, so the path is the media directory itself.
+    if not job.output_file.name or not os.path.isfile(media_url):
         raise Http404("No output file for this job.")
 
     slugified_id = slugify(str(public_id))
