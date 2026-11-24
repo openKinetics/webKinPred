@@ -120,6 +120,11 @@ TEMPLATES = [
 WSGI_APPLICATION = "webKinPred.wsgi.application"
 
 # Database
+# The v1 API accepts JSON submissions of up to 10,000 rows (api/views/v1_views.py), which
+# need far more than Django's 2.5 MB default request body. On 24 November two API
+# submissions above 2.5 MB were refused with a bare 400.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024 * 1024
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",

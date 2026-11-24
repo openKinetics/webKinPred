@@ -41,6 +41,7 @@ from api.utils.api_auth import require_api_key
 from api.utils.job_utils import coerce_bool_param
 from api.utils.quotas import get_quota_usage
 from api.utils.recon_xkg import coerce_recon_xkg, resolve_recon_xkg
+from django.core.exceptions import RequestDataTooBig
 from django.http import FileResponse, JsonResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -55,6 +56,21 @@ from django.views.decorators.http import require_GET
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     """Return a consistently formatted error response."""
     return JsonResponse({"error": message}, status=status)
+
+
+def _request_body_json(request):
+    """Decode a JSON request body; returns (body, error_response)."""
+    try:
+        return json.loads(request.body), None
+    except RequestDataTooBig:
+        limit = settings.DATA_UPLOAD_MAX_MEMORY_SIZE // (1024 * 1024)
+        return None, _json_error(
+            f"Request body exceeds the {limit} MB limit for JSON submission. "
+            "Use CSV file upload for larger datasets.",
+            status=413,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, _json_error("Request body is not valid JSON.")
 
 
 def _quota_dict(quota_subject: str, daily_limit: int | None = None) -> dict:
@@ -448,10 +464,9 @@ def _parse_json_body(request):
 
     Returns (csv_file, params, error).  On success, error is None.
     """
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None, None, _json_error("Request body is not valid JSON.")
+    body, error = _request_body_json(request)
+    if error:
+        return None, None, error
 
     rows = body.get("data")
 
@@ -849,10 +864,9 @@ def _parse_validate_json_body(request):
 
     Returns (csv_file, run_similarity, error).  On success, error is None.
     """
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None, False, _json_error("Request body is not valid JSON.")
+    body, error = _request_body_json(request)
+    if error:
+        return None, False, error
 
     rows = body.get("data")
 
