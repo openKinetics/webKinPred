@@ -24,4 +24,4 @@ at a time, limited by VRAM reservations, at 150-290 stages per half hour. Short 
 much of their time starting a container and loading the model. Both requests had completed
 by 16:37.
 
-**Build the next control release from `webkinpred-control-fix:r157`.**
+Release 158 (below) replaced it on 24 November.
