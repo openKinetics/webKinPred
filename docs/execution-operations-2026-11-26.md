@@ -39,3 +39,39 @@ artifact transfer"), which were retried and do not suspend anything.
 
 Open issue: on a shared GPU, any research burst can permanently suspend a cohort profile,
 and nothing restores it automatically. The KinForm-H T5 cohort stayed suspended for 14 days.
+
+## Loki kept every log since April, and its own log was unbounded
+
+Production's free space fell 1.1 GiB in the half hour after the backlog drained, and the
+webKinPred stores did not account for it. Two monitoring leaks did:
+
+- `monitoring/loki/config.yml` set `retention_period: 168h`, but Loki applies retention only
+  through the compactor (`retention_enabled`), which was not configured. Every chunk since
+  April 2026 was kept: 183,000 files and 217 daily index tables, 3.0 GB. Of those files,
+  179,000 (1.7 GiB) were more than 7 days old.
+- Loki logged each periodic index-table upload at info level: about 3,500 lines every
+  10 minutes. The host's Docker daemon has no log rotation, so Loki's container log had reached
+  1.44 GB since 9 November. Promtail also shipped those lines back into Loki.
+
+Commit 9d32443 changes three things:
+- It enables compactor retention: 10-minute passes, a 24 h delete delay and one delete worker.
+- It sets Loki's `log_level: warn`.
+- It caps Loki's container log at 3 × 50 MB in `docker-compose.prod.yml`.
+
+The config passed `-verify-config` on the production `grafana/loki:2.9.8` image. At 02:55,
+`docker compose -f docker-compose.prod.yml up -d --no-deps loki` recreated only Loki;
+Promtail kept its positions, and only its in-flight batches were retried. The old container's
+log went with it, freeing 1.4 GB. Promtail and the other services keep the daemon's
+unlimited default. Recreating Promtail loses its read positions, which live in `/tmp` inside
+the container, and it would then re-read every container log.
+
+The compactor's sweeper unlinks without pacing, and on this disk 750 unlinks a second pushed
+one-minute full I/O pressure to 8-10 %, past the supervisors' 5 % launch gate.
+`tools/cleanup_loki_chunks.py` (`staging/loki_chunk_cleanup_1126.py`, log
+`staging/loki-chunk-cleanup-1126.jsonl`) therefore removes chunk files older than 8 days at
+200 operations a second, only while no request is unfinished and full pressure stays under 2 %.
+The sweeper's 24 h delay gives it time to finish first. The sweeper treats chunks that are
+already gone as deleted.
+
+Scanning the chunk tree with `find` (even at idle I/O priority) raised one-minute full
+pressure to 8 %. Avoid unpaced walks of this directory.
