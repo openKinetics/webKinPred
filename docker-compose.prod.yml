@@ -216,6 +216,12 @@ services:
       - ./monitoring/loki/config.yml:/etc/loki/config.yml:ro
       - loki_data:/loki
     restart: unless-stopped
+    # The host daemon has no default rotation; Loki's own log reached 1.44 GB.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   promtail:
     image: grafana/promtail:2.9.8
