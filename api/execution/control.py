@@ -1294,6 +1294,30 @@ def finish(host_id, attempt_id, data):
     return {"state": "completed"}
 
 
+def _suspend_cohort_after_oom(profile_id, host_id):
+    """Suspend an enlarged unit's profile, noting whether other users were using the GPU.
+
+    cohorts.restore_shared_gpu_suspensions lifts only suspensions recorded as shared,
+    once that outside work is gone; any other OOM keeps the profile suspended.
+    """
+    telemetry = (
+        ExecutorHost.objects.filter(pk=host_id).values_list("telemetry", flat=True).first() or {}
+    )
+    profile = ResourceProfile.objects.select_for_update().get(pk=profile_id)
+    profile.suspended = True
+    external = telemetry.get("gpu_external", 0)
+    if external >= 1:  # cohorts.SHARED_GPU_EXTERNAL; importing cohorts here is circular
+        profile.evidence["shared_gpu_suspension"] = {
+            "at": timezone.now().isoformat(),
+            "host": host_id,
+            "gpu_external": external,
+            "quiet_since": None,
+        }
+    else:
+        profile.evidence.pop("shared_gpu_suspension", None)
+    profile.save(update_fields=["suspended", "evidence"])
+
+
 @transaction.atomic
 def fail(host_id, attempt_id, data):
     attempt = _owned(host_id, attempt_id, data["token"])
@@ -1393,7 +1417,7 @@ def fail(host_id, attempt_id, data):
             stage.payload["split_width"] = 1
             stage.save(update_fields=["payload"])
         if stage.waiting_reason == "oom" and stage.profile.settings.get("cohort_sources"):
-            ResourceProfile.objects.filter(pk=stage.profile_id).update(suspended=True)
+            _suspend_cohort_after_oom(stage.profile_id, host_id)
         ExecutionOutbox.objects.get_or_create(
             key=f"split-cohort:{attempt.pk}", defaults={"event": {"split_cohort": str(stage.pk)}}
         )

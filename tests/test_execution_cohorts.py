@@ -711,3 +711,122 @@ def test_large_request_split_queues_progress_instead_of_projecting_in_the_pass(m
     assert ExecutionOutbox.objects.filter(
         key=f"progress:{execution.pk}", published_at__isnull=True
     ).exists()
+
+
+def _cohort_oom(external):
+    """Run one cohort, fail it with OOM while others use `external` % of the GPU, split it."""
+    from api.execution.cohorts import split_cohort
+
+    host, _, original, large, stages, _ = setup_cohort()
+    host.telemetry = {"gpu_uuid": "GPU-test", "gpu_external": external}
+    host.save(update_fields=["telemetry"])
+    cohort = WorkStage.objects.get(pk=coalesce()[0])
+    attempt = ExecutionAttempt.objects.create(
+        stage=cohort,
+        host=host,
+        state="running",
+        profile_fingerprint=large.fingerprint,
+        lease_until=timezone.now(),
+    )
+    control.fail(
+        host.pk, attempt.pk, {"token": str(attempt.token), "stopped": True, "category": "oom"}
+    )
+    assert split_cohort(cohort.pk)
+    large.refresh_from_db()
+    return host, large, stages
+
+
+def _observe(host, now, external):
+    from api.execution.cohorts import restore_shared_gpu_suspensions
+
+    host.heartbeat_at = now
+    host.telemetry = {"gpu_uuid": "GPU-test", "gpu_external": external}
+    host.save(update_fields=["heartbeat_at", "telemetry"])
+    return restore_shared_gpu_suspensions(now)
+
+
+def test_shared_gpu_oom_suspension_lifts_after_other_gpu_work_ends():
+    from api.execution.cohorts import reopen_cohort_pieces
+    from api.execution.models import ExecutionOutbox
+
+    host, large, stages = _cohort_oom(external=55)
+    assert large.suspended and large.evidence["shared_gpu_suspension"]["gpu_external"] == 55
+    pieces = WorkStage.objects.filter(pk__in=[s.pk for s in stages])
+    assert all(p.state == "ready" and p.payload["do_not_coalesce"] for p in pieces)
+
+    start = timezone.now()
+    assert _observe(host, start, 0) == []
+    assert _observe(host, start + timedelta(minutes=10), 0) == []
+    large.refresh_from_db()
+    assert large.suspended
+    assert _observe(host, start + timedelta(minutes=16), 0) == [large.pk]
+    large.refresh_from_db()
+    assert not large.suspended and "shared_gpu_suspension" not in large.evidence
+    assert large.evidence["restorations"][-1]["suspension"]["gpu_external"] == 55
+    event = ExecutionOutbox.objects.get(event__reopen_cohort_pieces=large.pk)
+
+    assert reopen_cohort_pieces(event.event["reopen_cohort_pieces"]) == 4
+    assert not any("do_not_coalesce" in p.payload for p in pieces.all())
+    host.heartbeat_at = timezone.now()
+    host.save(update_fields=["heartbeat_at"])
+    # The split gives every unit the failed cohort's retry back-off.
+    pieces.update(available_at=timezone.now() - timedelta(seconds=1))
+    merged = WorkStage.objects.get(pk=coalesce()[0])
+    assert merged.profile_id == large.pk
+    assert set(merged.payload["cohort_source_stages"]) == {str(s.pk) for s in stages}
+    # Same members as the canceled cohort, which keeps the original key.
+    first = WorkStage.objects.get(execution=merged.execution, state="canceled", key__startswith="cohort:")
+    assert merged.key == first.key + ":2"
+
+
+def test_other_gpu_work_restarts_the_quiet_period():
+    host, large, _ = _cohort_oom(external=55)
+    start = timezone.now()
+    assert _observe(host, start, 0) == []
+    assert _observe(host, start + timedelta(minutes=10), 30) == []
+    large.refresh_from_db()
+    assert large.evidence["shared_gpu_suspension"]["quiet_since"] is None
+    assert _observe(host, start + timedelta(minutes=16), 0) == []
+    assert _observe(host, start + timedelta(minutes=30), 0) == []
+    assert _observe(host, start + timedelta(minutes=32), 0) == [large.pk]
+
+
+def test_missing_gpu_telemetry_never_counts_as_quiet():
+    host, large, _ = _cohort_oom(external=55)
+    start = timezone.now()
+    for minutes in (0, 20, 40):
+        host.heartbeat_at = start + timedelta(minutes=minutes)
+        host.telemetry = {"gpu_uuid": "GPU-test"}  # pmon sample stale or absent
+        host.save(update_fields=["heartbeat_at", "telemetry"])
+        from api.execution.cohorts import restore_shared_gpu_suspensions
+
+        assert restore_shared_gpu_suspensions(start + timedelta(minutes=minutes)) == []
+    large.refresh_from_db()
+    assert large.suspended
+
+
+def test_oom_without_other_gpu_users_keeps_the_profile_suspended():
+    host, large, _ = _cohort_oom(external=0)
+    assert large.suspended and "shared_gpu_suspension" not in large.evidence
+    start = timezone.now()
+    for minutes in (0, 20, 40):
+        assert _observe(host, start + timedelta(minutes=minutes), 0) == []
+    large.refresh_from_db()
+    assert large.suspended
+
+
+def test_units_of_a_split_cohort_can_merge_into_the_same_cohort_again():
+    """Production, 26 Nov 2026: re-merging the same units reused the canceled cohort's key."""
+    host, large, stages = _cohort_oom(external=55)
+    large.suspended = False
+    large.save(update_fields=["suspended"])
+    pieces = WorkStage.objects.filter(pk__in=[s.pk for s in stages])
+    for piece in pieces:
+        piece.payload.pop("do_not_coalesce")
+        piece.available_at = timezone.now() - timedelta(seconds=1)
+        piece.save(update_fields=["payload", "available_at"])
+    host.heartbeat_at = timezone.now()
+    host.save(update_fields=["heartbeat_at"])
+    merged = WorkStage.objects.get(pk=coalesce()[0])
+    assert merged.key.endswith(":2") and merged.state == "ready"
+    assert pieces.filter(state="canceled", waiting_reason="coalesced").count() == 4

@@ -8,13 +8,23 @@ all of their original boundaries.
 import logging
 from collections import defaultdict
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef, Prefetch, Q
-from django.db.models.functions import Coalesce
+from django.db.models import (
+    Exists,
+    F,
+    Func,
+    JSONField,
+    OuterRef,
+    Prefetch,
+    Q,
+    TextField,
+    Value,
+)
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from api.execution.control import digest
@@ -22,6 +32,7 @@ from api.execution.models import (
     Artifact,
     ArtifactDependency,
     ExecutionAttempt,
+    ExecutionOutbox,
     ExecutionSpec,
     ExecutorHost,
     ResourceProfile,
@@ -45,6 +56,13 @@ STEPS = frozenset(
 )
 INPUT_STEPS = frozenset({"kinform_pseq2sites", "kinform_pool"})
 _profile_cursor = 0
+# On a GPU shared with other users, an OOM usually means their work took memory after
+# admission: five cohort profiles were each suspended by one such OOM, after 200-2,209
+# clean runs, and stayed suspended for 2-14 days. Such suspensions lift once no other
+# user's GPU compute has been seen for this long.
+SHARED_GPU_QUIET = timedelta(minutes=15)
+# Mean SM % of processes outside webKinPred's slice (agent telemetry "gpu_external").
+SHARED_GPU_EXTERNAL = 1
 
 
 def merged_payload(stages, profile):
@@ -113,6 +131,7 @@ def coalesce(limit=64, *, cross_jobs=None, profile_id=None, batch_limit=4, pendi
         cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", [481726392])
         if not cursor.fetchone()[0]:
             return []
+    restore_shared_gpu_suspensions()
     for ident in WorkStage.objects.filter(
         state="ready",
         profile__suspended=True,
@@ -374,9 +393,17 @@ def replace(stages, profile):
         oldest = min(
             s.oldest_consumer_at or owners[s.execution_id].job.submission_time for s in stages
         )
+    # A split cohort's units can merge again once its profile is restored, and the
+    # canceled cohort keeps its key: on 26 November 2026 reusing it raised
+    # execution_stage_key violations that restarted the controller seven times.
+    base = key = "cohort:" + digest(sorted(map(str, ids)))
+    generation = 1
+    while WorkStage.objects.filter(execution_id=execution_id, key=key).exists():
+        generation += 1
+        key = f"{base}:{generation}"
     stage = WorkStage.objects.create(
         execution_id=execution_id,
-        key="cohort:" + digest(sorted(map(str, ids))),
+        key=key,
         kind=stages[0].kind,
         method=stages[0].method,
         target=stages[0].target,
@@ -418,6 +445,120 @@ def replace(stages, profile):
         state="canceled", waiting_reason="coalesced"
     )
     return str(stage.pk)
+
+
+def shared_gpu_quiet(now=None):
+    """True when every live GPU host reports no other user's GPU compute."""
+    now = now or timezone.now()
+    telemetry = [
+        t
+        for t in ExecutorHost.objects.filter(
+            paused=False, heartbeat_at__gte=now - timedelta(seconds=60)
+        ).values_list("telemetry", flat=True)
+        if t.get("gpu_uuid")
+    ]
+    # gpu_external is present only while the host's pmon sampler is current.
+    return bool(telemetry) and all(
+        t.get("gpu_external", SHARED_GPU_EXTERNAL) < SHARED_GPU_EXTERNAL for t in telemetry
+    )
+
+
+@transaction.atomic
+def restore_shared_gpu_suspensions(now=None):
+    """Lift cohort suspensions caused by other users' GPU work once that work is gone.
+
+    The quiet period is kept on the profile, so a brief pause in their work (between
+    training epochs, say) does not lift it; any external compute restarts the period.
+    """
+    now = now or timezone.now()
+    profiles = list(
+        ResourceProfile.objects.select_for_update(skip_locked=True).filter(
+            suspended=True, evidence__has_key="shared_gpu_suspension"
+        )
+    )
+    if not profiles:
+        return []
+    quiet = shared_gpu_quiet(now)
+    restored = []
+    for profile in profiles:
+        record = profile.evidence["shared_gpu_suspension"]
+        since = record.get("quiet_since")
+        if not quiet:
+            if since:
+                record["quiet_since"] = None
+                profile.save(update_fields=["evidence"])
+            continue
+        if not since:
+            record["quiet_since"] = now.isoformat()
+            profile.save(update_fields=["evidence"])
+            continue
+        if now - datetime.fromisoformat(since) < SHARED_GPU_QUIET:
+            continue
+        profile.suspended = False
+        del profile.evidence["shared_gpu_suspension"]
+        profile.evidence.setdefault("restorations", []).append(
+            {
+                "at": now.isoformat(),
+                "reason": "automatic: no other GPU compute for "
+                f"{int(SHARED_GPU_QUIET.total_seconds() // 60)} minutes",
+                "suspension": record,
+            }
+        )
+        profile.save(update_fields=["suspended", "evidence"])
+        ExecutionOutbox.objects.get_or_create(
+            key=f"reopen-cohort:{profile.pk}:{now.isoformat()}",
+            defaults={"event": {"reopen_cohort_pieces": profile.pk}},
+        )
+        restored.append(profile.pk)
+        logging.getLogger(__name__).warning(
+            "Cohort profile restored after shared-GPU OOM",
+            extra={"event": "execution.cohort_restored", "profile_id": profile.pk},
+        )
+    return restored
+
+
+def reopen_cohort_pieces(profile_id, batch=500):
+    """Let a restored cohort profile merge the untried units its OOM split apart.
+
+    Splitting marks every unit do_not_coalesce so a suspended profile is not refilled;
+    units that were tried or failed keep the mark. Runs outside the cohort pass, in
+    small transactions, because a split can reopen thousands of units.
+    """
+    profile = ResourceProfile.objects.filter(pk=profile_id, suspended=False).first()
+    if profile is None:
+        return 0
+    sources = list(
+        ResourceProfile.objects.filter(
+            fingerprint__in=profile.settings.get("cohort_sources", [])
+        ).values_list("pk", flat=True)
+    )
+    reopened = 0
+    while True:
+        with transaction.atomic():
+            ids = list(
+                WorkStage.objects.select_for_update(skip_locked=True)
+                .filter(
+                    profile_id__in=sources,
+                    state="ready",
+                    failures=0,
+                    payload__do_not_coalesce=True,
+                )
+                .annotate(tried=Exists(ExecutionAttempt.objects.filter(stage_id=OuterRef("pk"))))
+                .filter(tried=False)
+                .values_list("pk", flat=True)[:batch]
+            )
+            if not ids:
+                return reopened
+            WorkStage.objects.filter(pk__in=ids).update(
+                payload=Func(
+                    F("payload"),
+                    Cast(Value("do_not_coalesce"), TextField()),
+                    arg_joiner=" - ",
+                    template="(%(expressions)s)",
+                    output_field=JSONField(),
+                )
+            )
+            reopened += len(ids)
 
 
 def split_cohort(ident):

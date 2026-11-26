@@ -138,6 +138,10 @@ class Command(BaseCommand):
                             from api.execution.cohorts import split_cohort
 
                             split_cohort(event.event["split_cohort"])
+                        if event.event.get("reopen_cohort_pieces"):
+                            from api.execution.cohorts import reopen_cohort_pieces
+
+                            reopen_cohort_pieces(event.event["reopen_cohort_pieces"])
                         if event.event.get("recover_stage"):
                             from api.execution.recovery import missing_dependencies
 
