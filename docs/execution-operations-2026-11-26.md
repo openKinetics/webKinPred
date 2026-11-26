@@ -75,3 +75,9 @@ already gone as deleted.
 
 Scanning the chunk tree with `find` (even at idle I/O priority) raised one-minute full
 pressure to 8 %. Avoid unpaced walks of this directory.
+
+The cleanup started at 02:56 and waited for the last request until about 03:15. It finished at
+03:48, having removed 179,166 chunk files (1.80 GB) and 146,183 emptied stream directories.
+It paused for 1,180 s in total. One-minute full pressure stayed between 1.5 and 3.5 % while it
+deleted, and fell to 0.4 % afterwards. Production went from 72.1 GiB free before the Loki
+changes to 75.8 GiB.
