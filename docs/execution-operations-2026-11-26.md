@@ -81,3 +81,42 @@ The cleanup started at 02:56 and waited for the last request until about 03:15. 
 It paused for 1,180 s in total. One-minute full pressure stayed between 1.5 and 3.5 % while it
 deleted, and fell to 0.4 % afterwards. Production went from 72.1 GiB free before the Loki
 changes to 75.8 GiB.
+
+## The manual restore restarted the controller; release 159 automates restoration safely
+
+Clearing `do_not_coalesce` by hand at 02:21 let `cohorts.coalesce` regroup some units into
+exactly the cohorts they had been split from. `replace()` keys a cohort by its member stage
+IDs, and the canceled cohort still held that key, so creating the new one violated
+`execution_stage_key`. That `IntegrityError` is not caught by the controller loop, so
+`execution_controller` exited seven times between 02:21:11 and 02:21:48 (restart count 7).
+It ran cleanly after 02:21:48, once claims had changed the candidate groups. The controller
+was down for about 37 s in total, and nothing was lost: each failed pass rolled back.
+
+Commit fadd13a (`webkinpred-control-fix:r159`, `sha256:738ad35e…`, built from r158):
+
+- Cohort keys: when a stage with the same `cohort:<digest>` already exists in the execution,
+  the new cohort gets a generation suffix (`:2`, `:3`, ...).
+- `control.fail` records `evidence.shared_gpu_suspension` (time, host and the host's
+  `gpu_external`) when a cohort OOM happens while other users' processes use at least 1 %
+  mean SM. Other cohort OOMs suspend the profile as before, with no automatic restoration.
+- Each cohort pass calls `cohorts.restore_shared_gpu_suspensions`. It keeps `quiet_since` on
+  the profile and lifts the suspension after 15 minutes during which every live GPU host
+  reported `gpu_external` below 1 %. Any external compute, or a missing pmon sample, restarts
+  the period. Each restoration is logged as `execution.cohort_restored` and recorded in
+  `evidence.restorations`.
+- A `reopen_cohort_pieces` outbox event then clears `do_not_coalesce`, in transactions of 500,
+  on the source units that are ready, untried and have no failures. This runs outside the
+  cohort pass and its 3 s statement limit.
+- `tests/test_execution_cohorts.py` adds five tests: restoration after the quiet period, a
+  reset by external work, missing telemetry, a non-shared OOM, and re-merging the same
+  units. The re-merge test reproduces the production `UniqueViolation` without the key change.
+  The full suite gave 760 passed, with the same 5 setup errors.
+
+The image's copies of the three replaced files matched the repository before the change.
+`staging/release159/deploy_control159.sh` recreated the backend, controller and control
+worker at 04:24:31. Preservation (`preservation113/*159*`): the one unfinished request
+(xrghY3g, 7,354 rows, processing) was present afterwards with unchanged checksums. The Redis
+snapshots were identical, and the legacy queue still held 5,002 messages. MWi2hIV was then
+submitted through the new backend.
+
+**Build the next control release from `webkinpred-control-fix:r159`.**
