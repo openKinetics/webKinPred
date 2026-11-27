@@ -120,3 +120,9 @@ snapshots were identical, and the legacy queue still held 5,002 messages. MWi2hI
 submitted through the new backend.
 
 **Build the next control release from `webkinpred-control-fix:r159`.**
+
+The compactor's sweeper started on the marked backlog when the 24 h delay expired, at about
+03:05 on 27 November, and finished by 03:44. Most marked chunks (180,768) were already gone;
+it deleted the 413 that were 7-8 days old. While it ran, production's one-minute full pressure
+was about 2 % with no requests; it fell back to 0.1 % once the sweeper finished. From now on
+the compactor expires about one day of chunks per day.
